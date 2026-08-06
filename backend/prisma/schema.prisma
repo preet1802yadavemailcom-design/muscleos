@@ -1,0 +1,643 @@
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  SUPER_ADMIN
+  GYM_OWNER
+  TRAINER
+  RECEPTIONIST
+  MEMBER
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+  PENDING
+  DELETED
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+  PREFER_NOT_TO_SAY
+}
+
+enum MembershipPlan {
+  TRIAL
+  MONTHLY
+  QUARTERLY
+  HALF_YEARLY
+  YEARLY
+  CUSTOM
+}
+
+enum MembershipStatus {
+  ACTIVE
+  EXPIRED
+  EXPIRING_SOON
+  FROZEN
+  CANCELLED
+  PENDING
+}
+
+enum PaymentStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  REFUNDED
+  PARTIALLY_REFUNDED
+  CANCELLED
+}
+
+enum PaymentGateway {
+  RAZORPAY
+  STRIPE
+  CASH
+  UPI
+  BANK_TRANSFER
+  CHEQUE
+}
+
+enum PaymentMethod {
+  ONLINE
+  CASH
+  CARD
+  UPI
+  BANK_TRANSFER
+}
+
+enum BatchType {
+  MORNING
+  EVENING
+  LADIES
+  CROSSFIT
+  YOGA
+  PERSONAL_TRAINING
+  ZUMBA
+  PILATES
+  SPINNING
+  GENERAL
+}
+
+enum BatchStatus {
+  ACTIVE
+  INACTIVE
+  ARCHIVED
+  FULL
+}
+
+enum AttendanceType {
+  CHECK_IN
+  CHECK_OUT
+}
+
+enum AttendanceStatus {
+  PRESENT
+  LATE
+  ABSENT
+  EARLY_LEAVE
+  MISSED_CHECKOUT
+}
+
+enum NotificationChannel {
+  SMS
+  EMAIL
+  PUSH
+  IN_APP
+}
+
+enum NotificationType {
+  MEMBERSHIP_EXPIRY
+  PAYMENT_SUCCESS
+  PAYMENT_FAILED
+  BATCH_CHANGE
+  BIRTHDAY
+  ANNOUNCEMENT
+  SYSTEM
+  ATTENDANCE
+  REMINDER
+}
+
+enum NotificationStatus {
+  PENDING
+  SENT
+  DELIVERED
+  FAILED
+  READ
+}
+
+enum ReportType {
+  ATTENDANCE
+  REVENUE
+  MEMBER
+  TRAINER
+  BATCH
+  MEMBERSHIP
+  PAYMENT
+}
+
+enum ReportPeriod {
+  DAILY
+  WEEKLY
+  MONTHLY
+  YEARLY
+  CUSTOM
+}
+
+enum GymStatus {
+  PENDING
+  ACTIVE
+  SUSPENDED
+  REJECTED
+}
+
+enum PlanType {
+  TRIAL
+  BASIC
+  STANDARD
+  PREMIUM
+  ENTERPRISE
+}
+
+enum SupportTicketStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+  ESCALATED
+}
+
+enum SupportTicketPriority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+model Gym {
+  id          String    @id @default(uuid())
+  name        String
+  slug        String    @unique
+  email       String
+  phone       String
+  address     String?
+  city        String?
+  state       String?
+  country     String?   @default("India")
+  pincode     String?
+  latitude    Float?
+  longitude   Float?
+  logo        String?
+  coverImage  String?
+  description String?
+  facilities  String[]  @default([])
+  timings     Json?
+  theme       Json?
+  settings    Json?
+  status      GymStatus @default(PENDING)
+  planType    PlanType  @default(TRIAL)
+  planExpiry  DateTime?
+  businessName    String?
+  gstNumber       String?
+  panNumber       String?
+  registrationNumber String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  deletedAt   DateTime?
+  users       User[]
+  members     Member[]
+  batches     Batch[]
+  memberships Membership[]
+  payments    Payment[]
+  attendance  Attendance[]
+  notifications Notification[]
+  reports     Report[]
+  settings_data GymSetting[]
+  auditLogs   AuditLog[]
+  supportTickets SupportTicket[]
+  @@index([status])
+  @@index([planType])
+  @@index([slug])
+  @@index([createdAt])
+  @@map("gyms")
+}
+
+model User {
+  id            String     @id @default(uuid())
+  email         String
+  password      String
+  firstName     String
+  lastName      String
+  phone         String?
+  avatar        String?
+  role          UserRole   @default(MEMBER)
+  status        UserStatus @default(ACTIVE)
+  gymId         String?
+  gym           Gym?       @relation(fields: [gymId], references: [id], onDelete: Cascade)
+  emailVerified Boolean    @default(false)
+  phoneVerified Boolean    @default(false)
+  lastLoginAt   DateTime?
+  loginAttempts Int        @default(0)
+  lockedUntil   DateTime?
+  twoFactorEnabled Boolean @default(false)
+  twoFactorSecret String?
+  currentSessionId String?
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+  deletedAt     DateTime?
+  refreshTokens RefreshToken[]
+  auditLogs     AuditLog[]
+  sessions      UserSession[]
+  notifications Notification[]
+  trainerBatches Batch[]    @relation("TrainerBatches")
+  receptionPayments Payment[] @relation("ReceptionPayments")
+  trainees        Member[]
+  @@unique([email, gymId])
+  @@index([email])
+  @@index([role])
+  @@index([status])
+  @@index([gymId])
+  @@map("users")
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  token     String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  revokedAt DateTime?
+  deviceInfo String?
+  ipAddress  String?
+  @@index([userId])
+  @@index([token])
+  @@map("refresh_tokens")
+}
+
+model UserSession {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String   @unique
+  deviceType String?
+  deviceName String?
+  os        String?
+  browser   String?
+  ipAddress String?
+  location  String?
+  isActive  Boolean  @default(true)
+  lastActiveAt DateTime @default(now())
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  @@index([userId])
+  @@index([token])
+  @@map("user_sessions")
+}
+
+model Member {
+  id              String   @id @default(uuid())
+  memberCode      String   @unique
+  photo           String?
+  firstName       String
+  lastName        String
+  gender          Gender?
+  dateOfBirth     DateTime?
+  bloodGroup      String?
+  mobile          String
+  email           String?
+  emergencyContactName String?
+  emergencyContactPhone String?
+  address         String?
+  city            String?
+  state           String?
+  pincode         String?
+  medicalNotes    String?
+  allergies       String[] @default([])
+  medications     String[] @default([])
+  currentMembershipId String?
+  currentMembership   Membership? @relation("currentMembership", fields: [currentMembershipId], references: [id])
+  batchId         String?
+  batch           Batch?   @relation(fields: [batchId], references: [id])
+  trainerId       String?
+  trainer         User?    @relation(fields: [trainerId], references: [id])
+  qrCode          String   @unique
+  qrCodeData      String   @unique
+  referredBy      String?
+  referralCode    String?  @unique
+  status          UserStatus @default(ACTIVE)
+  joinDate        DateTime @default(now())
+  gymId           String
+  gym             Gym      @relation(fields: [gymId], references: [id], onDelete: Cascade)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  deletedAt       DateTime?
+  memberships     Membership[]
+  attendance      Attendance[]
+  payments        Payment[]
+  @@index([gymId])
+  @@index([status])
+  @@index([memberCode])
+  @@index([mobile])
+  @@index([batchId])
+  @@index([currentMembershipId])
+  @@map("members")
+}
+
+model Batch {
+  id          String     @id @default(uuid())
+  name        String
+  type        BatchType  @default(GENERAL)
+  description String?
+  startTime   String
+  endTime     String
+  days        String[]   @default([])
+  capacity    Int        @default(20)
+  trainerId   String?
+  trainer     User?      @relation("TrainerBatches", fields: [trainerId], references: [id])
+  status      BatchStatus @default(ACTIVE)
+  gymId       String
+  gym         Gym        @relation(fields: [gymId], references: [id], onDelete: Cascade)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  deletedAt   DateTime?
+  members     Member[]
+  attendance  Attendance[]
+  @@index([gymId])
+  @@index([status])
+  @@index([type])
+  @@index([trainerId])
+  @@map("batches")
+}
+
+model Membership {
+  id              String           @id @default(uuid())
+  memberId        String
+  member          Member           @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  plan            MembershipPlan
+  planName        String
+  duration        Int
+  startDate       DateTime
+  endDate         DateTime
+  baseAmount      Decimal          @db.Decimal(10, 2)
+  discountAmount  Decimal          @default(0) @db.Decimal(10, 2)
+  taxAmount       Decimal          @default(0) @db.Decimal(10, 2)
+  totalAmount     Decimal          @db.Decimal(10, 2)
+  status          MembershipStatus @default(ACTIVE)
+  freezeStart     DateTime?
+  freezeEnd       DateTime?
+  freezeReason    String?
+  transferredFrom String?
+  transferredTo   String?
+  transferDate    DateTime?
+  previousMembershipId String?
+  isAutoRenew     Boolean          @default(false)
+  renewalReminderSent Boolean      @default(false)
+  gymId           String
+  gym             Gym              @relation(fields: [gymId], references: [id], onDelete: Cascade)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  deletedAt       DateTime?
+  payments        Payment[]
+  members         Member[]         @relation("currentMembership")
+  @@index([gymId])
+  @@index([memberId])
+  @@index([status])
+  @@index([endDate])
+  @@index([plan])
+  @@map("memberships")
+}
+
+model Payment {
+  id              String          @id @default(uuid())
+  amount          Decimal         @db.Decimal(10, 2)
+  discount        Decimal         @default(0) @db.Decimal(10, 2)
+  tax             Decimal         @default(0) @db.Decimal(10, 2)
+  total           Decimal         @db.Decimal(10, 2)
+  gateway         PaymentGateway
+  gatewayPaymentId String?
+  gatewayOrderId  String?
+  status          PaymentStatus   @default(PENDING)
+  method          PaymentMethod   @default(ONLINE)
+  receiptNumber   String?         @unique
+  invoiceNumber   String?         @unique
+  invoiceUrl      String?
+  gstPercentage   Decimal?        @db.Decimal(5, 2)
+  gstNumber       String?
+  memberId        String?
+  member          Member?         @relation(fields: [memberId], references: [id])
+  membershipId    String?
+  membership      Membership?     @relation(fields: [membershipId], references: [id])
+  collectedById   String?
+  collectedBy     User?           @relation("ReceptionPayments", fields: [collectedById], references: [id])
+  notes           String?
+  webhookData     Json?
+  verifiedAt      DateTime?
+  gymId           String
+  gym             Gym             @relation(fields: [gymId], references: [id], onDelete: Cascade)
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  deletedAt       DateTime?
+  @@index([gymId])
+  @@index([memberId])
+  @@index([status])
+  @@index([gatewayPaymentId])
+  @@index([createdAt])
+  @@map("payments")
+}
+
+model Attendance {
+  id          String           @id @default(uuid())
+  memberId    String
+  member      Member           @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  batchId     String?
+  batch       Batch?           @relation(fields: [batchId], references: [id])
+  type        AttendanceType   @default(CHECK_IN)
+  status      AttendanceStatus @default(PRESENT)
+  checkInAt   DateTime
+  checkOutAt  DateTime?
+  duration    Int?
+  isLate      Boolean          @default(false)
+  lateMinutes Int?             @default(0)
+  isEarlyLeave Boolean         @default(false)
+  deviceType  String?
+  scannedBy   String?
+  location    String?
+  gymId       String
+  gym         Gym              @relation(fields: [gymId], references: [id], onDelete: Cascade)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  @@index([gymId])
+  @@index([memberId])
+  @@index([checkInAt])
+  @@index([batchId])
+  @@index([type])
+  @@map("attendance")
+}
+
+model Notification {
+  id          String              @id @default(uuid())
+  type        NotificationType
+  channel     NotificationChannel
+  title       String
+  content     String
+  userId      String?
+  user        User?               @relation(fields: [userId], references: [id])
+  memberId    String?
+  status      NotificationStatus  @default(PENDING)
+  sentAt      DateTime?
+  deliveredAt DateTime?
+  readAt      DateTime?
+  failedReason String?
+  templateId  String?
+  variables   Json?
+  gymId       String
+  gym         Gym                 @relation(fields: [gymId], references: [id], onDelete: Cascade)
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+  @@index([gymId])
+  @@index([userId])
+  @@index([memberId])
+  @@index([status])
+  @@index([type])
+  @@map("notifications")
+}
+
+model NotificationTemplate {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  type        NotificationType
+  channel     NotificationChannel
+  subject     String?
+  body        String
+  variables   String[] @default([])
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  @@map("notification_templates")
+}
+
+model Report {
+  id          String       @id @default(uuid())
+  type        ReportType
+  period      ReportPeriod
+  startDate   DateTime
+  endDate     DateTime
+  data        Json
+  summary     Json?
+  fileUrl     String?
+  fileType    String?
+  generatedBy String
+  gymId       String
+  gym         Gym          @relation(fields: [gymId], references: [id], onDelete: Cascade)
+  createdAt   DateTime     @default(now())
+  @@index([gymId])
+  @@index([type])
+  @@index([period])
+  @@map("reports")
+}
+
+model GymSetting {
+  id        String   @id @default(uuid())
+  gymId     String
+  gym       Gym      @relation(fields: [gymId], references: [id], onDelete: Cascade)
+  category  String
+  key       String
+  value     String
+  dataType  String   @default("string")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@unique([gymId, category, key])
+  @@index([gymId])
+  @@index([category])
+  @@map("gym_settings")
+}
+
+model AuditLog {
+  id          String   @id @default(uuid())
+  action      String
+  entity      String
+  entityId    String?
+  oldValue    Json?
+  newValue    Json?
+  userId      String?
+  user        User?    @relation(fields: [userId], references: [id])
+  ipAddress   String?
+  userAgent   String?
+  endpoint    String?
+  method      String?
+  gymId       String?
+  gym         Gym?     @relation(fields: [gymId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+  @@index([gymId])
+  @@index([userId])
+  @@index([action])
+  @@index([entity])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+model SupportTicket {
+  id          String                  @id @default(uuid())
+  ticketNumber String                 @unique
+  title       String
+  description String
+  status      SupportTicketStatus     @default(OPEN)
+  priority    SupportTicketPriority   @default(MEDIUM)
+  requesterName  String
+  requesterEmail String
+  requesterPhone String?
+  assignedTo  String?
+  resolution  String?
+  resolvedAt  DateTime?
+  gymId       String
+  gym         Gym                     @relation(fields: [gymId], references: [id], onDelete: Cascade)
+  createdAt   DateTime                @default(now())
+  updatedAt   DateTime                @updatedAt
+  @@index([gymId])
+  @@index([status])
+  @@index([priority])
+  @@map("support_tickets")
+}
+
+model GymPlan {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  type        PlanType
+  description String?
+  monthlyPrice Decimal  @db.Decimal(10, 2)
+  yearlyPrice  Decimal  @db.Decimal(10, 2)
+  maxMembers   Int      @default(100)
+  maxTrainers  Int      @default(5)
+  maxBatches   Int      @default(10)
+  features     String[] @default([])
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  @@map("gym_plans")
+}
+
+model OtpVerification {
+  id        String   @id @default(uuid())
+  email     String?
+  phone     String?
+  otp       String
+  purpose   String
+  expiresAt DateTime
+  verified  Boolean  @default(false)
+  attempts  Int      @default(0)
+  createdAt DateTime @default(now())
+  @@index([email])
+  @@index([phone])
+  @@index([expiresAt])
+  @@map("otp_verifications")
+}
