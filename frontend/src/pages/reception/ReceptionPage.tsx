@@ -55,9 +55,9 @@ export function ReceptionPage() {
     refetchInterval: 15000,
   });
 
-  const stats = dashboard?.data?.data;
-  const members = searchResults?.data?.data?.data ?? [];
-  const feed = liveFeed?.data?.data ?? [];
+  const stats = dashboard?.data;
+  const members = searchResults?.data ?? [];
+  const feed = liveFeed?.data ?? [];
 
   return (
     <div className="space-y-6">

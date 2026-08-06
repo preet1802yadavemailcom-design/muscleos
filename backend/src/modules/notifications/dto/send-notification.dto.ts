@@ -1,6 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { NotificationType, NotificationChannel } from '@prisma/client';
-import { IsEnum, IsOptional, IsString, IsObject } from 'class-validator';
+import { ArrayNotEmpty, IsArray, IsEnum, IsOptional, IsString, IsObject } from 'class-validator';
 
 export class SendNotificationDto {
   @ApiProperty({ enum: NotificationType })
@@ -52,6 +52,9 @@ export class CreateAnnouncementDto {
   content: string;
 
   @ApiProperty({ enum: NotificationChannel, isArray: true })
+  @IsArray()
+  @ArrayNotEmpty()
+  @IsEnum(NotificationChannel, { each: true })
   channels: NotificationChannel[];
 
   @ApiPropertyOptional({ description: 'ISO datetime to schedule the announcement for; omit to send immediately' })
@@ -84,5 +87,7 @@ export class UpsertTemplateDto {
 
   @ApiPropertyOptional({ type: [String] })
   @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
   variables?: string[];
 }

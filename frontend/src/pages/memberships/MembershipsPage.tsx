@@ -50,8 +50,8 @@ export function MembershipsPage() {
   const freezeMutation = useMutation({
     mutationFn: (id: string) =>
       api.patch(`/memberships/${id}/freeze`, {
-        startDate: new Date().toISOString(),
-        endDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+        freezeStart: new Date().toISOString(),
+        freezeEnd: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
       }),
     onSuccess: () => {
       toast({ title: 'Membership frozen for 7 days' });
@@ -69,7 +69,7 @@ export function MembershipsPage() {
     onError: (e: any) => toast({ title: 'Unfreeze failed', description: e?.response?.data?.message, variant: 'destructive' }),
   });
 
-  const rows: Membership[] = data?.data?.data ?? [];
+  const rows: Membership[] = data?.data ?? [];
 
   return (
     <div className="space-y-6">

@@ -27,7 +27,7 @@ export function BatchesPage() {
         <div className="text-center py-8">Loading...</div>
       ) : (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {data?.data?.data?.map((batch: any) => (
+          {data?.data?.map((batch: any) => (
             <Card key={batch.id}>
               <CardHeader>
                 <CardTitle>{batch.name}</CardTitle>

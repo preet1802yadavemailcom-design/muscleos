@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsEmail, IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import { IsEmail, IsNotEmpty, IsOptional, IsString, ValidateIf } from 'class-validator';
 
 export class SubmitEnquiryDto {
   @ApiProperty()
@@ -7,17 +7,20 @@ export class SubmitEnquiryDto {
   @IsString()
   name: string;
 
-  @ApiProperty()
+  @ApiPropertyOptional()
+  @IsOptional()
+  @ValidateIf((o) => o.email !== undefined && o.email !== '')
   @IsEmail()
-  email: string;
+  email?: string;
 
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
   phone?: string;
 
-  @ApiProperty()
-  @IsNotEmpty()
+  @ApiPropertyOptional()
+  @IsOptional()
+  @ValidateIf((o) => o.message !== undefined && o.message !== '')
   @IsString()
-  message: string;
+  message?: string;
 }

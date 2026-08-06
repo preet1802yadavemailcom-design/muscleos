@@ -8,6 +8,7 @@ import { UserRole, UserStatus } from '@prisma/client';
 import { AuditService } from '@shared/services/audit.service';
 import { EncryptionService } from '@shared/services/encryption.service';
 import { LoggerService } from '@shared/services/logger.service';
+import { EmailProvider } from '@modules/notifications/providers/email.provider';
 import * as bcrypt from 'bcryptjs';
 
 import { AuthService } from './auth.service';
@@ -74,8 +75,9 @@ describe('AuthService', () => {
         },
         { provide: RedisService, useValue: redis },
         { provide: EncryptionService, useValue: {} },
-        { provide: LoggerService, useValue: { log: jest.fn(), error: jest.fn() } },
+        { provide: LoggerService, useValue: { log: jest.fn(), error: jest.fn(), warn: jest.fn() } },
         { provide: AuditService, useValue: { log: jest.fn() } },
+        { provide: EmailProvider, useValue: { send: jest.fn().mockResolvedValue({ success: true }) } },
       ],
     }).compile();
 

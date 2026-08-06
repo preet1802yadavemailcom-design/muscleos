@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -15,6 +15,7 @@ const schema = z.object({
 type ForgotForm = z.infer<typeof schema>;
 
 export function ForgotPasswordPage() {
+  const navigate = useNavigate();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [sent, setSent] = useState(false);
@@ -30,7 +31,8 @@ export function ForgotPasswordPage() {
       setIsLoading(true);
       setError('');
       await api.post('/auth/forgot-password', data);
-      setSent(true);
+      // OTP is emailed by the backend — take the user to the reset form.
+      navigate('/reset-password', { state: { email: data.email } });
     } catch (err: any) {
       // Avoid user enumeration - show generic success even on failure
       setSent(true);

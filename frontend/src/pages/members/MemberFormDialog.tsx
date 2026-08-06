@@ -21,12 +21,12 @@ const memberSchema = z.object({
   lastName: z.string().min(1, 'Last name is required').max(60),
   gender: z.enum(['MALE', 'FEMALE', 'OTHER', 'PREFER_NOT_TO_SAY']).optional(),
   dateOfBirth: z.string().optional(),
-  mobile: z.string().regex(/^\+?[0-9]{10,15}$/, 'Enter a valid phone number'),
+  mobile: z.string().regex(/^\+?[0-9\s()-]{10,18}$/, 'Enter a valid phone number'),
   email: z.string().email('Invalid email address').optional().or(z.literal('')),
   emergencyContactName: z.string().optional(),
   emergencyContactPhone: z
     .string()
-    .regex(/^\+?[0-9]{10,15}$/, 'Enter a valid phone number')
+    .regex(/^\+?[0-9\s()-]{10,18}$/, 'Enter a valid phone number')
     .optional()
     .or(z.literal('')),
   address: z.string().optional(),
@@ -86,7 +86,9 @@ export function MemberFormDialog({ open, onOpenChange, member }: MemberFormDialo
 
   const mutation = useMutation({
     mutationFn: (values: MemberFormValues) => {
-      const payload = { ...values, email: values.email || undefined };
+      const payload = Object.fromEntries(
+        Object.entries(values).filter(([, v]) => v !== undefined && v !== null && v !== ''),
+      );
       return isEdit ? api.put(`/members/${member!.id}`, payload) : api.post('/members', payload);
     },
     onSuccess: () => {
@@ -103,8 +105,8 @@ export function MemberFormDialog({ open, onOpenChange, member }: MemberFormDialo
     },
   });
 
-  const batches = batchesData?.data?.data ?? [];
-  const trainers = trainersData?.data?.data ?? [];
+  const batches = batchesData?.data ?? [];
+  const trainers = trainersData?.data ?? [];
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

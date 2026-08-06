@@ -19,8 +19,26 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     this.subscriber = new Redis(redisUrl, {
       retryStrategy: (times) => Math.min(times * 50, 2000),
     });
-    this.client.on('error', (err) => {
-      console.error('Redis Client Error:', err);
+    this.attachErrorHandler(this.client, 'client');
+    this.attachErrorHandler(this.subscriber, 'subscriber');
+  }
+
+  /**
+   * Attach a single error listener per client. Without one, ioredis emits an
+   * "Unhandled error event" (which can crash the process). We log only the first
+   * error per outage instead of spamming on every reconnect attempt, and reset
+   * the flag once the connection is restored.
+   */
+  private attachErrorHandler(redis: Redis, label: string): void {
+    let outageReported = false;
+    redis.on('error', (err) => {
+      if (!outageReported) {
+        console.error(`Redis ${label} unavailable: ${(err as Error).message}`);
+        outageReported = true;
+      }
+    });
+    redis.on('ready', () => {
+      outageReported = false;
     });
   }
 

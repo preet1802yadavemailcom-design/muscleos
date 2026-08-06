@@ -68,10 +68,10 @@ export class PublicService {
       data: {
         ticketNumber,
         title: `Membership Enquiry from ${dto.name}`,
-        description: dto.message,
+        description: dto.message ?? '',
         priority: 'MEDIUM',
         requesterName: dto.name,
-        requesterEmail: dto.email,
+        requesterEmail: dto.email ?? '',
         requesterPhone: dto.phone,
         gymId: gym.id,
       },

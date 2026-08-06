@@ -9,6 +9,6 @@ import { SmsProvider } from './providers/sms.provider';
 @Module({
   controllers: [NotificationsController],
   providers: [NotificationsService, EmailProvider, SmsProvider, PushProvider],
-  exports: [NotificationsService],
+  exports: [NotificationsService, EmailProvider],
 })
 export class NotificationsModule {}

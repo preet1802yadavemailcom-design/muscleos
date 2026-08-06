@@ -14,7 +14,7 @@ export class RegisterGymDto {
   gymEmail: string;
 
   @ApiProperty({ example: '+919876543210' })
-  @Matches(/^\+?[0-9]{10,15}$/)
+  @Matches(/^\+?[0-9\s()-]{10,18}$/, { message: 'gymPhone must be a valid phone number' })
   gymPhone: string;
 
   @ApiPropertyOptional()

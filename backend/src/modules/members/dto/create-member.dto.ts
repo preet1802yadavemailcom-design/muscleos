@@ -2,7 +2,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Gender } from '@prisma/client';
 import {
   IsString, IsOptional, IsEmail, IsEnum, IsDateString, IsUUID,
-  IsArray, MaxLength, Matches,
+  IsArray, MaxLength, Matches, ValidateIf,
 } from 'class-validator';
 
 export class CreateMemberDto {
@@ -23,6 +23,7 @@ export class CreateMemberDto {
 
   @ApiPropertyOptional()
   @IsOptional()
+  @ValidateIf((o) => o.dateOfBirth !== undefined && o.dateOfBirth !== '')
   @IsDateString()
   dateOfBirth?: string;
 
@@ -32,11 +33,12 @@ export class CreateMemberDto {
   bloodGroup?: string;
 
   @ApiProperty({ example: '+919876543210' })
-  @Matches(/^\+?[0-9]{10,15}$/, { message: 'mobile must be a valid phone number' })
+  @Matches(/^\+?[0-9\s()-]{10,18}$/, { message: 'mobile must be a valid phone number' })
   mobile: string;
 
   @ApiPropertyOptional()
   @IsOptional()
+  @ValidateIf((o) => o.email !== undefined && o.email !== '')
   @IsEmail()
   email?: string;
 
@@ -47,7 +49,8 @@ export class CreateMemberDto {
 
   @ApiPropertyOptional()
   @IsOptional()
-  @Matches(/^\+?[0-9]{10,15}$/, { message: 'emergencyContactPhone must be a valid phone number' })
+  @ValidateIf((o) => o.emergencyContactPhone !== undefined && o.emergencyContactPhone !== '')
+  @Matches(/^\+?[0-9\s()-]{10,18}$/, { message: 'emergencyContactPhone must be a valid phone number' })
   emergencyContactPhone?: string;
 
   @ApiPropertyOptional()
@@ -89,11 +92,13 @@ export class CreateMemberDto {
 
   @ApiPropertyOptional()
   @IsOptional()
+  @ValidateIf((o) => o.batchId !== undefined && o.batchId !== '')
   @IsUUID()
   batchId?: string;
 
   @ApiPropertyOptional()
   @IsOptional()
+  @ValidateIf((o) => o.trainerId !== undefined && o.trainerId !== '')
   @IsUUID()
   trainerId?: string;
 

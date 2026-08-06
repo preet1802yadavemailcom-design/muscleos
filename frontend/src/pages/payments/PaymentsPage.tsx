@@ -43,7 +43,7 @@ export function PaymentsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {data?.data?.data?.map((payment: any) => (
+                  {data?.data?.map((payment: any) => (
                     <tr key={payment.id} className="border-b">
                       <td className="p-4">{payment.receiptNumber || 'N/A'}</td>
                       <td className="p-4 font-medium">₹{payment.total}</td>

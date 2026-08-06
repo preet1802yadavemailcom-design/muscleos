@@ -44,11 +44,21 @@ export function RegisterPage() {
     try {
       setIsLoading(true);
       setError('');
-      await api.post('/auth/register', data);
+      await api.post('/gyms/register', {
+        gymName: data.gymName,
+        gymEmail: data.email,
+        gymPhone: data.phone,
+        ownerFirstName: data.firstName,
+        ownerLastName: data.lastName,
+        ownerEmail: data.email,
+        ownerPhone: data.phone,
+        password: data.password,
+      });
       setSuccess(true);
       setTimeout(() => navigate('/verify-otp', { state: { email: data.email } }), 1200);
     } catch (err: any) {
-      setError(err.response?.data?.message || 'Registration failed');
+      const msg = err.response?.data?.message;
+      setError(Array.isArray(msg) ? msg.join(', ') : msg || 'Registration failed');
     } finally {
       setIsLoading(false);
     }
@@ -78,7 +88,7 @@ export function RegisterPage() {
           )}
           {success && (
             <div className="rounded-lg bg-green-500/10 p-3 text-sm text-green-600">
-              Account created! Redirecting to OTP verification...
+              Gym registered! Check your email for the OTP to verify your account.
             </div>
           )}
 

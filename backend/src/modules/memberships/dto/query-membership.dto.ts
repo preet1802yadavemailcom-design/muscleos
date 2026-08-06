@@ -1,7 +1,7 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { MembershipStatus, MembershipPlan } from '@prisma/client';
 import { Type } from 'class-transformer';
-import { IsOptional, IsEnum, IsInt, Min, IsUUID } from 'class-validator';
+import { IsOptional, IsEnum, IsInt, Min, IsUUID, IsString } from 'class-validator';
 
 export class QueryMembershipDto {
   @ApiPropertyOptional({ default: 1 })
@@ -27,4 +27,8 @@ export class QueryMembershipDto {
   @ApiPropertyOptional({ description: 'Expiring within N days' })
   @IsOptional() @Type(() => Number) @IsInt()
   expiringInDays?: number;
+
+  @ApiPropertyOptional({ description: 'Search by member name, member code, or mobile' })
+  @IsOptional() @IsString()
+  search?: string;
 }

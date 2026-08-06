@@ -49,7 +49,7 @@ export function NotificationsPage() {
     (async () => {
       try {
         const res: any = await api.get('/notifications');
-        setLogs(res.data?.data ?? []);
+        setLogs(res.data ?? []);
       } catch {
         setLogs([]);
       } finally {

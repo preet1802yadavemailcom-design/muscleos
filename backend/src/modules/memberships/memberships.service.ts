@@ -54,12 +54,22 @@ export class MembershipsService {
   ) {}
 
   async findAll(gymId: string, query: QueryMembershipDto) {
-    const { page = 1, limit = 20, status, plan, memberId, expiringInDays } = query;
+    const { page = 1, limit = 20, status, plan, memberId, expiringInDays, search } = query;
     const skip = (page - 1) * limit;
     const where: any = { gymId, deletedAt: null };
     if (status) where.status = status;
     if (plan) where.plan = plan;
     if (memberId) where.memberId = memberId;
+    if (search) {
+      where.member = {
+        OR: [
+          { firstName: { contains: search, mode: 'insensitive' } },
+          { lastName: { contains: search, mode: 'insensitive' } },
+          { memberCode: { contains: search, mode: 'insensitive' } },
+          { mobile: { contains: search, mode: 'insensitive' } },
+        ],
+      };
+    }
     if (expiringInDays !== undefined) {
       const to = new Date();
       to.setDate(to.getDate() + expiringInDays);
@@ -140,7 +150,14 @@ export class MembershipsService {
     const existing = await this.prisma.membership.findFirst({ where: { id, gymId, deletedAt: null } });
     if (!existing) throw new NotFoundException('Membership not found');
 
-    const durationDays = resolveDuration(dto.plan, dto.durationDays);
+    // When the client renews without specifying plan/pricing (e.g. one-click renew), carry over the current terms.
+    const plan = dto.plan ?? existing.plan;
+    const baseAmount = dto.baseAmount !== undefined ? dto.baseAmount : Number(existing.baseAmount);
+
+    const durationDays = resolveDuration(
+      plan,
+      dto.durationDays ?? (plan === existing.plan ? existing.duration : undefined),
+    );
     const now = new Date();
     const startDate = existing.endDate > now ? existing.endDate : now;
     const endDate = new Date(startDate);
@@ -148,18 +165,18 @@ export class MembershipsService {
 
     const discountAmount = dto.discountAmount ?? 0;
     const taxAmount = dto.taxAmount ?? 0;
-    const totalAmount = Math.max(dto.baseAmount - discountAmount, 0) + taxAmount;
+    const totalAmount = Math.max(baseAmount - discountAmount, 0) + taxAmount;
 
     const renewed = await this.prisma.$transaction(async (tx) => {
       const created = await tx.membership.create({
         data: {
           memberId: existing.memberId,
-          plan: dto.plan,
-          planName: dto.plan,
+          plan,
+          planName: plan,
           duration: durationDays,
           startDate,
           endDate,
-          baseAmount: dto.baseAmount,
+          baseAmount,
           discountAmount,
           taxAmount,
           totalAmount,

@@ -7,6 +7,7 @@ import { Injectable, UnauthorizedException, BadRequestException, ForbiddenExcept
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { UserRole, UserStatus } from '@prisma/client';
+import { EmailProvider } from '@modules/notifications/providers/email.provider';
 import { AuditService } from '@shared/services/audit.service';
 import { EncryptionService } from '@shared/services/encryption.service';
 import { LoggerService } from '@shared/services/logger.service';
@@ -30,11 +31,12 @@ export class AuthService {
     private readonly encryption: EncryptionService,
     private readonly logger: LoggerService,
     private readonly audit: AuditService,
+    private readonly email: EmailProvider,
   ) {}
 
   async validateUser(email: string, password: string, gymId?: string) {
     const user = await this.prisma.user.findFirst({
-      where: { email, gymId: gymId || null, status: UserStatus.ACTIVE },
+      where: { email, status: UserStatus.ACTIVE, ...(gymId ? { gymId } : {}) },
       include: { gym: true },
     });
     if (!user) return null;
@@ -81,7 +83,7 @@ export class AuthService {
     await this.checkRateLimit(dto.email, ipAddress);
 
     const user = await this.prisma.user.findFirst({
-      where: { email: dto.email, gymId: dto.gymId || null },
+      where: { email: dto.email, ...(dto.gymId ? { gymId: dto.gymId } : {}) },
       include: { gym: true },
     });
 
@@ -149,7 +151,7 @@ export class AuthService {
     return { user: this.sanitizeUser(user), message: 'Registered. Please verify your email with the OTP sent.' };
   }
 
-  /** Generates + stores a 6-digit OTP for registration email verification. */
+  /** Generates + stores a 6-digit OTP for registration email verification, then emails it to the user. */
   async sendVerificationOtp(email: string) {
     const cooldownKey = `verify_otp_cooldown:${email}`;
     if (await this.redis.get(cooldownKey)) {
@@ -158,8 +160,7 @@ export class AuthService {
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
     await this.redis.set(`verify_otp:${email}`, otp, 600);
     await this.redis.set(cooldownKey, '1', OTP_RESEND_COOLDOWN_SECONDS);
-    this.logger.log(`Verification OTP generated for ${email}`, 'AuthService');
-    // TODO: dispatch via NotificationsService (email/SMS provider)
+    await this.dispatchOtpEmail(email, otp, 'Verify your MuscleOS email');
     return { message: 'OTP sent' };
   }
 
@@ -235,8 +236,7 @@ export class AuthService {
       userId: user.id,
       gymId: user.gymId ?? undefined,
     });
-    this.logger.log(`Password reset OTP generated for ${dto.email}`, 'AuthService');
-    // TODO: dispatch via NotificationsService (email/SMS provider)
+    await this.dispatchOtpEmail(dto.email, otp, 'Reset your MuscleOS password');
     return { message: 'If email exists, reset link will be sent' };
   }
 
@@ -352,6 +352,26 @@ export class AuthService {
       data: { revokedAt: new Date() },
     });
     return { message: 'All other sessions revoked' };
+  }
+
+  /** Sends the OTP email via the configured email provider (Resend). Logs the code in dev only when email is unconfigured. */
+  private async dispatchOtpEmail(email: string, otp: string, subject: string) {
+    const html = `
+      <div style="font-family: Arial, sans-serif; max-width: 480px; margin: 0 auto; padding: 24px; border: 1px solid #e5e7eb; border-radius: 12px;">
+        <h2 style="margin: 0 0 8px; color: #111827;">MuscleOS</h2>
+        <p style="color: #374151; font-size: 14px; line-height: 1.6;">${subject}.</p>
+        <div style="margin: 24px 0; padding: 16px; background: #f3f4f6; border-radius: 8px; text-align: center;">
+          <span style="font-size: 32px; font-weight: 700; letter-spacing: 8px; color: #111827;">${otp}</span>
+        </div>
+        <p style="color: #6b7280; font-size: 12px; line-height: 1.6;">This code expires in 10 minutes. If you didn't request it, you can safely ignore this email.</p>
+      </div>
+    `;
+    const result = await this.email.send(email, subject, html);
+    if (!result.success && this.configService.get('app.environment') !== 'production') {
+      this.logger.warn(`OTP email could not be delivered to ${email} (${result.error}) — dev fallback OTP: ${otp}`, 'AuthService');
+    } else if (!result.success) {
+      this.logger.error(`OTP email failed for ${email}: ${result.error}`, undefined, 'AuthService');
+    }
   }
 
   private async updateLastLogin(userId: string) {

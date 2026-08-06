@@ -3,13 +3,14 @@ import { MembershipPlan } from '@prisma/client';
 import { IsEnum, IsNumber, IsOptional, Min, IsBoolean, IsString } from 'class-validator';
 
 export class RenewMembershipDto {
-  @ApiProperty({ enum: MembershipPlan })
+  @ApiPropertyOptional({ enum: MembershipPlan, description: 'Defaults to the existing plan when omitted' })
+  @IsOptional()
   @IsEnum(MembershipPlan)
-  plan: MembershipPlan;
+  plan?: MembershipPlan;
 
-  @ApiProperty({ example: 5000 })
-  @IsNumber() @Min(0)
-  baseAmount: number;
+  @ApiPropertyOptional({ example: 5000, description: 'Defaults to the existing base amount when omitted' })
+  @IsOptional() @IsNumber() @Min(0)
+  baseAmount?: number;
 
   @ApiPropertyOptional({ example: 0 })
   @IsOptional() @IsNumber() @Min(0)

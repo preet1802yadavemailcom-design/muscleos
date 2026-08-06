@@ -54,8 +54,9 @@ export function MembersPage() {
     queryFn: () => api.get(`/members?search=${encodeURIComponent(search)}&page=${page}&limit=${PAGE_SIZE}`),
   });
 
-  const members: Member[] = data?.data?.data ?? [];
-  const meta = data?.data?.meta ?? { total: 0, totalPages: 1, page: 1 };
+  const body = data as any;
+  const members: Member[] = body?.data ?? [];
+  const meta = body?.meta ?? { total: 0, totalPages: 1, page: 1 };
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => api.delete(`/members/${id}`),

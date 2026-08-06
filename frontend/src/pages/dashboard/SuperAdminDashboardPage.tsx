@@ -46,7 +46,7 @@ export function SuperAdminDashboardPage() {
         setStats(statsRes.data);
         setRevenueTrend(analyticsRes.data?.revenueByDay ?? []);
         setAttendanceTrend(analyticsRes.data?.attendanceByDay ?? []);
-        setOpenTickets(ticketsRes.data?.meta?.total ?? null);
+        setOpenTickets(ticketsRes?.meta?.total ?? null);
       } catch (err) {
         // fall back to empty state, UI still renders gracefully
       } finally {

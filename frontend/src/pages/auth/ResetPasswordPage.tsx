@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate, useSearchParams, Link } from 'react-router-dom';
+import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -10,6 +10,8 @@ import api from '@services/api';
 
 const schema = z
   .object({
+    email: z.string().email('Invalid email address'),
+    otp: z.string().length(6, 'Enter the 6-digit code from your email'),
     password: z.string().min(8, 'Password must be at least 8 characters'),
     confirmPassword: z.string(),
   })
@@ -22,8 +24,8 @@ type ResetForm = z.infer<typeof schema>;
 
 export function ResetPasswordPage() {
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
-  const token = searchParams.get('token') || '';
+  const location = useLocation();
+  const prefilledEmail = (location.state as { email?: string })?.email || '';
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
@@ -33,21 +35,25 @@ export function ResetPasswordPage() {
     register,
     handleSubmit,
     formState: { errors },
-  } = useForm<ResetForm>({ resolver: zodResolver(schema) });
+  } = useForm<ResetForm>({
+    resolver: zodResolver(schema),
+    defaultValues: { email: prefilledEmail },
+  });
 
   const onSubmit = async (data: ResetForm) => {
-    if (!token) {
-      setError('Reset token is missing or invalid. Please request a new link.');
-      return;
-    }
     try {
       setIsLoading(true);
       setError('');
-      await api.post('/auth/reset-password', { token, password: data.password });
+      await api.post('/auth/reset-password', {
+        email: data.email,
+        otp: data.otp,
+        newPassword: data.password,
+      });
       setSuccess(true);
       setTimeout(() => navigate('/login'), 1500);
     } catch (err: any) {
-      setError(err.response?.data?.message || 'Unable to reset password. The link may have expired.');
+      const msg = err.response?.data?.message;
+      setError(Array.isArray(msg) ? msg.join(', ') : msg || 'Unable to reset password. The code may have expired.');
     } finally {
       setIsLoading(false);
     }
@@ -66,7 +72,9 @@ export function ResetPasswordPage() {
             <Dumbbell className="h-8 w-8 text-primary-foreground" />
           </div>
           <h2 className="text-3xl font-bold tracking-tight">Reset password</h2>
-          <p className="mt-2 text-muted-foreground">Choose a new password for your account</p>
+          <p className="mt-2 text-muted-foreground">
+            Enter the 6-digit code sent to your email and choose a new password
+          </p>
         </div>
 
         {success ? (
@@ -80,6 +88,31 @@ export function ResetPasswordPage() {
                 {error}
               </div>
             )}
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Email</label>
+              <input
+                {...register('email')}
+                type="email"
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                placeholder="you@gym.com"
+              />
+              {errors.email && (
+                <p className="text-sm text-destructive">{errors.email.message}</p>
+              )}
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Verification code</label>
+              <input
+                {...register('otp')}
+                inputMode="numeric"
+                maxLength={6}
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm tracking-widest focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                placeholder="123456"
+              />
+              {errors.otp && (
+                <p className="text-sm text-destructive">{errors.otp.message}</p>
+              )}
+            </div>
             <div className="space-y-2">
               <label className="text-sm font-medium">New Password</label>
               <div className="relative">
