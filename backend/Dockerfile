@@ -4,8 +4,7 @@ WORKDIR /app
 RUN apk add --no-cache python3 make g++ openssl
 COPY package*.json ./
 COPY prisma ./prisma/
-RUN npm ci --only=production && npm cache clean --force
-
+RUN npm ci --only=production --ignore-scripts && npm cache clean --force
 # Stage 2: Builder
 FROM node:20-alpine AS builder
 WORKDIR /app
