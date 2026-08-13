@@ -5,6 +5,7 @@ RUN apk add --no-cache python3 make g++ openssl
 COPY package*.json ./
 COPY prisma ./prisma/
 RUN npm ci --only=production --ignore-scripts && npx prisma generate && npm cache clean --force
+
 # Stage 2: Builder
 FROM node:20-alpine AS builder
 WORKDIR /app
@@ -19,7 +20,7 @@ RUN npm ci && npm run db:generate && npm run build
 # Stage 3: Production
 FROM node:20-alpine AS production
 WORKDIR /app
-RUN apk add --no-cache dumb-init
+RUN apk add --no-cache dumb-init openssl
 RUN addgroup -g 1001 -S nodejs && adduser -S muscleos -u 1001
 COPY --from=dependencies /app/node_modules ./node_modules
 COPY --from=dependencies /app/package*.json ./
