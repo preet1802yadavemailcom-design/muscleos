@@ -29,6 +29,6 @@ COPY --from=builder /app/prisma ./prisma
 RUN chown -R muscleos:nodejs /app
 USER muscleos
 EXPOSE 3000
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries 3 CMD node -e "require('http').get('http://localhost:3000/api/v1/health', (r) => r.statusCode === 200 ? process.exit(0) : process.exit(1))"
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 CMD node -e "require('http').get('http://localhost:3000/api/v1/health', (r) => r.statusCode === 200 ? process.exit(0) : process.exit(1))"
 ENTRYPOINT ["dumb-init", "--"]
 CMD ["node", "dist/main.js"]
