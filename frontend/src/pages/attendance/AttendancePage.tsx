@@ -76,7 +76,7 @@ export function AttendancePage() {
   const gymQr = useQuery({
     queryKey: ['attendance-gym-qr'],
     queryFn: () => api.get('/branches/default/qr'),
-    enabled: isStaff,
+    enabled: canManageQr,
   });
 
   const createQr = useMutation({
