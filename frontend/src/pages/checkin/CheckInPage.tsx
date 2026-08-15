@@ -421,6 +421,7 @@ export function CheckInPage() {
                   <video
                     ref={videoRef}
                     className="aspect-square w-full rounded-lg border bg-black object-cover"
+                    autoPlay
                     playsInline
                     muted
                   />
