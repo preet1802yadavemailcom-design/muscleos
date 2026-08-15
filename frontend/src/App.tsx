@@ -3,6 +3,7 @@ import { useAuthStore } from '@store/auth.store';
 import { Layout } from '@components/layout/Layout';
 import { RoleRoute } from '@components/auth/RoleRoute';
 import { LoginPage } from '@pages/auth/LoginPage';
+import { WelcomePage } from '@pages/auth/WelcomePage';
 import { RegisterPage } from '@pages/auth/RegisterPage';
 import { ForgotPasswordPage } from '@pages/auth/ForgotPasswordPage';
 import { ResetPasswordPage } from '@pages/auth/ResetPasswordPage';
@@ -40,7 +41,7 @@ const ROLES = {
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuthStore();
-  return isAuthenticated ? <>{children}</> : <Navigate to="/login" replace />;
+  return isAuthenticated ? <>{children}</> : <Navigate to="/welcome" replace />;
 }
 
 /** Renders the correct dashboard based on the signed-in user's role. */
@@ -57,6 +58,7 @@ function App() {
       <PwaUpdatePrompt />
       <Routes>
       {/* Public / unauthenticated routes */}
+      <Route path="/welcome" element={<WelcomePage />} />
       <Route path="/login" element={<LoginPage />} />
       <Route path="/register" element={<RegisterPage />} />
       <Route path="/forgot-password" element={<ForgotPasswordPage />} />
