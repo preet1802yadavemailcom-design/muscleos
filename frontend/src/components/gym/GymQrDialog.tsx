@@ -83,7 +83,12 @@ export function GymQrDialog({ open, onOpenChange }: GymQrDialogProps) {
           ) : data?.token ? (
             <>
               <div ref={qrWrapRef} className="rounded-2xl border-4 border-primary/20 bg-white p-6">
-                <QRCodeCanvas value={data.token} size={200} level="H" includeMargin />
+                <QRCodeCanvas
+                  value={`${window.location.origin}/checkin?token=${data.token}`}
+                  size={200}
+                  level="H"
+                  includeMargin
+                />
               </div>
               <p className="text-xs text-muted-foreground text-center max-w-xs">
                 This is a permanent code — safe to print and stick on a wall. It only

@@ -75,12 +75,12 @@ export function AttendancePage() {
   // Staff: the persisted gym QR they display at the entrance.
   const gymQr = useQuery({
     queryKey: ['attendance-gym-qr'],
-    queryFn: () => api.get('/attendance/gym-qr'),
+    queryFn: () => api.get('/branches/default/qr'),
     enabled: isStaff,
   });
 
   const createQr = useMutation({
-    mutationFn: () => api.post('/attendance/gym-qr'),
+    mutationFn: () => api.get('/branches/default/qr'),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['attendance-gym-qr'] });
       toast({ title: 'QR code created', description: 'Members can now scan it to check in.' });
@@ -95,7 +95,7 @@ export function AttendancePage() {
   });
 
   const regenerateQr = useMutation({
-    mutationFn: () => api.post('/attendance/gym-qr/regenerate'),
+    mutationFn: () => api.post('/branches/default/qr/regenerate'),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['attendance-gym-qr'] });
       toast({ title: 'QR regenerated', description: 'Old printed copies will no longer work.' });

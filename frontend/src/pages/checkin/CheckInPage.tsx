@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   QrCode, Camera, CameraOff, AlertTriangle, LogIn, LogOut, CheckCircle2,
   ArrowLeft, ArrowRight, User, ShieldCheck, RefreshCw, X, Upload,
@@ -147,6 +148,7 @@ function useQrScanner(onDetect: (value: string) => void) {
 }
 
 export function CheckInPage() {
+  const [searchParams] = useSearchParams();
   const [step, setStep] = useState<Step>('scan');
   const [gym, setGym] = useState<GymInfo | null>(null);
   const [kioskToken, setKioskToken] = useState('');
@@ -184,6 +186,15 @@ export function CheckInPage() {
   const { videoRef, cameraOn, cameraError, startCamera, stopCamera } = useQrScanner(onDetect);
 
   useEffect(() => {
+    const urlToken = searchParams.get('token');
+    if (urlToken) {
+      setQrInput(urlToken);
+      handleScanRef.current?.(urlToken);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
     if (!otpCooldown) return;
     const t = setInterval(() => setOtpCooldown((c) => Math.max(0, c - 1)), 1000);
     return () => clearInterval(t);
@@ -194,8 +205,15 @@ export function CheckInPage() {
 
   /* ---- Step 1: scan ---- */
   const handleScan = async (raw?: string) => {
-    const qrCodeData = (raw ?? qrInput).trim();
+    let qrCodeData = (raw ?? qrInput).trim();
     if (!qrCodeData) return;
+    if (qrCodeData.includes('token=')) {
+      try {
+        qrCodeData = new URL(qrCodeData).searchParams.get('token') || qrCodeData;
+      } catch {
+        // Not a valid URL — fall through and let the backend reject it.
+      }
+    }
     setError('');
     setLoading(true);
     try {

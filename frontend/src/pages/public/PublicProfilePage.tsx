@@ -49,7 +49,7 @@ export function PublicProfilePage() {
   useEffect(() => {
     (async () => {
       try {
-        const res: any = await api.get(`/public/${slug}`);
+        const res: any = await api.get(`/public/gym/${slug}`);
         const { gym, trainers, stats } = res.data ?? {};
         if (gym) {
           setProfile({
@@ -86,7 +86,7 @@ export function PublicProfilePage() {
 
   const onEnquire = async (data: EnquiryForm) => {
     try {
-      await api.post(`/public/${slug}/enquiry`, data);
+      await api.post(`/public/gym/${slug}/enquiry`, data);
       setSubmitted(true);
       reset();
     } catch {
