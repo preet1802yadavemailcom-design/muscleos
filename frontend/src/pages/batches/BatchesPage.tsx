@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { BatchFormDialog } from './BatchFormDialog';
 import { useToast } from '@/hooks/use-toast';
+import { useAuthStore } from '@store/auth.store';
 import api from '@services/api';
 
 type Batch = {
@@ -30,6 +31,9 @@ export function BatchesPage() {
   const [formOpen, setFormOpen] = useState(false);
   const [editingBatch, setEditingBatch] = useState<Batch | null>(null);
   const [pendingArchive, setPendingArchive] = useState<Batch | null>(null);
+
+  const { user } = useAuthStore();
+  const canManageBatches = user?.role === 'GYM_OWNER' || user?.role === 'SUPER_ADMIN';
 
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -102,10 +106,12 @@ export function BatchesPage() {
           <h2 className="text-3xl font-bold tracking-tight">Batches</h2>
           <p className="text-muted-foreground">Manage training batches</p>
         </div>
-        <Button onClick={() => { setEditingBatch(null); setFormOpen(true); }}>
-          <Plus className="h-4 w-4 mr-2" />
-          Create Batch
-        </Button>
+        {canManageBatches && (
+          <Button onClick={() => { setEditingBatch(null); setFormOpen(true); }}>
+            <Plus className="h-4 w-4 mr-2" />
+            Create Batch
+          </Button>
+        )}
       </div>
 
       <Card>
@@ -139,24 +145,26 @@ export function BatchesPage() {
                         <Badge variant={statusVariant(batch.status)}>{batch.status}</Badge>
                       </div>
                     </div>
-                    <div className="flex gap-1">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        title="Edit"
-                        onClick={() => { setEditingBatch(batch); setFormOpen(true); }}
-                      >
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        title="Archive"
-                        onClick={() => setPendingArchive(batch)}
-                      >
-                        <Archive className="h-4 w-4" />
-                      </Button>
-                    </div>
+                    {canManageBatches && (
+                      <div className="flex gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          title="Edit"
+                          onClick={() => { setEditingBatch(batch); setFormOpen(true); }}
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          title="Archive"
+                          onClick={() => setPendingArchive(batch)}
+                        >
+                          <Archive className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    )}
                   </CardHeader>
                   <CardContent className="space-y-2 text-sm text-muted-foreground">
                     <div className="flex items-center gap-2">
