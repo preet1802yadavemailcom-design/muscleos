@@ -75,13 +75,13 @@ export function contrastText(hex: string): string {
       .join('');
   }
   const num = parseInt(value, 16);
-  if (Number.isNaN(num) || value.length !== 6) return 'hsl(210 40% 98%)';
+  if (Number.isNaN(num) || value.length !== 6) return '210 40% 98%';
   const r = (num >> 16) & 0xff;
   const g = (num >> 8) & 0xff;
   const b = num & 0xff;
   // Perceived luminance (WCAG relative luminance approximation).
   const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
-  return luminance > 0.55 ? 'hsl(222.2 47.4% 11.2%)' : 'hsl(210 40% 98%)';
+  return luminance > 0.55 ? '222.2 47.4% 11.2%' : '210 40% 98%';
 }
 
 export function loadTheme(): ThemeSettings {
