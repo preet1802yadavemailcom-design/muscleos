@@ -57,6 +57,79 @@ export function SettingsPage() {
     saveTheme(next);
   };
 
+  const { data: notifData, isLoading: notifLoading } = useQuery({
+    queryKey: ['settings-notifications'],
+    queryFn: () => api.get('/settings/notifications'),
+  });
+  const notifPrefs = (notifData as any)?.data ?? {};
+  const [expiryAlerts, setExpiryAlerts] = useState(true);
+  const [paymentReminders, setPaymentReminders] = useState(true);
+  const [birthdayWishes, setBirthdayWishes] = useState(false);
+  const [notifInitialized, setNotifInitialized] = useState(false);
+  if (notifData && !notifInitialized) {
+    setExpiryAlerts(notifPrefs.expiry_alerts ?? true);
+    setPaymentReminders(notifPrefs.payment_reminders ?? true);
+    setBirthdayWishes(notifPrefs.birthday_wishes ?? false);
+    setNotifInitialized(true);
+  }
+
+  const saveNotifPrefs = useMutation({
+    mutationFn: (patch: { expiryAlerts: boolean; paymentReminders: boolean; birthdayWishes: boolean }) =>
+      api.post('/settings/bulk', {
+        settings: [
+          { category: 'notifications', key: 'expiry_alerts', value: String(patch.expiryAlerts), dataType: 'boolean' },
+          { category: 'notifications', key: 'payment_reminders', value: String(patch.paymentReminders), dataType: 'boolean' },
+          { category: 'notifications', key: 'birthday_wishes', value: String(patch.birthdayWishes), dataType: 'boolean' },
+        ],
+      }),
+    onSuccess: () => {
+      toast({ title: 'Notification preferences saved' });
+      queryClient.invalidateQueries({ queryKey: ['settings-notifications'] });
+    },
+    onError: (e: any) =>
+      toast({ title: 'Save failed', description: e?.response?.data?.message, variant: 'destructive' }),
+  });
+
+  const toggleNotif = (key: 'expiryAlerts' | 'paymentReminders' | 'birthdayWishes', value: boolean) => {
+    const next = {
+      expiryAlerts: key === 'expiryAlerts' ? value : expiryAlerts,
+      paymentReminders: key === 'paymentReminders' ? value : paymentReminders,
+      birthdayWishes: key === 'birthdayWishes' ? value : birthdayWishes,
+    };
+    setExpiryAlerts(next.expiryAlerts);
+    setPaymentReminders(next.paymentReminders);
+    setBirthdayWishes(next.birthdayWishes);
+    saveNotifPrefs.mutate(next);
+  };
+
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+
+  const changePassword = useMutation({
+    mutationFn: () => api.post('/auth/change-password', { currentPassword, newPassword }),
+    onSuccess: () => {
+      toast({ title: 'Password changed successfully' });
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+    },
+    onError: (e: any) =>
+      toast({ title: 'Password change failed', description: e?.response?.data?.message, variant: 'destructive' }),
+  });
+
+  const handleChangePassword = () => {
+    if (newPassword.length < 8) {
+      toast({ title: 'New password must be at least 8 characters', variant: 'destructive' });
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      toast({ title: 'New password and confirmation do not match', variant: 'destructive' });
+      return;
+    }
+    changePassword.mutate();
+  };
+
   return (
     <div className="space-y-6">
       <div>
@@ -116,21 +189,39 @@ export function SettingsPage() {
                     <p className="font-medium">Membership Expiry Alerts</p>
                     <p className="text-sm text-muted-foreground">Notify members before expiry</p>
                   </div>
-                  <input type="checkbox" defaultChecked className="h-4 w-4" />
+                  <input
+                    type="checkbox"
+                    checked={expiryAlerts}
+                    disabled={notifLoading || saveNotifPrefs.isPending}
+                    onChange={(e) => toggleNotif('expiryAlerts', e.target.checked)}
+                    className="h-4 w-4"
+                  />
                 </div>
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="font-medium">Payment Reminders</p>
                     <p className="text-sm text-muted-foreground">Send payment due reminders</p>
                   </div>
-                  <input type="checkbox" defaultChecked className="h-4 w-4" />
+                  <input
+                    type="checkbox"
+                    checked={paymentReminders}
+                    disabled={notifLoading || saveNotifPrefs.isPending}
+                    onChange={(e) => toggleNotif('paymentReminders', e.target.checked)}
+                    className="h-4 w-4"
+                  />
                 </div>
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="font-medium">Birthday Wishes</p>
                     <p className="text-sm text-muted-foreground">Auto-send birthday messages</p>
                   </div>
-                  <input type="checkbox" className="h-4 w-4" />
+                  <input
+                    type="checkbox"
+                    checked={birthdayWishes}
+                    disabled={notifLoading || saveNotifPrefs.isPending}
+                    onChange={(e) => toggleNotif('birthdayWishes', e.target.checked)}
+                    className="h-4 w-4"
+                  />
                 </div>
               </CardContent>
             </Card>
@@ -144,17 +235,30 @@ export function SettingsPage() {
               <CardContent className="space-y-4">
                 <div className="space-y-2">
                   <Label>Current Password</Label>
-                  <Input type="password" />
+                  <Input
+                    type="password"
+                    value={currentPassword}
+                    onChange={(e) => setCurrentPassword(e.target.value)}
+                  />
                 </div>
                 <div className="space-y-2">
                   <Label>New Password</Label>
-                  <Input type="password" />
+                  <Input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} />
                 </div>
                 <div className="space-y-2">
                   <Label>Confirm Password</Label>
-                  <Input type="password" />
+                  <Input
+                    type="password"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                  />
                 </div>
-                <Button>Update Password</Button>
+                <Button
+                  onClick={handleChangePassword}
+                  disabled={changePassword.isPending || !currentPassword || !newPassword}
+                >
+                  {changePassword.isPending ? 'Updating...' : 'Update Password'}
+                </Button>
               </CardContent>
             </Card>
           )}
@@ -165,7 +269,6 @@ export function SettingsPage() {
                 <CardTitle>Appearance</CardTitle>
               </CardHeader>
               <CardContent className="space-y-6">
-                {/* Dark mode */}
                 <div className="flex items-center justify-between gap-4">
                   <div className="flex items-start gap-3">
                     <div className="mt-0.5 rounded-lg bg-muted p-2">
@@ -200,7 +303,6 @@ export function SettingsPage() {
                   </button>
                 </div>
 
-                {/* Primary color */}
                 <div className="space-y-3">
                   <Label>Primary Color</Label>
                   <p className="text-sm text-muted-foreground">
@@ -234,7 +336,6 @@ export function SettingsPage() {
                       );
                     })}
 
-                    {/* Custom color via native picker */}
                     <label
                       className="relative flex h-9 w-9 cursor-pointer items-center justify-center overflow-hidden rounded-full ring-1 ring-black/10 transition-transform hover:scale-110"
                       style={{

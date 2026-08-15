@@ -7,7 +7,7 @@ import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagg
 import { AuthService } from './auth.service';
 import { TwoFactorService } from './two-factor.service';
 import { StepUpService } from './step-up.service';
-import { LoginDto, RegisterDto, RefreshTokenDto, ForgotPasswordDto, ResetPasswordDto, VerifyEmailDto } from './dto';
+import { LoginDto, RegisterDto, RefreshTokenDto, ForgotPasswordDto, ResetPasswordDto, VerifyEmailDto, ChangePasswordDto } from './dto';
 
 @ApiTags('Authentication')
 @Controller('auth')
@@ -70,6 +70,14 @@ export class AuthController {
     @Body('sessionId') sessionId?: string,
   ) {
     return this.authService.logout(userId, token, sessionId);
+  }
+
+  @Post('change-password')
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth('access-token')
+  @ApiOperation({ summary: "Change the logged-in user's own password" })
+  async changePassword(@CurrentUser('userId') userId: string, @Body() dto: ChangePasswordDto) {
+    return this.authService.changePassword(userId, dto.currentPassword, dto.newPassword);
   }
 
   @UseGuards(JwtAuthGuard)

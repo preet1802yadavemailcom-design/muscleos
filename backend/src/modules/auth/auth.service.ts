@@ -316,6 +316,30 @@ export class AuthService {
     return { message: 'If email exists, reset link will be sent' };
   }
 
+  async changePassword(userId: string, currentPassword: string, newPassword: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new BadRequestException('User not found');
+
+    const valid = await bcrypt.compare(currentPassword, user.password);
+    if (!valid) throw new BadRequestException('Current password is incorrect');
+
+    const hashedPassword = await bcrypt.hash(newPassword, 12);
+    await this.prisma.user.update({ where: { id: userId }, data: { password: hashedPassword } });
+
+    await this.prisma.refreshToken.updateMany({
+      where: { userId: user.id, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+    await this.audit.log({
+      action: 'PASSWORD_CHANGED',
+      entity: 'User',
+      entityId: user.id,
+      userId: user.id,
+      gymId: user.gymId ?? undefined,
+    });
+    return { message: 'Password changed successfully' };
+  }
+
   async resetPassword(dto: ResetPasswordDto) {
     const storedOtp = await this.redis.get(`otp:${dto.email}`);
     if (!storedOtp || storedOtp !== dto.otp) throw new BadRequestException('Invalid or expired OTP');
