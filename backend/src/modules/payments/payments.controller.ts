@@ -1,4 +1,4 @@
-﻿import { CurrentUser, CurrentUserPayload } from '@common/decorators/current-user.decorator';
+import { CurrentUser, CurrentUserPayload } from '@common/decorators/current-user.decorator';
 import { GymId } from '@common/decorators/gym-id.decorator';
 import { Public } from '@common/decorators/public.decorator';
 import { Roles } from '@common/decorators/roles.decorator';
@@ -45,7 +45,7 @@ export class PaymentsController {
   @Get()
   @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard, GymOwnerGuard)
   @ApiBearerAuth('access-token')
-  @Roles(UserRole.GYM_OWNER, UserRole.RECEPTIONIST, UserRole.TRAINER)
+  @Roles(UserRole.GYM_OWNER, UserRole.SUPER_ADMIN, UserRole.RECEPTIONIST, UserRole.TRAINER)
   @ApiOperation({ summary: 'List payments (filterable, paginated)' })
   async findAll(@GymId() gymId: string, @Query() query: QueryPaymentDto) {
     return this.service.findAll(gymId, query);
@@ -54,7 +54,7 @@ export class PaymentsController {
   @Get('summary')
   @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard, GymOwnerGuard)
   @ApiBearerAuth('access-token')
-  @Roles(UserRole.GYM_OWNER)
+  @Roles(UserRole.GYM_OWNER, UserRole.SUPER_ADMIN)
   @ApiOperation({ summary: 'Revenue summary for a date range' })
   async summary(@GymId() gymId: string, @Query('fromDate') fromDate?: string, @Query('toDate') toDate?: string) {
     return this.service.summary(gymId, fromDate, toDate);
@@ -71,7 +71,7 @@ export class PaymentsController {
   @Get(':id')
   @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard, GymOwnerGuard)
   @ApiBearerAuth('access-token')
-  @ApiOperation({ summary: 'Get a payment by id â€” staff see any payment in the gym; members only their own' })
+  @ApiOperation({ summary: 'Get a payment by id — staff see any payment in the gym; members only their own' })
   async findOne(@Param('id') id: string, @GymId() gymId: string, @CurrentUser() user: CurrentUserPayload) {
     return this.service.findOne(id, gymId, user);
   }
@@ -90,7 +90,7 @@ export class PaymentsController {
   @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard, GymOwnerGuard)
   @ApiBearerAuth('access-token')
   @Roles(UserRole.MEMBER)
-  @ApiOperation({ summary: 'Member self-pay for one of their own memberships â€” amount is derived server-side, never trusted from the client' })
+  @ApiOperation({ summary: 'Member self-pay for one of their own memberships — amount is derived server-side, never trusted from the client' })
   async payForMyMembership(
     @GymId() gymId: string,
     @CurrentUser('userId') userId: string,
@@ -102,7 +102,7 @@ export class PaymentsController {
   @Post()
   @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard, GymOwnerGuard)
   @ApiBearerAuth('access-token')
-  @Roles(UserRole.GYM_OWNER, UserRole.RECEPTIONIST)
+  @Roles(UserRole.GYM_OWNER, UserRole.SUPER_ADMIN, UserRole.RECEPTIONIST)
   @ApiOperation({ summary: 'Initiate a payment (cash is completed instantly, online creates a gateway order)' })
   async initiate(@Body() dto: CreatePaymentDto, @GymId() gymId: string, @CurrentUser('userId') userId: string) {
     return this.service.initiate(dto, gymId, userId);
@@ -119,7 +119,7 @@ export class PaymentsController {
   @Post(':id/refund')
   @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard, GymOwnerGuard)
   @ApiBearerAuth('access-token')
-  @Roles(UserRole.GYM_OWNER)
+  @Roles(UserRole.GYM_OWNER, UserRole.SUPER_ADMIN)
   @ApiOperation({ summary: 'Refund a completed payment (full or partial)' })
   async refund(
     @Param('id') id: string,
@@ -140,13 +140,13 @@ export class PaymentsController {
     // SECURITY: verification MUST run against the exact bytes Razorpay
     // signed. Re-serializing the parsed JSON body (`JSON.stringify(req.body)`)
     // is not guaranteed to byte-match the original (key order, number
-    // formatting, whitespace) â€” using it as a fallback either breaks
+    // formatting, whitespace) — using it as a fallback either breaks
     // legitimate webhooks silently or, worse, verifies against a
     // reconstruction that isn't actually what was signed. Fail closed
     // instead: if rawBody wasn't captured, we cannot verify, full stop.
     const raw = (req as any).rawBody?.toString('utf8');
     if (!raw) {
-      this.logger.error('Razorpay webhook received with no rawBody captured â€” check main.ts rawBody:true and body-parser config', undefined, 'PaymentsController');
+      this.logger.error('Razorpay webhook received with no rawBody captured — check main.ts rawBody:true and body-parser config', undefined, 'PaymentsController');
       return { received: false };
     }
     if (!this.razorpay.verifyWebhookSignature(raw, signature)) {
@@ -160,7 +160,7 @@ export class PaymentsController {
     // each) and is what we can rely on across all their webhook versions.
     const eventId = entity ? `${event.event}:${entity.id}` : `${event.event}:${JSON.stringify(event.payload)}`;
     const isNew = await this.service.recordWebhookEventOnce('razorpay', eventId, event.event, event);
-    if (!isNew) return { received: true }; // already processed â€” ack without reprocessing
+    if (!isNew) return { received: true }; // already processed — ack without reprocessing
 
     if (event.event === 'payment.captured' && entity) {
       await this.service.markCompletedFromWebhook(entity.order_id, entity.id, event);
@@ -177,7 +177,7 @@ export class PaymentsController {
   async stripeWebhook(@Req() req: Request, @Headers('stripe-signature') signature: string) {
     const raw = (req as any).rawBody?.toString('utf8');
     if (!raw) {
-      this.logger.error('Stripe webhook received with no rawBody captured â€” check main.ts rawBody:true and body-parser config', undefined, 'PaymentsController');
+      this.logger.error('Stripe webhook received with no rawBody captured — check main.ts rawBody:true and body-parser config', undefined, 'PaymentsController');
       return { received: false };
     }
     if (!this.stripe.verifyWebhookSignature(raw, signature)) {

@@ -25,7 +25,7 @@ import { UserRole } from '@prisma/client';
  */
 @Controller('attendance')
 @UseGuards(JwtAuthGuard, RolesGuard, GymOwnerGuard)
-@Roles(UserRole.GYM_OWNER, UserRole.RECEPTIONIST, UserRole.TRAINER)
+@Roles(UserRole.GYM_OWNER, UserRole.SUPER_ADMIN, UserRole.RECEPTIONIST, UserRole.TRAINER)
 export class AttendanceStreamController {
   constructor(private readonly redis: RedisService) {}
 

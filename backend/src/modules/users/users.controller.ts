@@ -14,7 +14,7 @@ import { UsersService } from './users.service';
 @ApiTags('Users (Staff)')
 @Controller('users')
 @UseGuards(JwtAuthGuard, RolesGuard, GymOwnerGuard)
-@Roles(UserRole.GYM_OWNER)
+@Roles(UserRole.GYM_OWNER, UserRole.SUPER_ADMIN)
 @ApiBearerAuth('access-token')
 export class UsersController {
   constructor(private readonly service: UsersService) {}
