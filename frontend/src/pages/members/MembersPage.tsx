@@ -9,6 +9,7 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { MemberFormDialog, type MemberFormValues } from './MemberFormDialog';
 import { MemberQrDialog } from './MemberQrDialog';
 import { useToast } from '@/hooks/use-toast';
+import { useAuthStore } from '@store/auth.store';
 import api from '@services/api';
 
 type Member = MemberFormValues & {
@@ -38,6 +39,9 @@ function downloadCsv(rows: Record<string, any>[], filename: string) {
 }
 
 export function MembersPage() {
+  const { user } = useAuthStore();
+  const canCreateOrEdit = user?.role === 'GYM_OWNER' || user?.role === 'SUPER_ADMIN' || user?.role === 'RECEPTIONIST';
+  const canDelete = user?.role === 'GYM_OWNER' || user?.role === 'SUPER_ADMIN';
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [formOpen, setFormOpen] = useState(false);
@@ -107,10 +111,12 @@ export function MembersPage() {
             <Download className="h-4 w-4 mr-2" />
             {exporting ? 'Exporting...' : 'Export'}
           </Button>
-          <Button onClick={() => { setEditingMember(null); setFormOpen(true); }}>
-            <Plus className="h-4 w-4 mr-2" />
-            Add Member
-          </Button>
+          {canCreateOrEdit && (
+            <Button onClick={() => { setEditingMember(null); setFormOpen(true); }}>
+              <Plus className="h-4 w-4 mr-2" />
+              Add Member
+            </Button>
+          )}
         </div>
       </div>
 
@@ -158,30 +164,36 @@ export function MembersPage() {
                           <Button variant="ghost" size="icon" title="Digital ID / QR" onClick={() => setQrMember(member)}>
                             <QrCode className="h-4 w-4" />
                           </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            title="Edit"
-                            onClick={() => { setEditingMember(member); setFormOpen(true); }}
-                          >
-                            <Edit className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            title={member.status === 'ACTIVE' ? 'Deactivate' : 'Reactivate'}
-                            onClick={() => setPendingToggle(member)}
-                          >
-                            <Power className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            title="Delete"
-                            onClick={() => setPendingDelete(member)}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
+                          {canCreateOrEdit && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              title="Edit"
+                              onClick={() => { setEditingMember(member); setFormOpen(true); }}
+                            >
+                              <Edit className="h-4 w-4" />
+                            </Button>
+                          )}
+                          {canCreateOrEdit && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              title={member.status === 'ACTIVE' ? 'Deactivate' : 'Reactivate'}
+                              onClick={() => setPendingToggle(member)}
+                            >
+                              <Power className="h-4 w-4" />
+                            </Button>
+                          )}
+                          {canDelete && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              title="Delete"
+                              onClick={() => setPendingDelete(member)}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          )}
                         </div>
                       </td>
                     </tr>

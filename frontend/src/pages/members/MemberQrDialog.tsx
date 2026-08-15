@@ -7,6 +7,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
+import { useAuthStore } from '@store/auth.store';
 import api from '@services/api';
 
 interface MemberQrDialogProps {
@@ -22,6 +23,8 @@ interface MemberQrDialogProps {
 }
 
 export function MemberQrDialog({ open, onOpenChange, member }: MemberQrDialogProps) {
+  const { user } = useAuthStore();
+  const canRegenerate = user?.role === 'GYM_OWNER' || user?.role === 'SUPER_ADMIN' || user?.role === 'RECEPTIONIST';
   const [qrCodeData, setQrCodeData] = useState<string | undefined>(member?.qrCodeData);
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -67,17 +70,19 @@ export function MemberQrDialog({ open, onOpenChange, member }: MemberQrDialogPro
           </p>
         </div>
 
-        <DialogFooter>
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => regenerate.mutate()}
-            disabled={regenerate.isPending}
-          >
-            <RefreshCw className="h-4 w-4 mr-2" />
-            {regenerate.isPending ? 'Regenerating...' : 'Regenerate code'}
-          </Button>
-        </DialogFooter>
+        {canRegenerate && (
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => regenerate.mutate()}
+              disabled={regenerate.isPending}
+            >
+              <RefreshCw className="h-4 w-4 mr-2" />
+              {regenerate.isPending ? 'Regenerating...' : 'Regenerate code'}
+            </Button>
+          </DialogFooter>
+        )}
       </DialogContent>
     </Dialog>
   );
