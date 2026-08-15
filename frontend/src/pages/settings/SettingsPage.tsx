@@ -1,10 +1,13 @@
 import { useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Save, Building2, Bell, Shield, Palette, Check, Moon, Sun } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
+import { useToast } from '@/hooks/use-toast';
+import api from '@services/api';
 import { applyTheme, contrastText, loadTheme, saveTheme, ThemeSettings } from '@/lib/theme';
 
 const tabs = [
@@ -19,6 +22,33 @@ const PRESET_COLORS = ['#0f172a', '#dc2626', '#2563eb', '#16a34a', '#d97706', '#
 export function SettingsPage() {
   const [activeTab, setActiveTab] = useState('general');
   const [theme, setTheme] = useState<ThemeSettings>(() => loadTheme());
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+
+  const { data: gymData, isLoading: gymLoading } = useQuery({
+    queryKey: ['gym-profile'],
+    queryFn: () => api.get('/gyms/me'),
+  });
+  const gym = (gymData as any)?.data;
+
+  const [name, setName] = useState('');
+  const [address, setAddress] = useState('');
+  const [formInitialized, setFormInitialized] = useState(false);
+  if (gym && !formInitialized) {
+    setName(gym.name ?? '');
+    setAddress(gym.address ?? '');
+    setFormInitialized(true);
+  }
+
+  const saveProfile = useMutation({
+    mutationFn: () => api.put('/gyms/me', { name, address }),
+    onSuccess: () => {
+      toast({ title: 'Gym profile updated' });
+      queryClient.invalidateQueries({ queryKey: ['gym-profile'] });
+    },
+    onError: (e: any) =>
+      toast({ title: 'Update failed', description: e?.response?.data?.message, variant: 'destructive' }),
+  });
 
   const updateTheme = (patch: Partial<ThemeSettings>) => {
     const next = { ...theme, ...patch };
@@ -61,23 +91,15 @@ export function SettingsPage() {
               <CardContent className="space-y-4">
                 <div className="space-y-2">
                   <Label>Gym Name</Label>
-                  <Input defaultValue="MuscleOS Gym" />
-                </div>
-                <div className="space-y-2">
-                  <Label>Email</Label>
-                  <Input defaultValue="contact@gym.com" type="email" />
-                </div>
-                <div className="space-y-2">
-                  <Label>Phone</Label>
-                  <Input defaultValue="+91 98765 43210" />
+                  <Input value={name} onChange={(e) => setName(e.target.value)} disabled={gymLoading} />
                 </div>
                 <div className="space-y-2">
                   <Label>Address</Label>
-                  <Input defaultValue="123 Fitness Street, Mumbai" />
+                  <Input value={address} onChange={(e) => setAddress(e.target.value)} disabled={gymLoading} />
                 </div>
-                <Button>
+                <Button onClick={() => saveProfile.mutate()} disabled={saveProfile.isPending || gymLoading}>
                   <Save className="h-4 w-4 mr-2" />
-                  Save Changes
+                  {saveProfile.isPending ? 'Saving...' : 'Save Changes'}
                 </Button>
               </CardContent>
             </Card>

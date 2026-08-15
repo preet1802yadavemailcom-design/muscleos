@@ -114,6 +114,12 @@ export class SuperAdminController {
     return this.service.deletePlan(id, adminId);
   }
 
+  @Delete('plans/:id')
+  @ApiOperation({ summary: 'Deactivate a subscription plan' })
+  async deletePlan(@Param('id') id: string, @CurrentUser('userId') adminId: string) {
+    return this.service.deletePlan(id, adminId);
+  }
+
   // ---- Announcements ----
 
   @Post('announcements')
