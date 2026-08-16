@@ -122,7 +122,7 @@ function App() {
         <Route
           path="members"
           element={
-            <RoleRoute allowedRoles={[ROLES.SUPER_ADMIN, ROLES.GYM_OWNER, ROLES.TRAINER, ROLES.RECEPTION]}>
+            <RoleRoute allowedRoles={[ROLES.GYM_OWNER, ROLES.TRAINER, ROLES.RECEPTION]}>
               <MembersPage />
             </RoleRoute>
           }
@@ -130,7 +130,7 @@ function App() {
         <Route
           path="batches"
           element={
-            <RoleRoute allowedRoles={[ROLES.SUPER_ADMIN, ROLES.GYM_OWNER, ROLES.TRAINER]}>
+            <RoleRoute allowedRoles={[ROLES.GYM_OWNER, ROLES.TRAINER]}>
               <BatchesPage />
             </RoleRoute>
           }
@@ -138,7 +138,7 @@ function App() {
         <Route
           path="attendance"
           element={
-            <RoleRoute allowedRoles={[ROLES.SUPER_ADMIN, ROLES.GYM_OWNER, ROLES.TRAINER, ROLES.RECEPTION, ROLES.MEMBER]}>
+            <RoleRoute allowedRoles={[ROLES.GYM_OWNER, ROLES.TRAINER, ROLES.RECEPTION, ROLES.MEMBER]}>
               <AttendancePage />
             </RoleRoute>
           }
@@ -163,7 +163,7 @@ function App() {
         <Route
           path="memberships"
           element={
-            <RoleRoute allowedRoles={[ROLES.SUPER_ADMIN, ROLES.GYM_OWNER, ROLES.RECEPTION]}>
+            <RoleRoute allowedRoles={[ROLES.GYM_OWNER, ROLES.RECEPTION]}>
               <MembershipsPage />
             </RoleRoute>
           }
@@ -171,7 +171,7 @@ function App() {
         <Route
           path="payments"
           element={
-            <RoleRoute allowedRoles={[ROLES.SUPER_ADMIN, ROLES.GYM_OWNER, ROLES.RECEPTION]}>
+            <RoleRoute allowedRoles={[ROLES.GYM_OWNER, ROLES.RECEPTION]}>
               <PaymentsPage />
             </RoleRoute>
           }
@@ -187,7 +187,7 @@ function App() {
         <Route
           path="reports"
           element={
-            <RoleRoute allowedRoles={[ROLES.SUPER_ADMIN, ROLES.GYM_OWNER]}>
+            <RoleRoute allowedRoles={[ROLES.GYM_OWNER]}>
               <ReportsPage />
             </RoleRoute>
           }
@@ -195,7 +195,7 @@ function App() {
         <Route
           path="notifications"
           element={
-            <RoleRoute allowedRoles={[ROLES.SUPER_ADMIN, ROLES.GYM_OWNER]}>
+            <RoleRoute allowedRoles={[ROLES.GYM_OWNER]}>
               <NotificationsPage />
             </RoleRoute>
           }
@@ -203,7 +203,7 @@ function App() {
         <Route
           path="settings"
           element={
-            <RoleRoute allowedRoles={[ROLES.SUPER_ADMIN, ROLES.GYM_OWNER]}>
+            <RoleRoute allowedRoles={[ROLES.GYM_OWNER]}>
               <SettingsPage />
             </RoleRoute>
           }

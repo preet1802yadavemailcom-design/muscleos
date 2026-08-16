@@ -1,4 +1,4 @@
-import { createParamDecorator, ExecutionContext } from '@nestjs/common';
+import { createParamDecorator, ExecutionContext, ForbiddenException } from '@nestjs/common';
 import { Request } from 'express';
 import { CurrentUserPayload } from './current-user.decorator';
 import { UserRole } from '@prisma/client';
