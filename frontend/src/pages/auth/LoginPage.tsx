@@ -37,6 +37,16 @@ export function LoginPage() {
       setIsLoading(true);
       setError('');
       const response: any = await api.post('/auth/login', data);
+
+      if (response.data?.requiresTwoFactorSetup) {
+        navigate('/2fa-setup', { state: { setupToken: response.data.setupToken } });
+        return;
+      }
+      if (response.data?.requiresTwoFactor) {
+        navigate('/2fa-verify', { state: { pendingToken: response.data.pendingToken } });
+        return;
+      }
+
       const { user, accessToken, refreshToken } = response.data;
       setAuth(user, accessToken, refreshToken);
       navigate('/');

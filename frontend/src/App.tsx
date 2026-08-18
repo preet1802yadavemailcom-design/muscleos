@@ -4,6 +4,8 @@ import { Layout } from '@components/layout/Layout';
 import { RoleRoute } from '@components/auth/RoleRoute';
 import { LoginPage } from '@pages/auth/LoginPage';
 import { WelcomePage } from '@pages/auth/WelcomePage';
+import { TwoFactorSetupPage } from '@pages/auth/TwoFactorSetupPage';
+import { TwoFactorVerifyPage } from '@pages/auth/TwoFactorVerifyPage';
 import { RegisterPage } from '@pages/auth/RegisterPage';
 import { ForgotPasswordPage } from '@pages/auth/ForgotPasswordPage';
 import { ResetPasswordPage } from '@pages/auth/ResetPasswordPage';
@@ -60,6 +62,8 @@ function App() {
       {/* Public / unauthenticated routes */}
       <Route path="/welcome" element={<WelcomePage />} />
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/2fa-setup" element={<TwoFactorSetupPage />} />
+      <Route path="/2fa-verify" element={<TwoFactorVerifyPage />} />
       <Route path="/register" element={<RegisterPage />} />
       <Route path="/forgot-password" element={<ForgotPasswordPage />} />
       <Route path="/reset-password" element={<ResetPasswordPage />} />
