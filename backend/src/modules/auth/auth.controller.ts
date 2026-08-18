@@ -1,6 +1,7 @@
 import { CurrentUser } from '@common/decorators/current-user.decorator';
 import { Public } from '@common/decorators/public.decorator';
 import { JwtAuthGuard } from '@common/guards/jwt-auth.guard';
+import { TwoFactorSetupGuard } from '@common/guards/two-factor-setup.guard';
 import { Controller, Post, Body, HttpCode, HttpStatus, Ip, Headers, UseGuards, Get, Delete, Param } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 
@@ -144,7 +145,7 @@ export class AuthController {
     return this.authService.completeTwoFactorLogin(pendingToken, code, ip, deviceInfo);
   }
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(TwoFactorSetupGuard)
   @ApiBearerAuth('access-token')
   @Post('2fa/setup/begin')
   @ApiOperation({ summary: 'Start 2FA setup — returns a QR code to scan in an authenticator app' })
@@ -152,7 +153,7 @@ export class AuthController {
     return this.twoFactor.beginSetup(user.userId, user.email);
   }
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(TwoFactorSetupGuard)
   @ApiBearerAuth('access-token')
   @Post('2fa/setup/confirm')
   @ApiOperation({ summary: 'Confirm 2FA setup with a code from the authenticator app; returns one-time recovery codes' })
