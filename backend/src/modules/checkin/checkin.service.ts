@@ -132,7 +132,20 @@ export class CheckinService {
 
     const member = await this.findMemberByMobile(kiosk.gymId, mobile);
     if (!member) {
-      return { registered: false, sessionValid: false, member: null, today: null };
+      // New member — still issue a session token (scoped to this mobile) so
+      // the kiosk can proceed straight to the registration step without OTP.
+      const newMemberSessionToken = await this.signToken<SessionPayload>(
+        { purpose: 'checkin-session', gymId: kiosk.gymId, mobile, branchId: kiosk.branchId },
+        SESSION_TOKEN_TTL,
+      );
+      return {
+        registered: false,
+        sessionValid: true,
+        sessionToken: newMemberSessionToken,
+        expiresIn: SESSION_TOKEN_TTL,
+        member: null,
+        today: null,
+      };
     }
 
     // No OTP: full profile (with photo) is returned immediately so the kiosk

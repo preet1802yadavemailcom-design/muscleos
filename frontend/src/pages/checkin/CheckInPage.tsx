@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   QrCode, Camera, CameraOff, AlertTriangle, LogIn, LogOut, CheckCircle2,
-  ArrowLeft, ArrowRight, User, ShieldCheck, RefreshCw, X, Upload,
+  ArrowLeft, ArrowRight, User, RefreshCw, X, Upload,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -17,7 +17,6 @@ import api from '@services/api';
 type Step =
   | 'scan'
   | 'mobile'
-  | 'otp'
   | 'register'
   | 'confirm'
   | 'success';
@@ -52,9 +51,9 @@ interface TodayState {
 interface IdentifyResult {
   registered: boolean;
   sessionValid: boolean;
+  sessionToken?: string;
   member: MemberSummary | null;
   today: TodayState | null;
-  otpRequired?: boolean;
 }
 
 interface AttendanceResult {
@@ -154,8 +153,6 @@ export function CheckInPage() {
   const [kioskToken, setKioskToken] = useState('');
   const [qrInput, setQrInput] = useState('');
   const [mobile, setMobile] = useState('');
-  const [otp, setOtp] = useState('');
-  const [otpCooldown, setOtpCooldown] = useState(0);
   const [sessionToken, setSessionToken] = useState('');
   const [member, setMember] = useState<MemberSummary | null>(null);
   const [today, setToday] = useState<TodayState | null>(null);
@@ -194,12 +191,6 @@ export function CheckInPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useEffect(() => {
-    if (!otpCooldown) return;
-    const t = setInterval(() => setOtpCooldown((c) => Math.max(0, c - 1)), 1000);
-    return () => clearInterval(t);
-  }, [otpCooldown > 0]); // eslint-disable-line react-hooks/exhaustive-deps
-
   const apiError = (err: any) =>
     err.response?.data?.message || 'Something went wrong. Please try again.';
 
@@ -228,13 +219,13 @@ export function CheckInPage() {
     }
   };
 
-  /* ---- Step 2: mobile / identify ---- */
+  /* ---- Step 2: mobile / identify (no OTP — issues a session immediately;
+   *  staff visually confirm the member's photo shown on the "confirm" step) ---- */
   const handleIdentify = async () => {
     if (!mobile.trim()) { setError('Please enter your mobile number.'); return; }
     setError('');
     setLoading(true);
     try {
-      // Reuse a stored session token so OTP is only needed once per session.
       const stored = sessionStorage.getItem(sessionStorageKey(gym!.id, mobile.trim()));
       const res: any = await api.post('/public/checkin/identify', {
         kioskToken,
@@ -245,54 +236,13 @@ export function CheckInPage() {
       setMember(data.member);
       setToday(data.today);
 
-      if (data.registered && data.sessionValid) {
-        setSessionToken(stored!);
-        setStep('confirm');
-      } else {
-        setStep('otp');
-        sendOtp(false);
-      }
-    } catch (err: any) {
-      setError(apiError(err));
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  /* ---- Step 3: OTP ---- */
-  const sendOtp = async (manual = true) => {
-    setError('');
-    if (manual) setLoading(true);
-    try {
-      await api.post('/public/checkin/otp/send', { kioskToken, mobile: mobile.trim() });
-      setOtpCooldown(60);
-    } catch (err: any) {
-      setError(apiError(err));
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleVerifyOtp = async () => {
-    if (otp.length !== 6) { setError('Enter the 6-digit OTP sent to your mobile.'); return; }
-    setError('');
-    setLoading(true);
-    try {
-      const res: any = await api.post('/public/checkin/otp/verify', {
-        kioskToken,
-        mobile: mobile.trim(),
-        otp,
-      });
-      const token = res.data.sessionToken;
+      const token = data.sessionToken || stored || '';
       setSessionToken(token);
-      sessionStorage.setItem(sessionStorageKey(gym!.id, mobile.trim()), token);
-      if (res.data.registered) {
-        setMember(res.data.member);
-        setToday(res.data.today ?? null);
-        setStep('confirm');
-      } else {
-        setStep('register');
+      if (data.sessionToken) {
+        sessionStorage.setItem(sessionStorageKey(gym!.id, mobile.trim()), data.sessionToken);
       }
+
+      setStep(data.registered ? 'confirm' : 'register');
     } catch (err: any) {
       setError(apiError(err));
     } finally {
@@ -356,7 +306,6 @@ export function CheckInPage() {
     setKioskToken('');
     setQrInput('');
     setMobile('');
-    setOtp('');
     setSessionToken('');
     setMember(null);
     setToday(null);
@@ -489,50 +438,6 @@ export function CheckInPage() {
                   className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
                 >
                   <ArrowLeft className="h-3 w-3" /> Re-scan QR
-                </button>
-              </div>
-            )}
-
-            {/* ---------- STEP: otp ---------- */}
-            {step === 'otp' && (
-              <div className="space-y-4">
-                <div className="flex items-start gap-3 rounded-lg bg-muted p-3 text-sm">
-                  <ShieldCheck className="h-5 w-5 shrink-0 text-primary" />
-                  <p className="text-muted-foreground">
-                    We've sent a one-time code to <span className="font-medium text-foreground">{mobile}</span>.
-                    You'll only need this once per session.
-                  </p>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="otp">OTP</Label>
-                  <Input
-                    id="otp"
-                    inputMode="numeric"
-                    maxLength={6}
-                    placeholder="6-digit code"
-                    value={otp}
-                    onChange={(e) => setOtp(e.target.value.replace(/\D/g, ''))}
-                    onKeyDown={(e) => e.key === 'Enter' && handleVerifyOtp()}
-                    className="text-center text-lg tracking-[0.5em]"
-                    autoFocus
-                  />
-                </div>
-                <Button className="w-full" onClick={handleVerifyOtp} disabled={loading || otp.length !== 6}>
-                  {loading ? 'Verifying…' : 'Verify & Continue'}
-                </Button>
-                <Button
-                  variant="ghost"
-                  className="w-full text-sm"
-                  onClick={() => sendOtp()}
-                  disabled={otpCooldown > 0 || loading}
-                >
-                  {otpCooldown > 0 ? `Resend in ${otpCooldown}s` : 'Resend OTP'}
-                </Button>
-                <button
-                  onClick={() => { setStep('mobile'); setOtp(''); }}
-                  className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
-                >
-                  <ArrowLeft className="h-3 w-3" /> Wrong number?
                 </button>
               </div>
             )}
@@ -700,7 +605,7 @@ export function CheckInPage() {
                 )}
 
                 <button
-                  onClick={() => { setStep('mobile'); setOtp(''); }}
+                  onClick={() => setStep('mobile')}
                   className="mx-auto flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
                 >
                   <ArrowLeft className="h-3 w-3" /> Different number
