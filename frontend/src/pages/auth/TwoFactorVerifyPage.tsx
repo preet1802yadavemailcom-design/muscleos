@@ -29,8 +29,8 @@ export function TwoFactorVerifyPage() {
       const { user, accessToken, refreshToken } = res.data;
       setAuth(user, accessToken, refreshToken);
       navigate('/');
-    } catch (err) {
-      setError(err.response?.data?.message || 'Invalid code — please try again.');
+    } catch (err: any) {
+      setError(err.response?.data?.message || 'Invalid code ï¿½ please try again.');
     } finally {
       setSubmitting(false);
     }
@@ -45,7 +45,7 @@ export function TwoFactorVerifyPage() {
           </div>
           <h2 className="text-3xl font-bold tracking-tight">Enter your 2FA code</h2>
           <p className="mt-2 text-muted-foreground">
-            Open your authenticator app and enter the current 6-digit code — or use a recovery code if you've lost access to it.
+            Open your authenticator app and enter the current 6-digit code ï¿½ or use a recovery code if you've lost access to it.
           </p>
         </div>
 

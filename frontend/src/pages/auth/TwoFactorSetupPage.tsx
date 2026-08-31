@@ -12,7 +12,7 @@ export function TwoFactorSetupPage() {
   const [qrDataUrl, setQrDataUrl] = useState('');
   const [secret, setSecret] = useState('');
   const [code, setCode] = useState('');
-  const [recoveryCodes, setRecoveryCodes] = useState(null);
+  const [recoveryCodes, setRecoveryCodes] = useState<string[] | null>(null);
   const [copied, setCopied] = useState(false);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -28,8 +28,8 @@ export function TwoFactorSetupPage() {
         const res = await api.post('/auth/2fa/setup/begin', {}, { headers: { Authorization: `Bearer ${setupToken}` } });
         setQrDataUrl(res.data.qrDataUrl);
         setSecret(res.data.secret);
-      } catch (err) {
-        setError(err.response?.data?.message || 'Could not start 2FA setup — please log in again.');
+      } catch (err: any) {
+        setError(err.response?.data?.message || 'Could not start 2FA setup ï¿½ please log in again.');
       } finally {
         setLoading(false);
       }
@@ -43,8 +43,8 @@ export function TwoFactorSetupPage() {
       setError('');
       const res = await api.post('/auth/2fa/setup/confirm', { code }, { headers: { Authorization: `Bearer ${setupToken}` } });
       setRecoveryCodes(res.data.recoveryCodes);
-    } catch (err) {
-      setError(err.response?.data?.message || 'Invalid code — please try again.');
+    } catch (err: any) {
+      setError(err.response?.data?.message || 'Invalid code ï¿½ please try again.');
     } finally {
       setSubmitting(false);
     }
@@ -109,10 +109,10 @@ export function TwoFactorSetupPage() {
             </div>
             <div className="rounded-lg border bg-muted/50 p-4 space-y-2">
               <p className="text-sm font-medium">
-                Save these recovery codes somewhere safe — each works once, and this is the only time they'll be shown.
+                Save these recovery codes somewhere safe ï¿½ each works once, and this is the only time they'll be shown.
               </p>
               <div className="grid grid-cols-2 gap-2 font-mono text-sm">
-                {recoveryCodes.map((c) => (
+                {recoveryCodes.map((c: string) => (
                   <div key={c} className="rounded bg-background px-2 py-1 border">{c}</div>
                 ))}
               </div>
