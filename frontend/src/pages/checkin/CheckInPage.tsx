@@ -101,15 +101,29 @@ function useQrScanner(onDetect: (value: string) => void) {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
       streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        await videoRef.current.play();
-      }
+      // Turn the camera "on" first so the <video> element actually mounts in
+      // the DOM (it's conditionally rendered on cameraOn) — only THEN attach
+      // the stream in the effect below. Attaching before the element exists
+      // silently did nothing, which is what caused the black screen even
+      // though QR detection (run against the raw stream track) kept working.
       setCameraOn(true);
     } catch {
       setCameraError('Camera unavailable — paste the QR data below instead.');
     }
   };
+
+  // Attach the live stream once the <video> element is actually in the DOM.
+  useEffect(() => {
+    if (!cameraOn || !videoRef.current || !streamRef.current) return;
+    const video = videoRef.current;
+    video.srcObject = streamRef.current;
+    video.play().catch(() => {
+      // Autoplay can be blocked until a user gesture on some mobile browsers;
+      // the "Scan with camera" tap that got us here already counts as one,
+      // but if it still fails, at least don't crash — the loop below will
+      // simply have no frames to read yet.
+    });
+  }, [cameraOn]);
 
   // Detection loop while the camera is live.
   useEffect(() => {
@@ -202,7 +216,7 @@ export function CheckInPage() {
       try {
         qrCodeData = new URL(qrCodeData).searchParams.get('token') || qrCodeData;
       } catch {
-        // Not a valid URL � fall through and let the backend reject it.
+        // Not a valid URL � fall through and let the backend reject it.
       }
     }
     setError('');
