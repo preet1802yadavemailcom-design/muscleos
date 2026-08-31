@@ -296,14 +296,31 @@ export function CheckInPage() {
     }
   };
 
+  /** Reads GPS location if the browser allows it. Doesn't block the
+   *  check-in flow if permission is denied or unavailable — the backend
+   *  only enforces the geofence when the branch has one configured, and
+   *  will ask for location explicitly in that case. */
+  const getLocation = (): Promise<{ latitude?: number; longitude?: number }> =>
+    new Promise((resolve) => {
+      if (!navigator.geolocation) return resolve({});
+      navigator.geolocation.getCurrentPosition(
+        (pos) => resolve({ latitude: pos.coords.latitude, longitude: pos.coords.longitude }),
+        () => resolve({}),
+        { timeout: 5000, maximumAge: 30000 },
+      );
+    });
+
   /* ---- Step 5: check-in / check-out ---- */
   const handleAction = async (action: 'check-in' | 'check-out') => {
     setError('');
     setLoading(true);
     try {
+      const { latitude, longitude } = await getLocation();
       const res: any = await api.post(`/public/checkin/${action}`, {
         sessionToken,
         deviceType: 'mobile',
+        latitude,
+        longitude,
       });
       setResult(res.data);
       setStep('success');

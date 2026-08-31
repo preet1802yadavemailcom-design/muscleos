@@ -20,6 +20,7 @@ import {
   ScanCheckinDto, IdentifyMemberDto, SendOtpDto, VerifyOtpDto,
   RegisterMemberDto, CheckinActionDto,
 } from './dto';
+import { distanceMeters } from '@common/utils/geo.util';
 import { AttendanceCoreService } from '@modules/attendance/attendance-core.service';
 import { QrService } from '@modules/qr/qr.service';
 
@@ -264,9 +265,34 @@ export class CheckinService {
 
   /** Per-day attendance: no record today → check in; open record → already
    *  in; completed → "Attendance already completed for today." */
+  /** Enforces the branch geofence (when one is configured) for kiosk
+   *  check-in/out — this was previously only checked on the in-app QR flow
+   *  (attendance.service.ts), leaving the kiosk/self check-in flow open to
+   *  remote/spoofed check-ins. Silently passes if the branch has no
+   *  geofence configured, matching the existing in-app behavior. */
+  private async assertWithinGeofence(gymId: string, branchId: string | null | undefined, latitude?: number, longitude?: number) {
+    if (!branchId) return;
+    const branch = await this.prisma.branch.findFirst({
+      where: { id: branchId, gymId },
+      select: { latitude: true, longitude: true, geofenceRadiusMeters: true },
+    });
+    if (!branch?.geofenceRadiusMeters || branch.latitude == null || branch.longitude == null) return;
+
+    if (latitude == null || longitude == null) {
+      throw new BadRequestException('Location access is required to check in at this branch — please enable GPS and try again.');
+    }
+    const distance = distanceMeters(latitude, longitude, branch.latitude, branch.longitude);
+    if (distance > branch.geofenceRadiusMeters) {
+      throw new BadRequestException(
+        `You appear to be ${Math.round(distance)}m from the branch (allowed: ${branch.geofenceRadiusMeters}m) — move closer and try again.`,
+      );
+    }
+  }
+
   async checkIn(dto: CheckinActionDto) {
     const session = await this.verifyToken<SessionPayload>(dto.sessionToken, 'checkin-session');
     await this.assertGymActive(session.gymId);
+    await this.assertWithinGeofence(session.gymId, session.branchId, dto.latitude, dto.longitude);
     const member = await this.findMemberByMobile(session.gymId, session.mobile);
     if (!member) throw new NotFoundException('Member not found — please register first');
 
@@ -292,6 +318,7 @@ export class CheckinService {
   async checkOut(dto: CheckinActionDto) {
     const session = await this.verifyToken<SessionPayload>(dto.sessionToken, 'checkin-session');
     await this.assertGymActive(session.gymId);
+    await this.assertWithinGeofence(session.gymId, session.branchId, dto.latitude, dto.longitude);
     const member = await this.findMemberByMobile(session.gymId, session.mobile);
     if (!member) throw new NotFoundException('Member not found — please register first');
 

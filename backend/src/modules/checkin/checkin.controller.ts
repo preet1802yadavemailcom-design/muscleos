@@ -31,6 +31,7 @@ export class CheckinController {
   @Post('identify')
   @Public()
   @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 8, ttl: 60000 } })
   @ApiOperation({ summary: 'Identify a member by mobile → returns profile + photo (for staff to visually confirm) + a session token. No OTP.' })
   async identify(@Body() dto: IdentifyMemberDto, @Headers('x-checkin-session') sessionToken?: string) {
     return this.service.identify(dto, sessionToken);
