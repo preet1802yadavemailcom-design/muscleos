@@ -37,12 +37,17 @@ export class AuthService {
     private readonly twoFactor: TwoFactorService,
   ) {}
 
-  async validateUser(email: string, password: string, gymId?: string) {
+  async validateUser(identifier: string, password: string, gymId?: string) {
     const user = await this.prisma.user.findFirst({
-      where: { email, status: UserStatus.ACTIVE, ...(gymId ? { gymId } : {}) },
+      where: {
+        OR: [{ email: identifier }, { phone: identifier }],
+        status: UserStatus.ACTIVE,
+        ...(gymId ? { gymId } : {}),
+      },
       include: { gym: true },
     });
     if (!user) return null;
+    if (!user.password) return null; // Google-only account — must use Google sign-in
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) return null;
     return user;
@@ -82,11 +87,14 @@ export class AuthService {
   }
 
   async login(dto: LoginDto, ipAddress?: string, deviceInfo?: string) {
+    const identifier = dto.email ?? dto.phone;
+    if (!identifier) throw new BadRequestException('Provide email or phone to log in.');
+
     // Rate limit BEFORE hitting the DB / bcrypt to blunt brute-force + credential stuffing
-    await this.checkRateLimit(dto.email, ipAddress);
+    await this.checkRateLimit(identifier, ipAddress);
 
     const user = await this.prisma.user.findFirst({
-      where: { email: dto.email, ...(dto.gymId ? { gymId: dto.gymId } : {}) },
+      where: { OR: [{ email: identifier }, { phone: identifier }], ...(dto.gymId ? { gymId: dto.gymId } : {}) },
       include: { gym: true },
     });
 
@@ -95,11 +103,11 @@ export class AuthService {
     }
 
     const validated = user && user.status === UserStatus.ACTIVE
-      ? await this.validateUser(dto.email, dto.password, dto.gymId)
+      ? await this.validateUser(identifier, dto.password, dto.gymId)
       : null;
 
     if (!validated) {
-      await this.registerFailedAttempt(dto.email, ipAddress);
+      await this.registerFailedAttempt(identifier, ipAddress);
       await this.audit.log({
         action: 'LOGIN_FAILED',
         entity: 'User',
@@ -165,13 +173,20 @@ export class AuthService {
     return this.issueSessionAfterAuth(user, ipAddress, deviceInfo, payload.rememberMe);
   }
 
-  private async issueSessionAfterAuth(validated: any, ipAddress?: string, deviceInfo?: string, rememberMe?: boolean) {
-    const tokens = await this.generateTokens(validated);
+  /** Public wrapper so the Google OAuth callback (which has no password to
+   *  check — Google already verified the identity) can issue a normal
+   *  session using the same refresh-token/audit-log path as password login. */
+  async issueSessionForOAuthUser(user: any, ipAddress?: string, deviceInfo?: string) {
+    return this.issueSessionAfterAuth(user, ipAddress, deviceInfo, false);
+  }
+
+  private async issueSessionAfterAuth(validated: any, ipAddress?: string, deviceInfo?: string, rememberMe?: boolean) {    const tokens = await this.generateTokens(validated);
     const refreshDays = rememberMe ? 30 : 7;
     await this.createRefreshToken(validated.id, tokens.refreshToken, deviceInfo, ipAddress, refreshDays);
     const session = await this.createSession(validated.id, tokens.accessToken, deviceInfo, ipAddress, refreshDays);
     await this.updateLastLogin(validated.id);
     await this.redis.del(this.rateLimitKey(validated.email, ipAddress));
+    await this.redis.del(this.rateLimitKey(validated.phone, ipAddress));
     await this.audit.log({
       action: 'LOGIN_SUCCESS',
       entity: 'User',
@@ -185,8 +200,51 @@ export class AuthService {
     return { user: this.sanitizeUser(validated), ...tokens, sessionId: session.id };
   }
 
-  async register(dto: RegisterDto) {
-    // Always MEMBER, always no gym at signup time (see RegisterDto for why
+  /** Finds an existing user by googleId or email, or creates a new MEMBER
+   *  account with no password (Google-only login). Called from GoogleStrategy
+   *  after Google verifies the identity — so no password check is needed here. */
+  async findOrCreateGoogleUser(profile: {
+    googleId: string;
+    email: string;
+    firstName: string;
+    lastName: string;
+    avatar?: string;
+  }) {
+    let user = await this.prisma.user.findFirst({ where: { googleId: profile.googleId }, include: { gym: true } });
+    if (user) return user;
+
+    // Same email already registered with a password → link the Google
+    // account to it instead of creating a duplicate.
+    const existingByEmail = await this.prisma.user.findFirst({ where: { email: profile.email, gymId: null } });
+    if (existingByEmail) {
+      user = await this.prisma.user.update({
+        where: { id: existingByEmail.id },
+        data: { googleId: profile.googleId, emailVerified: true },
+        include: { gym: true },
+      });
+      return user;
+    }
+
+    user = await this.prisma.user.create({
+      data: {
+        email: profile.email,
+        googleId: profile.googleId,
+        password: null,
+        firstName: profile.firstName,
+        lastName: profile.lastName,
+        avatar: profile.avatar,
+        role: UserRole.MEMBER,
+        gymId: null,
+        status: UserStatus.ACTIVE,
+        emailVerified: true,
+      },
+      include: { gym: true },
+    });
+    this.logger.log(`New user registered via Google: ${user.email}`, 'AuthService', { userId: user.id });
+    return user;
+  }
+
+  async register(dto: RegisterDto) {    // Always MEMBER, always no gym at signup time (see RegisterDto for why
     // role/gymId are not accepted from the client at all).
     const existing = await this.prisma.user.findFirst({
       where: { email: dto.email, gymId: null },

@@ -31,24 +31,26 @@ export class CheckinController {
   @Post('identify')
   @Public()
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Identify a member by mobile (returns profile + today state, or registered: false)' })
+  @ApiOperation({ summary: 'Identify a member by mobile → returns profile + photo (for staff to visually confirm) + a session token. No OTP.' })
   async identify(@Body() dto: IdentifyMemberDto, @Headers('x-checkin-session') sessionToken?: string) {
     return this.service.identify(dto, sessionToken);
   }
 
+  /** @deprecated OTP flow removed — update the kiosk app to use /identify only. */
   @Post('otp/send')
   @Public()
   @HttpCode(HttpStatus.OK)
   @Throttle({ default: { limit: 5, ttl: 60000 } })
-  @ApiOperation({ summary: 'Send a mobile OTP for new-member registration' })
+  @ApiOperation({ summary: '[REMOVED] OTP check-in has been replaced by photo-confirm identification' })
   async sendOtp(@Body() dto: SendOtpDto) {
     return this.service.sendOtp(dto);
   }
 
+  /** @deprecated OTP flow removed — update the kiosk app to use /identify only. */
   @Post('otp/verify')
   @Public()
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Verify the mobile OTP → issues a 12h session token (OTP once per session)' })
+  @ApiOperation({ summary: '[REMOVED] OTP check-in has been replaced by photo-confirm identification' })
   async verifyOtp(@Body() dto: VerifyOtpDto) {
     return this.service.verifyOtp(dto);
   }

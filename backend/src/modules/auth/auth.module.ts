@@ -14,6 +14,7 @@ import { StepUpGuard } from './guards/step-up.guard';
 import { TwoFactorSetupGuard } from '@common/guards/two-factor-setup.guard';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { LocalStrategy } from './strategies/local.strategy';
+import { GoogleStrategy } from './strategies/google.strategy';
 
 @Module({
   imports: [
@@ -29,7 +30,7 @@ import { LocalStrategy } from './strategies/local.strategy';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, TwoFactorService, StepUpService, StepUpGuard, TwoFactorSetupGuard, JwtStrategy, LocalStrategy],
+  providers: [AuthService, TwoFactorService, StepUpService, StepUpGuard, TwoFactorSetupGuard, JwtStrategy, LocalStrategy, GoogleStrategy],
   exports: [AuthService, TwoFactorService, StepUpService, StepUpGuard],
 })
 export class AuthModule {}

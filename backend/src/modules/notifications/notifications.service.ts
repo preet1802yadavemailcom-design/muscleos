@@ -9,6 +9,7 @@ import { SendNotificationDto, CreateAnnouncementDto, UpsertTemplateDto } from '.
 import { EmailProvider } from './providers/email.provider';
 import { PushProvider } from './providers/push.provider';
 import { SmsProvider } from './providers/sms.provider';
+import { WhatsappProvider } from './providers/whatsapp.provider';
 
 @Injectable()
 export class NotificationsService {
@@ -19,6 +20,7 @@ export class NotificationsService {
     private readonly email: EmailProvider,
     private readonly sms: SmsProvider,
     private readonly push: PushProvider,
+    private readonly whatsapp: WhatsappProvider,
   ) {}
 
   // ---------- Listing / logs ----------
@@ -136,10 +138,10 @@ export class NotificationsService {
     let recipient: string | null = null;
     if (notification.userId) {
       const user = await this.prisma.user.findUnique({ where: { id: notification.userId } });
-      recipient = notification.channel === 'SMS' ? user?.phone ?? null : user?.email ?? null;
+      recipient = notification.channel === 'SMS' || notification.channel === 'WHATSAPP' ? user?.phone ?? null : user?.email ?? null;
     } else if (notification.memberId) {
       const member = await this.prisma.member.findUnique({ where: { id: notification.memberId } });
-      recipient = notification.channel === 'SMS' ? member?.mobile ?? null : member?.email ?? null;
+      recipient = notification.channel === 'SMS' || notification.channel === 'WHATSAPP' ? member?.mobile ?? null : member?.email ?? null;
     }
 
     let result: { success: boolean; error?: string } = { success: false, error: 'No recipient' };
@@ -151,6 +153,9 @@ export class NotificationsService {
           break;
         case NotificationChannel.SMS:
           result = await this.sms.send(recipient, notification.content);
+          break;
+        case NotificationChannel.WHATSAPP:
+          result = await this.whatsapp.send(recipient, notification.content);
           break;
         case NotificationChannel.PUSH:
           result = await this.push.send(notification.userId ?? notification.memberId ?? '', notification.title, notification.content);

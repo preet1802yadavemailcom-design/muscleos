@@ -14,7 +14,6 @@ import {
 import { AuditService } from '@shared/services/audit.service';
 import { EncryptionService } from '@shared/services/encryption.service';
 import { LoggerService } from '@shared/services/logger.service';
-import { SmsProvider } from '@modules/notifications/providers/sms.provider';
 import { Decimal } from '@prisma/client/runtime/library';
 
 import {
@@ -25,10 +24,7 @@ import { AttendanceCoreService } from '@modules/attendance/attendance-core.servi
 import { QrService } from '@modules/qr/qr.service';
 
 const KIOSK_TOKEN_TTL = 10 * 60; // seconds
-const SESSION_TOKEN_TTL = 12 * 60 * 60; // seconds — OTP is required once per session
-const OTP_TTL = 10 * 60;
-const OTP_COOLDOWN = 60;
-const MAX_OTP_ATTEMPTS = 5;
+const SESSION_TOKEN_TTL = 12 * 60 * 60; // seconds — issued once per kiosk identification
 
 interface KioskPayload { purpose: 'kiosk'; gymId: string; branchId?: string }
 interface SessionPayload { purpose: 'checkin-session'; gymId: string; mobile: string; branchId?: string }
@@ -43,7 +39,6 @@ export class CheckinService {
     private readonly encryption: EncryptionService,
     private readonly audit: AuditService,
     private readonly logger: LoggerService,
-    private readonly sms: SmsProvider,
     private readonly attendanceCore: AttendanceCoreService,
     private readonly qr: QrService,
   ) {}
@@ -105,14 +100,16 @@ export class CheckinService {
   /* Step 2 — identify by mobile number                                  */
   /* ------------------------------------------------------------------ */
 
-  /** Looks up a member by mobile. Returns their profile + today's
-   *  attendance state, or `registered: false` so the kiosk starts the OTP
-   *  registration flow. If a valid session token is passed, it skips OTP. */
+  /** Looks up a member by mobile/member-code. Returns their full profile
+   *  (including photo, for staff to visually confirm on the kiosk screen)
+   *  plus today's attendance state, and issues a session token straight
+   *  away — no OTP step. Identity is confirmed by staff matching the
+   *  displayed photo to the person in front of them, not by a one-time
+   *  code. If a valid session token is already held, it's reused as-is. */
   async identify(dto: IdentifyMemberDto, sessionToken?: string) {
     const kiosk = await this.verifyToken<KioskPayload>(dto.kioskToken, 'kiosk');
     const mobile = dto.mobile.trim();
 
-    // Session token (OTP verified within the last 12h) → no OTP needed again.
     if (sessionToken) {
       try {
         const session = await this.verifyToken<SessionPayload>(sessionToken, 'checkin-session');
@@ -122,13 +119,14 @@ export class CheckinService {
             return {
               registered: true,
               sessionValid: true,
+              sessionToken,
               member: this.memberSummary(member),
               today: await this.todayState(kiosk.gymId, member.id),
             };
           }
         }
       } catch {
-        // Invalid/expired session token — fall through to OTP.
+        // Invalid/expired session token — fall through to issuing a fresh one.
       }
     }
 
@@ -137,14 +135,28 @@ export class CheckinService {
       return { registered: false, sessionValid: false, member: null, today: null };
     }
 
-    // Pre-OTP: only minimal identity is revealed. Full profile (email, member
-    // code, membership) is returned after the OTP is verified.
+    // No OTP: full profile (with photo) is returned immediately so the kiosk
+    // UI can display it large for staff to visually match against the person
+    // checking in, and a session token is issued in the same step.
+    const newSessionToken = await this.signToken<SessionPayload>(
+      { purpose: 'checkin-session', gymId: kiosk.gymId, mobile, branchId: kiosk.branchId },
+      SESSION_TOKEN_TTL,
+    );
+    await this.audit.log({
+      action: 'MEMBER_IDENTIFIED',
+      entity: 'Member',
+      entityId: member.id,
+      newValue: { mobile, method: 'photo-confirm' },
+      gymId: kiosk.gymId,
+    });
+
     return {
       registered: true,
-      sessionValid: false,
-      member: { id: member.id, firstName: member.firstName, lastName: member.lastName, photo: member.photo },
+      sessionValid: true,
+      sessionToken: newSessionToken,
+      expiresIn: SESSION_TOKEN_TTL,
+      member: this.memberSummary(member),
       today: await this.todayState(kiosk.gymId, member.id),
-      otpRequired: true,
     };
   }
 
@@ -152,96 +164,18 @@ export class CheckinService {
   /* Step 3 — OTP                                                        */
   /* ------------------------------------------------------------------ */
 
-  async sendOtp(dto: SendOtpDto) {
-    const kiosk = await this.verifyToken<KioskPayload>(dto.kioskToken, 'kiosk');
-    const mobile = dto.mobile.trim();
-
-    const cooldownKey = `checkin_otp_cooldown:${kiosk.gymId}:${mobile}`;
-    if (await this.redis.get(cooldownKey)) {
-      throw new ForbiddenException('Please wait a minute before requesting another OTP.');
-    }
-
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    await this.redis.set(`checkin_otp:${kiosk.gymId}:${mobile}`, otp, OTP_TTL);
-    await this.redis.set(cooldownKey, '1', OTP_COOLDOWN);
-
-    // Audit trail row (OTP never stored in plaintext long-term; purpose-tagged).
-    try {
-      await this.prisma.otpVerification.create({
-        data: {
-          phone: mobile,
-          otp: this.encryption.hash(otp),
-          purpose: 'member-registration',
-          expiresAt: new Date(Date.now() + OTP_TTL * 1000),
-        },
-      });
-    } catch (error: any) {
-      this.logger.warn(`OTP audit row failed: ${error.message}`, 'CheckinService');
-    }
-
-    const sent = await this.sms.send(mobile, `Your MuscleOS verification code is ${otp}. It expires in 10 minutes.`);
-    if (!sent.success && this.config.get('app.environment') !== 'production') {
-      // Dev fallback — no SMS provider configured, surface the code in logs.
-      this.logger.warn(`SMS not configured — dev OTP for ${mobile}: ${otp}`, 'CheckinService');
-    } else if (!sent.success) {
-      this.logger.error(`OTP SMS failed for ${mobile}: ${sent.error}`, undefined, 'CheckinService');
-    }
-
-    await this.audit.log({
-      action: 'OTP_SENT',
-      entity: 'Member',
-      newValue: { mobile, purpose: 'member-registration' },
-      gymId: kiosk.gymId,
-    });
-
-    return { message: 'OTP sent', expiresIn: OTP_TTL };
+  /** @deprecated OTP flow removed — kiosk identification now happens via
+   *  `identify()`, which issues a session token immediately and relies on
+   *  staff visually matching the returned photo. Kept only so old kiosk
+   *  frontend builds fail loudly (410) instead of silently breaking, until
+   *  every kiosk is updated to the new flow. Safe to delete afterward. */
+  async sendOtp(_dto: SendOtpDto): Promise<never> {
+    throw new BadRequestException('OTP check-in has been removed. Please update the kiosk app — identification now happens via member lookup + photo confirmation.');
   }
 
-  /** Verifies the OTP and issues a 12-hour session token (OTP once per session). */
-  async verifyOtp(dto: VerifyOtpDto) {
-    const kiosk = await this.verifyToken<KioskPayload>(dto.kioskToken, 'kiosk');
-    const mobile = dto.mobile.trim();
-
-    const attemptsKey = `checkin_otp_attempts:${kiosk.gymId}:${mobile}`;
-    const attempts = Number((await this.redis.get(attemptsKey)) || 0);
-    if (attempts >= MAX_OTP_ATTEMPTS) {
-      throw new ForbiddenException('Too many incorrect attempts. Request a new OTP.');
-    }
-
-    const stored = await this.redis.get(`checkin_otp:${kiosk.gymId}:${mobile}`);
-    if (!stored || stored !== dto.otp) {
-      await this.redis.set(attemptsKey, String(attempts + 1), OTP_TTL);
-      throw new BadRequestException('Invalid or expired OTP');
-    }
-
-    await this.redis.del(`checkin_otp:${kiosk.gymId}:${mobile}`);
-    await this.redis.del(attemptsKey);
-
-    const sessionToken = await this.signToken<SessionPayload>(
-      { purpose: 'checkin-session', gymId: kiosk.gymId, mobile, branchId: kiosk.branchId },
-      SESSION_TOKEN_TTL,
-    );
-
-    await this.audit.log({
-      action: 'OTP_VERIFIED',
-      entity: 'Member',
-      newValue: { mobile },
-      gymId: kiosk.gymId,
-    });
-
-    const member = await this.findMemberByMobile(kiosk.gymId, mobile);
-    // Mark the audit row verified so the trail reflects reality.
-    await this.prisma.otpVerification.updateMany({
-      where: { phone: mobile, purpose: 'member-registration', verified: false },
-      data: { verified: true },
-    });
-    return {
-      sessionToken,
-      expiresIn: SESSION_TOKEN_TTL,
-      registered: !!member,
-      member: member ? this.memberSummary(member) : null,
-      today: member ? await this.todayState(kiosk.gymId, member.id) : null,
-    };
+  /** @deprecated see sendOtp() above. */
+  async verifyOtp(_dto: VerifyOtpDto): Promise<never> {
+    throw new BadRequestException('OTP check-in has been removed. Please update the kiosk app — identification now happens via member lookup + photo confirmation.');
   }
 
   /* ------------------------------------------------------------------ */

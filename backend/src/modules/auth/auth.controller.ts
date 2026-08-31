@@ -2,8 +2,11 @@ import { CurrentUser } from '@common/decorators/current-user.decorator';
 import { Public } from '@common/decorators/public.decorator';
 import { JwtAuthGuard } from '@common/guards/jwt-auth.guard';
 import { TwoFactorSetupGuard } from '@common/guards/two-factor-setup.guard';
-import { Controller, Post, Body, HttpCode, HttpStatus, Ip, Headers, UseGuards, Get, Delete, Param } from '@nestjs/common';
+import { Controller, Post, Body, HttpCode, HttpStatus, Ip, Headers, UseGuards, Get, Delete, Param, Req, Res } from '@nestjs/common';
+import { AuthGuard } from '@nestjs/passport';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
+import type { Request, Response } from 'express';
+import { ConfigService } from '@nestjs/config';
 
 import { AuthService } from './auth.service';
 import { TwoFactorService } from './two-factor.service';
@@ -17,7 +20,29 @@ export class AuthController {
     private readonly authService: AuthService,
     private readonly twoFactor: TwoFactorService,
     private readonly stepUp: StepUpService,
+    private readonly config: ConfigService,
   ) {}
+
+  @Public()
+  @Get('google')
+  @UseGuards(AuthGuard('google'))
+  @ApiOperation({ summary: 'Start Google login — redirects to Google\'s consent screen' })
+  async googleLogin() {
+    // Guard handles the redirect to Google; nothing to do here.
+  }
+
+  @Public()
+  @Get('google/callback')
+  @UseGuards(AuthGuard('google'))
+  @ApiOperation({ summary: 'Google login callback — issues tokens and redirects to the frontend' })
+  async googleCallback(@Req() req: Request, @Res() res: Response, @Ip() ip: string, @Headers('user-agent') deviceInfo: string) {
+    const user = req.user as any;
+    const session = await this.authService.issueSessionForOAuthUser(user, ip, deviceInfo);
+    const frontendUrl = this.config.get('app.frontendUrl', 'http://localhost:5173');
+    // Tokens are passed via URL fragment (not query) so they never hit server
+    // logs; the frontend route at /auth/callback reads window.location.hash.
+    res.redirect(`${frontendUrl}/auth/callback#accessToken=${session.accessToken}&refreshToken=${session.refreshToken}`);
+  }
 
   @Public()
   @Post('login')
