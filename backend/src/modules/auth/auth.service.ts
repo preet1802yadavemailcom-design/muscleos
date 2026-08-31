@@ -377,6 +377,9 @@ export class AuthService {
   async changePassword(userId: string, currentPassword: string, newPassword: string) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw new BadRequestException('User not found');
+    if (!user.password) {
+      throw new BadRequestException('This account signed up with Google and has no password set. Use "Set a password" instead.');
+    }
 
     const valid = await bcrypt.compare(currentPassword, user.password);
     if (!valid) throw new BadRequestException('Current password is incorrect');
@@ -548,7 +551,7 @@ export class AuthService {
    *  without going through the full rate-limited /login flow. */
   async verifyPassword(userId: string, password: string): Promise<boolean> {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
-    if (!user) return false;
+    if (!user || !user.password) return false;
     return bcrypt.compare(password, user.password);
   }
 }

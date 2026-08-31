@@ -29,6 +29,7 @@ export class StepUpService {
   async verify(userId: string, password: string, twoFactorCode?: string) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw new UnauthorizedException('Account not found');
+    if (!user.password) throw new UnauthorizedException('This account has no password set (signed up with Google)');
 
     const passwordOk = await bcrypt.compare(password, user.password);
     if (!passwordOk) {
