@@ -109,16 +109,6 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
 
   onModuleInit() {
     const redisUrl = this.configService.get('app.redisUrl');
-    // TEMP DEBUG — logs exactly what URL the app received at runtime, with
-    // the password masked, so we can see if Render is passing something
-    // different than what's shown in the dashboard. Safe to remove once
-    // the connection issue is confirmed fixed.
-    try {
-      const masked = String(redisUrl).replace(/:\/\/([^:]+):[^@]+@/, '://$1:****@');
-      this.logger.warn(`[DEBUG] Resolved REDIS_URL at runtime: "${masked}" (length: ${String(redisUrl).length})`);
-    } catch {
-      this.logger.warn('[DEBUG] Could not mask/log redisUrl');
-    }
     const options = {
       retryStrategy: (times: number) => Math.min(times * 50, 2000),
       // Fail fast instead of queueing commands while Redis is down; commands
