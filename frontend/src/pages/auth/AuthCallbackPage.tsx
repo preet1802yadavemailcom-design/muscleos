@@ -28,7 +28,8 @@ export function AuthCallbackPage() {
           headers: { Authorization: `Bearer ${accessToken}` },
         });
         setAuth(res.data, accessToken, refreshToken);
-        navigate('/', { replace: true });
+        const profileIncomplete = params.get('profileIncomplete') === '1';
+        navigate(profileIncomplete ? '/complete-profile' : '/', { replace: true });
       } catch {
         navigate('/login', { replace: true, state: { error: 'Google sign-in failed — please try again.' } });
       }

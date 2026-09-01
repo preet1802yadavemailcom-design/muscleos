@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '@database/prisma.service';
 import { AuditService } from '@shared/services/audit.service';
 
@@ -65,6 +65,41 @@ export class ProfileService {
     await this.audit.log({
       action: 'PROFILE_UPDATED', entity: 'User', entityId: userId, userId, gymId: user.gymId ?? undefined,
       newValue: { firstName, lastName, phone, hasNewPhoto: photo !== undefined },
+    });
+
+    return this.getMine(userId);
+  }
+
+  /** Lets a Google-signup member (who has a User account but no gym yet —
+   *  see AuthService.findOrCreateGoogleUser's "profileIncomplete" branch)
+   *  claim their existing Member profile using their member code + mobile,
+   *  the same two facts staff/reception already share with every member.
+   *  Once linked, this account behaves exactly like any other member login. */
+  async linkMemberByCode(userId: string, memberCode: string, mobile: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new NotFoundException('User not found');
+    if (user.gymId) {
+      throw new BadRequestException('This account is already linked to a gym.');
+    }
+
+    const member = await this.prisma.member.findFirst({
+      where: { memberCode: memberCode.trim(), mobile: mobile.trim() },
+    });
+    if (!member) {
+      throw new NotFoundException('No member found with that member code and mobile number — please check with your gym.');
+    }
+    if (member.userId && member.userId !== userId) {
+      throw new BadRequestException('This member profile is already linked to another account.');
+    }
+
+    await this.prisma.$transaction([
+      this.prisma.member.update({ where: { id: member.id }, data: { userId } }),
+      this.prisma.user.update({ where: { id: userId }, data: { gymId: member.gymId } }),
+    ]);
+
+    await this.audit.log({
+      action: 'MEMBER_ACCOUNT_LINKED', entity: 'Member', entityId: member.id, userId, gymId: member.gymId,
+      newValue: { method: 'member-code' },
     });
 
     return this.getMine(userId);

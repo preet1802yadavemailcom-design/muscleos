@@ -41,7 +41,10 @@ export class AuthController {
     const frontendUrl = this.config.get('app.frontendUrl', 'http://localhost:5173');
     // Tokens are passed via URL fragment (not query) so they never hit server
     // logs; the frontend route at /auth/callback reads window.location.hash.
-    res.redirect(`${frontendUrl}/auth/callback#accessToken=${session.accessToken}&refreshToken=${session.refreshToken}`);
+    // `profileIncomplete` tells the frontend to send brand-new members to a
+    // "join a gym" step instead of a dashboard that has no data to show yet.
+    const incompleteFlag = user.profileIncomplete ? '&profileIncomplete=1' : '';
+    res.redirect(`${frontendUrl}/auth/callback#accessToken=${session.accessToken}&refreshToken=${session.refreshToken}${incompleteFlag}`);
   }
 
   @Public()

@@ -213,9 +213,13 @@ export class AuthService {
     let user = await this.prisma.user.findFirst({ where: { googleId: profile.googleId }, include: { gym: true } });
     if (user) return user;
 
-    // Same email already registered with a password → link the Google
-    // account to it instead of creating a duplicate.
-    const existingByEmail = await this.prisma.user.findFirst({ where: { email: profile.email, gymId: null } });
+    // Same email already has a User account (owner/trainer/reception, or a
+    // member who previously registered with a password) → link Google to
+    // it instead of creating a duplicate. Not scoped to gymId:null anymore —
+    // that was a bug that meant this branch never matched staff accounts
+    // (which always have a gymId set), so only fresh Google-only signups
+    // ever "worked", and only for whichever account happened to sign up first.
+    const existingByEmail = await this.prisma.user.findFirst({ where: { email: profile.email } });
     if (existingByEmail) {
       user = await this.prisma.user.update({
         where: { id: existingByEmail.id },
@@ -225,6 +229,38 @@ export class AuthService {
       return user;
     }
 
+    // No User account yet — but a Member profile might already exist for
+    // this email (created by staff, or via kiosk self-registration) without
+    // ever having logged into the website. Link Google sign-in to that
+    // member instead of creating an orphan account with no gym/membership
+    // data, which is what silently broke Google login for members before.
+    const existingMember = await this.prisma.member.findFirst({
+      where: { email: profile.email, userId: null },
+    });
+    if (existingMember) {
+      user = await this.prisma.user.create({
+        data: {
+          email: profile.email,
+          googleId: profile.googleId,
+          password: null,
+          firstName: profile.firstName,
+          lastName: profile.lastName,
+          avatar: profile.avatar,
+          role: UserRole.MEMBER,
+          gymId: existingMember.gymId,
+          status: UserStatus.ACTIVE,
+          emailVerified: true,
+        },
+        include: { gym: true },
+      });
+      await this.prisma.member.update({ where: { id: existingMember.id }, data: { userId: user.id } });
+      this.logger.log(`Linked Google sign-in to existing member profile: ${user.email}`, 'AuthService', { userId: user.id, memberId: existingMember.id });
+      return user;
+    }
+
+    // Genuinely new person, no gym/member context yet — create the account
+    // but flag it so the frontend can route them to "join a gym" / complete
+    // their profile instead of a member dashboard that would show nothing.
     user = await this.prisma.user.create({
       data: {
         email: profile.email,
@@ -240,8 +276,8 @@ export class AuthService {
       },
       include: { gym: true },
     });
-    this.logger.log(`New user registered via Google: ${user.email}`, 'AuthService', { userId: user.id });
-    return user;
+    this.logger.log(`New user registered via Google (no gym yet): ${user.email}`, 'AuthService', { userId: user.id });
+    return { ...user, profileIncomplete: true };
   }
 
   async register(dto: RegisterDto) {    // Always MEMBER, always no gym at signup time (see RegisterDto for why

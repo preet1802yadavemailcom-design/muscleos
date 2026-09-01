@@ -5,6 +5,7 @@ import { RoleRoute } from '@components/auth/RoleRoute';
 import { LoginPage } from '@pages/auth/LoginPage';
 import { WelcomePage } from '@pages/auth/WelcomePage';
 import { AuthCallbackPage } from '@pages/auth/AuthCallbackPage';
+import { CompleteProfilePage } from '@pages/auth/CompleteProfilePage';
 import { TwoFactorSetupPage } from '@pages/auth/TwoFactorSetupPage';
 import { TwoFactorVerifyPage } from '@pages/auth/TwoFactorVerifyPage';
 import { RegisterPage } from '@pages/auth/RegisterPage';
@@ -64,6 +65,7 @@ function App() {
       <Route path="/welcome" element={<WelcomePage />} />
       <Route path="/login" element={<LoginPage />} />
       <Route path="/auth/callback" element={<AuthCallbackPage />} />
+      <Route path="/complete-profile" element={<CompleteProfilePage />} />
       <Route path="/2fa-setup" element={<TwoFactorSetupPage />} />
       <Route path="/2fa-verify" element={<TwoFactorVerifyPage />} />
       <Route path="/register" element={<RegisterPage />} />
