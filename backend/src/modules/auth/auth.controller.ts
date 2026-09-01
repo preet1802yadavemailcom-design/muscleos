@@ -102,6 +102,7 @@ export class AuthController {
   }
 
   @Post('change-password')
+  @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
   @ApiBearerAuth('access-token')
   @ApiOperation({ summary: "Change the logged-in user's own password" })

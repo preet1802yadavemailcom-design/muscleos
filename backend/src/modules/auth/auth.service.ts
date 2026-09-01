@@ -441,9 +441,15 @@ export class AuthService {
     const storedOtp = await this.redis.get(`otp:${dto.email}`);
     if (!storedOtp || storedOtp !== dto.otp) throw new BadRequestException('Invalid or expired OTP');
     const user = await this.prisma.user.findFirst({ where: { email: dto.email } });
+    if (!user) throw new BadRequestException('No account found for this email');
     const hashedPassword = await bcrypt.hash(dto.newPassword, 12);
-    await this.prisma.user.updateMany({
-      where: { email: dto.email },
+    // Scoped to this ONE user's id — this used to be updateMany({where:{email}}),
+    // which would silently reset the password on every account sharing that
+    // email across every gym (the schema allows the same email in multiple
+    // gyms via @@unique([email, gymId])). One tenant's password-reset flow
+    // must never be able to touch another tenant's account.
+    await this.prisma.user.update({
+      where: { id: user.id },
       data: { password: hashedPassword, loginAttempts: 0, lockedUntil: null },
     });
     await this.redis.del(`otp:${dto.email}`);
