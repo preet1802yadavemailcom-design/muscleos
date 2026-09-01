@@ -395,12 +395,35 @@ export class MembershipsService {
       where: expiringWhere,
       include: { member: { select: { id: true, firstName: true, lastName: true, mobile: true, email: true } } },
     });
-    // NOTE: actual SMS/email dispatch wired up in Module 12 (Notifications) — this just marks reminders as due.
+    // Actually send the reminder now (previously this only flagged
+    // renewalReminderSent without ever dispatching anything — the comment
+    // said "wired up in Module 12" but that wiring was never done).
     if (expiringSoon.length) {
       await this.prisma.membership.updateMany({
         where: { id: { in: expiringSoon.map((m) => m.id) } },
         data: { renewalReminderSent: true },
       });
+      for (const m of expiringSoon) {
+        if (!m.member) continue;
+        const daysLeft = Math.ceil((m.endDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+        const content = `Hi ${m.member.firstName}, your membership expires in ${daysLeft} day${daysLeft === 1 ? '' : 's'} (${m.endDate.toLocaleDateString()}). Renew now to keep your access.`;
+        this.notifications.send(m.gymId, {
+          type: 'MEMBERSHIP_EXPIRY' as any,
+          channel: 'WHATSAPP' as any,
+          memberId: m.member.id,
+          content,
+          title: 'Membership expiring soon',
+        } as any).catch(() => undefined);
+        if (m.member.email) {
+          this.notifications.send(m.gymId, {
+            type: 'MEMBERSHIP_EXPIRY' as any,
+            channel: NotificationChannel.EMAIL,
+            memberId: m.member.id,
+            content,
+            title: 'Membership expiring soon',
+          } as any).catch(() => undefined);
+        }
+      }
     }
     return { expiredCount: expired.count, remindersDue: expiringSoon };
   }

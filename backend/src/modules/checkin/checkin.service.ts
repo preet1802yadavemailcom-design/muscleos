@@ -23,6 +23,7 @@ import {
 import { distanceMeters } from '@common/utils/geo.util';
 import { AttendanceCoreService } from '@modules/attendance/attendance-core.service';
 import { QrService } from '@modules/qr/qr.service';
+import { NotificationsService } from '@modules/notifications/notifications.service';
 
 const KIOSK_TOKEN_TTL = 10 * 60; // seconds
 const SESSION_TOKEN_TTL = 12 * 60 * 60; // seconds — issued once per kiosk identification
@@ -42,6 +43,7 @@ export class CheckinService {
     private readonly logger: LoggerService,
     private readonly attendanceCore: AttendanceCoreService,
     private readonly qr: QrService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   /* ------------------------------------------------------------------ */
@@ -312,6 +314,15 @@ export class CheckinService {
       newValue: { memberId: member.id, source: 'kiosk', deviceType: dto.deviceType, location: dto.location },
       gymId: session.gymId,
     });
+    // Best-effort — WhatsApp/notification failures must never fail the
+    // actual check-in itself.
+    this.notifications.send(session.gymId, {
+      type: 'ATTENDANCE' as any,
+      channel: 'WHATSAPP' as any,
+      memberId: member.id,
+      content: `Hi ${member.firstName}, you're checked in at ${new Date().toLocaleTimeString()}. Have a great workout!`,
+      title: 'Check-in confirmed',
+    } as any).catch(() => undefined);
     return attendance;
   }
 
@@ -330,7 +341,7 @@ export class CheckinService {
       throw new BadRequestException('Attendance already completed for today.');
     }
 
-    return this.attendanceCore.closeOpenSession({
+    const result = await this.attendanceCore.closeOpenSession({
       member,
       gymId: session.gymId,
       branchId: session.branchId ?? member.branchId,
@@ -339,6 +350,14 @@ export class CheckinService {
       deviceType: dto.deviceType,
       location: dto.location,
     });
+    this.notifications.send(session.gymId, {
+      type: 'ATTENDANCE' as any,
+      channel: 'WHATSAPP' as any,
+      memberId: member.id,
+      content: `Hi ${member.firstName}, you're checked out. See you next time!`,
+      title: 'Check-out confirmed',
+    } as any).catch(() => undefined);
+    return result;
   }
 
   /* ------------------------------------------------------------------ */

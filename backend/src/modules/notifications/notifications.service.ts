@@ -136,12 +136,15 @@ export class NotificationsService {
     if (!notification) return;
 
     let recipient: string | null = null;
+    let recipientName = 'there';
     if (notification.userId) {
       const user = await this.prisma.user.findUnique({ where: { id: notification.userId } });
       recipient = notification.channel === 'SMS' || notification.channel === 'WHATSAPP' ? user?.phone ?? null : user?.email ?? null;
+      if (user?.firstName) recipientName = user.firstName;
     } else if (notification.memberId) {
       const member = await this.prisma.member.findUnique({ where: { id: notification.memberId } });
       recipient = notification.channel === 'SMS' || notification.channel === 'WHATSAPP' ? member?.mobile ?? null : member?.email ?? null;
+      if (member?.firstName) recipientName = member.firstName;
     }
 
     let result: { success: boolean; error?: string } = { success: false, error: 'No recipient' };
@@ -155,7 +158,13 @@ export class NotificationsService {
           result = await this.sms.send(recipient, notification.content);
           break;
         case NotificationChannel.WHATSAPP:
-          result = await this.whatsapp.send(recipient, notification.content);
+          // WhatsApp policy requires an approved template for any
+          // business-initiated message outside a 24h customer session —
+          // which every one of these (check-in confirmation, payment
+          // receipt, expiry reminder) is. "muscleos_alert" is the generic
+          // two-variable template approved in Meta Business Manager:
+          // {{1}} = recipient's name, {{2}} = the already-resolved message.
+          result = await this.whatsapp.sendTemplate(recipient, 'muscleos_alert', 'en', [recipientName, notification.content]);
           break;
         case NotificationChannel.PUSH:
           result = await this.push.send(notification.userId ?? notification.memberId ?? '', notification.title, notification.content);

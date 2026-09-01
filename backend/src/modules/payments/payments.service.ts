@@ -11,6 +11,7 @@ import { VerifyRazorpayPaymentDto } from './dto/verify-payment.dto';
 import { RazorpayGateway } from './gateways/razorpay.gateway';
 import { StripeGateway } from './gateways/stripe.gateway';
 import { InvoiceGenerator } from './invoice.generator';
+import { NotificationsService } from '@modules/notifications/notifications.service';
 
 @Injectable()
 export class PaymentsService {
@@ -21,6 +22,7 @@ export class PaymentsService {
     private readonly razorpay: RazorpayGateway,
     private readonly stripe: StripeGateway,
     private readonly invoiceGenerator: InvoiceGenerator,
+    private readonly notifications: NotificationsService,
   ) {}
 
   private async nextSequence(gymId: string, prefix: 'RCPT' | 'INV') {
@@ -290,6 +292,19 @@ export class PaymentsService {
       // In production this buffer is uploaded to S3/GCS and invoiceUrl set to the public URL.
     } catch (err) {
       this.logger.error(`Invoice generation failed for payment ${paymentId}: ${err}`, undefined, 'PaymentsService');
+    }
+
+    // Best-effort — a failed WhatsApp send must never fail the payment
+    // itself, which is why this comes after the invoice generation and is
+    // caught independently rather than allowed to throw.
+    if (payment.member) {
+      this.notifications.send(gymId, {
+        type: 'PAYMENT_SUCCESS' as any,
+        channel: 'WHATSAPP' as any,
+        memberId: payment.member.id,
+        content: `Hi ${payment.member.firstName}, we received your payment of ₹${Number(payment.total).toFixed(2)}. Receipt #${payment.receiptNumber}. Thank you!`,
+        title: 'Payment received',
+      } as any).catch(() => undefined);
     }
 
     return this.prisma.payment.findFirst({ where: { id: paymentId } });
