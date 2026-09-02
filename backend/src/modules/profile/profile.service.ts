@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '@database/prisma.service';
 import { AuditService } from '@shared/services/audit.service';
+import { PushProvider } from '@modules/notifications/providers/push.provider';
 
 import { UpdateMyProfileDto } from './dto/update-my-profile.dto';
 
@@ -9,6 +10,7 @@ export class ProfileService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly push: PushProvider,
   ) {}
 
   async getMine(userId: string) {
@@ -103,5 +105,15 @@ export class ProfileService {
     });
 
     return this.getMine(userId);
+  }
+
+  /** Registers this device for push notifications — called right after the
+   *  browser/app grants notification permission and gets an FCM token. */
+  async registerPushToken(userId: string, token: string, platform?: string) {
+    return this.push.registerToken(userId, token, platform);
+  }
+
+  async unregisterPushToken(token: string) {
+    return this.push.unregisterToken(token);
   }
 }

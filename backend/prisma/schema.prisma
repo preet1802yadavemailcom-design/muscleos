@@ -371,6 +371,7 @@ model User {
   branchId      String?    // staff assignment scope; null for SUPER_ADMIN/GYM_OWNER (org-wide) and MEMBER (see Member.userId)
   branch        Branch?    @relation(fields: [branchId], references: [id])
   memberProfile Member?    @relation("MemberUser")
+  pushTokens    PushToken[]
   emailVerified Boolean    @default(false)
   phoneVerified Boolean    @default(false)
   whatsappVerified Boolean @default(false)
@@ -413,6 +414,20 @@ model RefreshToken {
   @@index([userId])
   @@index([token])
   @@map("refresh_tokens")
+}
+
+/// One row per device a user has enabled push notifications on — a user
+/// can have multiple (phone + laptop, etc). Tokens are opaque FCM
+/// registration tokens from the frontend; deleted automatically if FCM
+/// reports them as unregistered/invalid when sending.
+model PushToken {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String   @unique
+  platform  String   @default("web")
+  createdAt DateTime @default(now())
+  @@index([userId])
 }
 
 model UserSession {
