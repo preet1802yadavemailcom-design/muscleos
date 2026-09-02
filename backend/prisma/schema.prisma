@@ -373,6 +373,7 @@ model User {
   memberProfile Member?    @relation("MemberUser")
   emailVerified Boolean    @default(false)
   phoneVerified Boolean    @default(false)
+  whatsappVerified Boolean @default(false)
   lastLoginAt   DateTime?
   loginAttempts Int        @default(0)
   lockedUntil   DateTime?

@@ -74,10 +74,27 @@ export class AuthController {
 
   @Public()
   @Post('resend-otp')
+  @Public()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Resend email verification OTP' })
   async resendOtp(@Body('email') email: string) {
     return this.authService.sendVerificationOtp(email);
+  }
+
+  @Post('verify-whatsapp')
+  @Public()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Verify WhatsApp OTP — activates the account (final step for members; step two for gym owners after email)' })
+  async verifyWhatsapp(@Body('userId') userId: string, @Body('otp') otp: string) {
+    return this.authService.verifyWhatsappOtp(userId, otp);
+  }
+
+  @Post('resend-whatsapp-otp')
+  @Public()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Resend the WhatsApp verification code' })
+  async resendWhatsappOtp(@Body('userId') userId: string) {
+    return this.authService.sendWhatsappVerificationOtp(userId);
   }
 
   @Public()

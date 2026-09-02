@@ -5,11 +5,13 @@ import { Dumbbell } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import api from '@services/api';
 
-export function VerifyOtpPage() {
+/** Step two of gym-owner onboarding (after email) — also the ONLY
+ *  verification step for member self-signup, which skips email entirely
+ *  and goes straight to WhatsApp. Both flows land here with a userId. */
+export function VerifyWhatsappPage() {
   const navigate = useNavigate();
   const location = useLocation();
-  const email = (location.state as { email?: string; userId?: string })?.email || '';
-  const userId = (location.state as { email?: string; userId?: string })?.userId || '';
+  const userId = (location.state as { userId?: string })?.userId || '';
 
   const [otp, setOtp] = useState<string[]>(new Array(6).fill(''));
   const [isLoading, setIsLoading] = useState(false);
@@ -44,19 +46,16 @@ export function VerifyOtpPage() {
       setError('Enter the full 6-digit code');
       return;
     }
+    if (!userId) {
+      setError('Missing account reference — please restart sign-up.');
+      return;
+    }
     try {
       setIsLoading(true);
       setError('');
-      const res: any = await api.post('/auth/verify-email', { email, otp: code });
+      await api.post('/auth/verify-whatsapp', { userId, otp: code });
       setSuccess(true);
-      if (res.data?.requiresWhatsappVerification && userId) {
-        // Gym owners have a second step — WhatsApp — before their account
-        // activates. The OTP for that was already auto-sent by the backend
-        // right after this email verification succeeded.
-        setTimeout(() => navigate('/verify-whatsapp', { state: { userId } }), 1200);
-      } else {
-        setTimeout(() => navigate('/login'), 1200);
-      }
+      setTimeout(() => navigate('/login'), 1200);
     } catch (err: any) {
       setError(err.response?.data?.message || 'Invalid or expired code');
     } finally {
@@ -66,7 +65,7 @@ export function VerifyOtpPage() {
 
   const resendOtp = async () => {
     try {
-      await api.post('/auth/resend-otp', { email });
+      await api.post('/auth/resend-whatsapp-otp', { userId });
       setResendCooldown(30);
     } catch {
       // silently ignore, user can retry
@@ -85,15 +84,15 @@ export function VerifyOtpPage() {
           <div className="mx-auto h-16 w-16 rounded-2xl bg-primary flex items-center justify-center mb-4">
             <Dumbbell className="h-8 w-8 text-primary-foreground" />
           </div>
-          <h2 className="text-3xl font-bold tracking-tight">Verify your email</h2>
+          <h2 className="text-3xl font-bold tracking-tight">Verify your WhatsApp</h2>
           <p className="mt-2 text-muted-foreground">
-            Enter the 6-digit code sent to {email || 'your email'}
+            Enter the 6-digit code sent to your WhatsApp number
           </p>
         </div>
 
         {success ? (
           <div className="rounded-lg bg-green-500/10 p-4 text-sm text-green-600 text-center">
-            {userId ? 'Email verified! One more step — check WhatsApp...' : 'Email verified! Redirecting to sign in...'}
+            WhatsApp verified! Your account is active — redirecting to sign in...
           </div>
         ) : (
           <div className="space-y-6">

@@ -67,7 +67,8 @@ export class GymsService {
 
     return {
       gym: { id: gym.id, name: gym.name, slug: gym.slug, status: gym.status },
-      message: 'Gym registered — pending approval. Please verify your email with the OTP sent, then wait for Super Admin approval.',
+      ownerId: owner.id,
+      message: 'Gym registered. Step 1 of 2: verify your email with the OTP just sent. Step 2 (WhatsApp) will follow automatically, then your account activates pending Super Admin approval.',
     };
   }
 

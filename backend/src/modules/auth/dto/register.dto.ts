@@ -31,8 +31,8 @@ export class RegisterDto {
   @IsString()
   lastName: string;
 
-  @ApiPropertyOptional()
-  @IsOptional()
+  @ApiProperty({ description: 'Required — used for WhatsApp verification, the only verification channel for member self-signup' })
   @IsString()
-  phone?: string;
+  @MinLength(8)
+  phone: string;
 }

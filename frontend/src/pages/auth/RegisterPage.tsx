@@ -44,7 +44,7 @@ export function RegisterPage() {
     try {
       setIsLoading(true);
       setError('');
-      await api.post('/gyms/register', {
+      const res: any = await api.post('/gyms/register', {
         gymName: data.gymName,
         gymEmail: data.email,
         gymPhone: data.phone,
@@ -55,7 +55,10 @@ export function RegisterPage() {
         password: data.password,
       });
       setSuccess(true);
-      setTimeout(() => navigate('/verify-otp', { state: { email: data.email } }), 1200);
+      setTimeout(
+        () => navigate('/verify-otp', { state: { email: data.email, userId: res.data?.ownerId } }),
+        1200,
+      );
     } catch (err: any) {
       const msg = err.response?.data?.message;
       setError(Array.isArray(msg) ? msg.join(', ') : msg || 'Registration failed');

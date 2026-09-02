@@ -8,6 +8,7 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { UserRole, UserStatus } from '@prisma/client';
 import { EmailProvider } from '@modules/notifications/providers/email.provider';
+import { WhatsappProvider } from '@modules/notifications/providers/whatsapp.provider';
 import { AuditService } from '@shared/services/audit.service';
 import { EncryptionService } from '@shared/services/encryption.service';
 import { LoggerService } from '@shared/services/logger.service';
@@ -34,6 +35,7 @@ export class AuthService {
     private readonly logger: LoggerService,
     private readonly audit: AuditService,
     private readonly email: EmailProvider,
+    private readonly whatsapp: WhatsappProvider,
     private readonly twoFactor: TwoFactorService,
   ) {}
 
@@ -300,8 +302,74 @@ export class AuthService {
       },
     });
     this.logger.log(`New user registered: ${user.email}`, 'AuthService', { userId: user.id });
-    await this.sendVerificationOtp(user.email);
-    return { user: this.sanitizeUser(user), message: 'Registered. Please verify your email with the OTP sent.' };
+    // Members verify via WhatsApp only — no email OTP step. Email/password
+    // are still used for login itself, just not for verifying identity.
+    await this.sendWhatsappVerificationOtp(user.id);
+    return { user: this.sanitizeUser(user), message: 'Registered. Please verify your WhatsApp number with the code sent.' };
+  }
+
+  /** Generates a 6-digit OTP, stores it keyed by userId (not phone — a
+   *  phone number could theoretically be reused/changed), and sends it via
+   *  WhatsApp using the generic approved template. Used for both member
+   *  self-signup and the second step of gym-owner onboarding. */
+  async sendWhatsappVerificationOtp(userId: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new BadRequestException('User not found');
+    if (!user.phone) throw new BadRequestException('No phone number on file to send WhatsApp verification to.');
+
+    const cooldownKey = `whatsapp_otp_cooldown:${userId}`;
+    if (await this.redis.get(cooldownKey)) {
+      throw new ForbiddenException('Please wait before requesting another code.');
+    }
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    await this.redis.set(`whatsapp_otp:${userId}`, otp, 600); // 10 min
+    await this.redis.set(cooldownKey, '1', OTP_RESEND_COOLDOWN_SECONDS);
+
+    const sent = await this.whatsapp.sendTemplate(user.phone, 'muscleos_alert', 'en', [
+      user.firstName,
+      `Your MuscleOS verification code is ${otp}. It expires in 10 minutes.`,
+    ]);
+    if (!sent.success) {
+      this.logger.warn(`WhatsApp OTP send failed for user ${userId}: ${sent.error}`, 'AuthService');
+    }
+    return { message: 'Verification code sent via WhatsApp' };
+  }
+
+  /** Verifies the WhatsApp OTP. For GYM_OWNER accounts, this is step two of
+   *  onboarding (after email) and only now flips status to ACTIVE. For
+   *  MEMBER self-signup, this is the only verification step required. */
+  async verifyWhatsappOtp(userId: string, otp: string) {
+    const stored = await this.redis.get(`whatsapp_otp:${userId}`);
+    if (!stored || stored !== otp) throw new BadRequestException('Invalid or expired code');
+
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new BadRequestException('User not found');
+
+    // Gym owners must have already verified email first — WhatsApp is step
+    // two, not a way to skip email verification.
+    const readyToActivate = user.role === UserRole.GYM_OWNER ? user.emailVerified : true;
+
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        whatsappVerified: true,
+        ...(readyToActivate ? { status: UserStatus.ACTIVE } : {}),
+      },
+    });
+    await this.redis.del(`whatsapp_otp:${userId}`);
+    await this.redis.del(`whatsapp_otp_cooldown:${userId}`);
+
+    await this.audit.log({
+      action: 'WHATSAPP_VERIFIED', entity: 'User', entityId: userId, userId, gymId: user.gymId ?? undefined,
+    });
+
+    return {
+      message: readyToActivate
+        ? 'WhatsApp verified — your account is now active.'
+        : 'WhatsApp verified — please also verify your email to activate your account.',
+      active: readyToActivate,
+    };
+  }
   }
 
   /** Generates + stores a 6-digit OTP for registration email verification, then emails it to the user. */
@@ -322,9 +390,19 @@ export class AuthService {
     if (!stored || stored !== dto.otp) throw new BadRequestException('Invalid or expired OTP');
     const user = await this.prisma.user.findFirst({ where: { email: dto.email } });
     if (!user) throw new BadRequestException('User not found');
+
+    // Gym owners have a second step (WhatsApp) before their account
+    // activates — email alone is no longer sufficient for that role. Other
+    // roles created through this flow (e.g. staff invited by an owner)
+    // still activate on email alone, matching the previous behavior.
+    const isOwnerNeedingWhatsapp = user.role === UserRole.GYM_OWNER && !user.whatsappVerified;
+
     await this.prisma.user.update({
       where: { id: user.id },
-      data: { emailVerified: true, status: UserStatus.ACTIVE },
+      data: {
+        emailVerified: true,
+        ...(isOwnerNeedingWhatsapp ? {} : { status: UserStatus.ACTIVE }),
+      },
     });
     await this.redis.del(`verify_otp:${dto.email}`);
     await this.audit.log({
@@ -334,6 +412,18 @@ export class AuthService {
       userId: user.id,
       gymId: user.gymId ?? undefined,
     });
+
+    if (isOwnerNeedingWhatsapp) {
+      // Automatically kick off step two so the owner doesn't have to find
+      // a separate button — they just get a WhatsApp message right after
+      // confirming their email.
+      if (user.phone) {
+        await this.sendWhatsappVerificationOtp(user.id).catch((err) =>
+          this.logger.warn(`Could not auto-send WhatsApp OTP after email verify: ${err.message}`, 'AuthService'),
+        );
+      }
+      return { message: 'Email verified. Please also verify your WhatsApp number to activate your account.', requiresWhatsappVerification: true };
+    }
 
     // Best-effort — email verification succeeding must not be blocked by a
     // welcome-email send failure. Uses the same inline-HTML pattern as the

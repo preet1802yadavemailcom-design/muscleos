@@ -12,6 +12,7 @@ import { RegisterPage } from '@pages/auth/RegisterPage';
 import { ForgotPasswordPage } from '@pages/auth/ForgotPasswordPage';
 import { ResetPasswordPage } from '@pages/auth/ResetPasswordPage';
 import { VerifyOtpPage } from '@pages/auth/VerifyOtpPage';
+import { VerifyWhatsappPage } from '@pages/auth/VerifyWhatsappPage';
 import { DashboardPage } from '@pages/dashboard/DashboardPage';
 import { SuperAdminDashboardPage } from '@pages/dashboard/SuperAdminDashboardPage';
 import { OwnerDashboardPage } from '@pages/dashboard/OwnerDashboardPage';
@@ -34,6 +35,7 @@ import { OrganizationsPage } from '@pages/super-admin/OrganizationsPage';
 import { PlansPage } from '@pages/super-admin/PlansPage';
 import { AuditLogsPage } from '@pages/super-admin/AuditLogsPage';
 import { SupportTicketsPage } from '@pages/super-admin/SupportTicketsPage';
+import { SupportTicketsPage as MySupportTicketsPage } from '@pages/support/SupportTicketsPage';
 
 const ROLES = {
   SUPER_ADMIN: 'SUPER_ADMIN',
@@ -72,6 +74,7 @@ function App() {
       <Route path="/forgot-password" element={<ForgotPasswordPage />} />
       <Route path="/reset-password" element={<ResetPasswordPage />} />
       <Route path="/verify-otp" element={<VerifyOtpPage />} />
+      <Route path="/verify-whatsapp" element={<VerifyWhatsappPage />} />
       <Route path="/checkin" element={<CheckInPage />} />
       <Route path="/gym/:slug" element={<PublicProfilePage />} />
 
@@ -148,6 +151,14 @@ function App() {
           element={
             <RoleRoute allowedRoles={[ROLES.GYM_OWNER, ROLES.TRAINER, ROLES.RECEPTION, ROLES.MEMBER]}>
               <AttendancePage />
+            </RoleRoute>
+          }
+        />
+        <Route
+          path="support"
+          element={
+            <RoleRoute allowedRoles={[ROLES.GYM_OWNER, ROLES.TRAINER, ROLES.RECEPTION, ROLES.MEMBER]}>
+              <MySupportTicketsPage />
             </RoleRoute>
           }
         />
