@@ -491,6 +491,9 @@ model Member {
   referralCode    String?  @unique
   status          UserStatus @default(ACTIVE)
   joinDate        DateTime @default(now())
+  currentStreak   Int      @default(0)  // consecutive days checked in, ending on the most recent visit day
+  longestStreak   Int      @default(0)
+  lastStreakDate  DateTime? // date (day-precision) of the last check-in counted toward the streak, for gap detection
   gymId           String
   gym             Gym      @relation(fields: [gymId], references: [id], onDelete: Cascade)
   branchId        String?
@@ -637,6 +640,8 @@ model Attendance {
   location    String?
   source      AttendanceSource @default(QR)
   performedBy String?          // userId of staff/owner for MANUAL/STAFF source; null for self-serve QR
+  photoConfirmedBy String?     // userId of the staff member who visually matched the kiosk photo, if any
+  photoConfirmedAt DateTime?
   latitude    Float?
   longitude   Float?
   gymId       String

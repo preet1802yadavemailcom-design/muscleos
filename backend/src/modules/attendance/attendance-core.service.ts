@@ -132,7 +132,47 @@ export class AttendanceCoreService {
       gymId,
     });
 
+    // Best-effort — a streak-update failure must never block a real check-in.
+    this.updateStreak(member.id, now).catch((err) =>
+      this.logger?.warn?.(`Streak update failed for member ${member.id}: ${err.message}`, 'AttendanceCoreService'),
+    );
+
     return this.publishAndReturn(attendance, member, gymId);
+  }
+
+  /** Day-precision streak tracking: consecutive calendar days with at least
+   *  one check-in. A gap of more than one day resets the streak to 1
+   *  (today counts). Multiple check-ins on the same day don't double-count.
+   *  This runs on every check-in across all flows (kiosk, in-app QR,
+   *  manual staff entry) since they all funnel through attemptCheckIn(). */
+  private async updateStreak(memberId: string, checkInAt: Date) {
+    const member = await this.prisma.member.findUnique({
+      where: { id: memberId },
+      select: { currentStreak: true, longestStreak: true, lastStreakDate: true },
+    });
+    if (!member) return;
+
+    const today = new Date(checkInAt.getFullYear(), checkInAt.getMonth(), checkInAt.getDate());
+    const last = member.lastStreakDate
+      ? new Date(member.lastStreakDate.getFullYear(), member.lastStreakDate.getMonth(), member.lastStreakDate.getDate())
+      : null;
+
+    if (last && last.getTime() === today.getTime()) {
+      return; // Already counted today — nothing to update.
+    }
+
+    const oneDayMs = 24 * 60 * 60 * 1000;
+    const isConsecutive = last && today.getTime() - last.getTime() === oneDayMs;
+    const newStreak = isConsecutive ? member.currentStreak + 1 : 1;
+
+    await this.prisma.member.update({
+      where: { id: memberId },
+      data: {
+        currentStreak: newStreak,
+        longestStreak: Math.max(newStreak, member.longestStreak),
+        lastStreakDate: today,
+      },
+    });
   }
 
   /** Public entry point for flows with an explicit "Check Out" action (as opposed

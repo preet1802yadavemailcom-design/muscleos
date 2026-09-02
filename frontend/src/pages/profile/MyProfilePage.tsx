@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { User, Mail, MapPin, Calendar, ShieldCheck, ShieldAlert, Save } from 'lucide-react';
+import { User, Mail, MapPin, Calendar, ShieldCheck, ShieldAlert, Save, Flame } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -29,6 +29,8 @@ interface MyProfile {
     emergencyContactPhone?: string | null;
     createdAt: string;
     status: string;
+    currentStreak?: number;
+    longestStreak?: number;
     branch?: { name: string; city?: string | null } | null;
     currentMembership?: { status: string; endDate: string; planName?: string | null } | null;
   } | null;
@@ -181,6 +183,31 @@ export function MyProfilePage() {
                 </Badge>
               </div>
             )}
+          </CardContent>
+        </Card>
+      )}
+
+      {isMember && data.memberProfile && !!(data.memberProfile.currentStreak || data.memberProfile.longestStreak) && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <Flame className="h-4 w-4 text-orange-500" /> Check-in streak
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center gap-8">
+              <div>
+                <p className="text-3xl font-bold text-orange-500">{data.memberProfile.currentStreak ?? 0}</p>
+                <p className="text-xs text-muted-foreground">Current streak (days)</p>
+              </div>
+              <div>
+                <p className="text-3xl font-bold">{data.memberProfile.longestStreak ?? 0}</p>
+                <p className="text-xs text-muted-foreground">Best streak (days)</p>
+              </div>
+            </div>
+            <p className="mt-3 text-xs text-muted-foreground">
+              Check in on consecutive days to keep your streak alive — miss a day and it resets.
+            </p>
           </CardContent>
         </Card>
       )}
