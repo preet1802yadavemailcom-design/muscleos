@@ -29,6 +29,9 @@ const emptyExercise = (): Exercise => ({ name: '', sets: '3', reps: '10', weight
 export function AssignFitnessPlanPage() {
   const [tab, setTab] = useState<'diet' | 'workout'>('diet');
   const [memberId, setMemberId] = useState('');
+  const [editingDietId, setEditingDietId] = useState<string | null>(null);
+  const [editingWorkoutId, setEditingWorkoutId] = useState<string | null>(null);
+  const [loadingExisting, setLoadingExisting] = useState(false);
   const [success, setSuccess] = useState('');
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
@@ -50,6 +53,47 @@ export function AssignFitnessPlanPage() {
 
   const resetMessages = () => { setSuccess(''); setError(''); };
 
+  /** Pulls the member's current active plan (if any) into the form for
+   *  editing, instead of only ever being able to create a brand new one. */
+  const loadExistingPlan = async () => {
+    if (!memberId) { setError('Select a member first.'); return; }
+    resetMessages();
+    setLoadingExisting(true);
+    try {
+      if (tab === 'diet') {
+        const plans: any[] = (await api.get(`/fitness/diet-plans/member/${memberId}`)).data;
+        const active = plans.find((p) => p.isActive);
+        if (!active) { setError('No active diet plan for this member yet — create one below.'); return; }
+        setEditingDietId(active.id);
+        setDietTitle(active.title);
+        setDietNotes(active.notes ?? '');
+        setMeals(active.meals.map((m: any) => ({
+          mealType: m.mealType, name: m.name, description: m.description ?? '',
+          calories: m.calories?.toString() ?? '', protein: m.protein?.toString() ?? '',
+          carbs: m.carbs?.toString() ?? '', fats: m.fats?.toString() ?? '',
+        })));
+      } else {
+        const plans: any[] = (await api.get(`/fitness/workout-plans/member/${memberId}`)).data;
+        const active = plans.find((p) => p.isActive);
+        if (!active) { setError('No active workout plan for this member yet — create one below.'); return; }
+        setEditingWorkoutId(active.id);
+        setWorkoutTitle(active.title);
+        setWorkoutNotes(active.notes ?? '');
+        setDays(active.days.map((d: any) => ({
+          dayOfWeek: d.dayOfWeek, name: d.name,
+          exercises: d.exercises.map((e: any) => ({
+            name: e.name, sets: e.sets.toString(), reps: e.reps,
+            weight: e.weight ?? '', restSeconds: e.restSeconds?.toString() ?? '', notes: e.notes ?? '',
+          })),
+        })));
+      }
+    } catch {
+      setError('Could not load the existing plan.');
+    } finally {
+      setLoadingExisting(false);
+    }
+  };
+
   const submitDiet = async () => {
     resetMessages();
     if (!memberId || !dietTitle.trim() || meals.some((m) => !m.name.trim())) {
@@ -58,7 +102,7 @@ export function AssignFitnessPlanPage() {
     }
     setSaving(true);
     try {
-      await api.post('/fitness/diet-plans', {
+      const payload = {
         memberId,
         title: dietTitle,
         notes: dietNotes || undefined,
@@ -72,9 +116,15 @@ export function AssignFitnessPlanPage() {
           fats: m.fats ? Number(m.fats) : undefined,
           order: i,
         })),
-      });
-      setSuccess('Diet plan assigned successfully.');
-      setDietTitle(''); setDietNotes(''); setMeals([emptyMeal()]);
+      };
+      if (editingDietId) {
+        await api.patch(`/fitness/diet-plans/${editingDietId}`, payload);
+        setSuccess('Diet plan updated successfully.');
+      } else {
+        await api.post('/fitness/diet-plans', payload);
+        setSuccess('Diet plan assigned successfully.');
+      }
+      setDietTitle(''); setDietNotes(''); setMeals([emptyMeal()]); setEditingDietId(null);
     } catch (err: any) {
       setError(err.response?.data?.message || 'Could not save the diet plan.');
     } finally {
@@ -90,7 +140,7 @@ export function AssignFitnessPlanPage() {
     }
     setSaving(true);
     try {
-      await api.post('/fitness/workout-plans', {
+      const payload = {
         memberId,
         title: workoutTitle,
         notes: workoutNotes || undefined,
@@ -108,9 +158,15 @@ export function AssignFitnessPlanPage() {
             order: j,
           })),
         })),
-      });
-      setSuccess('Workout plan assigned successfully.');
-      setWorkoutTitle(''); setWorkoutNotes(''); setDays([{ dayOfWeek: 1, name: 'Day 1', exercises: [emptyExercise()] }]);
+      };
+      if (editingWorkoutId) {
+        await api.patch(`/fitness/workout-plans/${editingWorkoutId}`, payload);
+        setSuccess('Workout plan updated successfully.');
+      } else {
+        await api.post('/fitness/workout-plans', payload);
+        setSuccess('Workout plan assigned successfully.');
+      }
+      setWorkoutTitle(''); setWorkoutNotes(''); setDays([{ dayOfWeek: 1, name: 'Day 1', exercises: [emptyExercise()] }]); setEditingWorkoutId(null);
     } catch (err: any) {
       setError(err.response?.data?.message || 'Could not save the workout plan.');
     } finally {
@@ -129,7 +185,7 @@ export function AssignFitnessPlanPage() {
         <label className="text-sm font-medium">Member</label>
         <select
           value={memberId}
-          onChange={(e) => setMemberId(e.target.value)}
+          onChange={(e) => { setMemberId(e.target.value); setEditingDietId(null); setEditingWorkoutId(null); }}
           className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
         >
           <option value="">Select a member…</option>
@@ -152,6 +208,15 @@ export function AssignFitnessPlanPage() {
         >
           <Dumbbell className="h-4 w-4" /> Workout Plan
         </button>
+      </div>
+
+      <div className="flex items-center gap-2">
+        <Button variant="outline" size="sm" onClick={loadExistingPlan} disabled={!memberId || loadingExisting}>
+          {loadingExisting ? 'Loading…' : `Load & edit this member's active ${tab === 'diet' ? 'diet' : 'workout'} plan`}
+        </Button>
+        {(editingDietId && tab === 'diet') || (editingWorkoutId && tab === 'workout') ? (
+          <span className="text-xs text-muted-foreground">Editing existing plan — saving will update it in place.</span>
+        ) : null}
       </div>
 
       {error && <p className="text-sm text-destructive">{error}</p>}
@@ -208,7 +273,7 @@ export function AssignFitnessPlanPage() {
               <Plus className="h-4 w-4 mr-1" /> Add meal
             </Button>
             <div>
-              <Button onClick={submitDiet} disabled={saving}>{saving ? 'Saving…' : 'Assign Diet Plan'}</Button>
+              <Button onClick={submitDiet} disabled={saving}>{saving ? 'Saving…' : editingDietId ? 'Update Diet Plan' : 'Assign Diet Plan'}</Button>
             </div>
           </CardContent>
         </Card>
@@ -275,7 +340,7 @@ export function AssignFitnessPlanPage() {
               <Plus className="h-4 w-4 mr-1" /> Add day
             </Button>
             <div>
-              <Button onClick={submitWorkout} disabled={saving}>{saving ? 'Saving…' : 'Assign Workout Plan'}</Button>
+              <Button onClick={submitWorkout} disabled={saving}>{saving ? 'Saving…' : editingWorkoutId ? 'Update Workout Plan' : 'Assign Workout Plan'}</Button>
             </div>
           </CardContent>
         </Card>
