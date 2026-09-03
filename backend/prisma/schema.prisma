@@ -830,10 +830,10 @@ model OtpVerification {
   @@map("otp_verifications")
 }
 
-/* ------------------------------------------------------------------ */
-/* Diet & Workout plans — assigned by a trainer/owner to a member,     */
-/* structured into meals and day-by-day exercises rather than free text*/
-/* ------------------------------------------------------------------ */
+// ------------------------------------------------------------------
+// Diet & Workout plans — assigned by a trainer/owner to a member,
+// structured into meals and day-by-day exercises rather than free text
+// ------------------------------------------------------------------
 
 enum MealType {
   BREAKFAST
