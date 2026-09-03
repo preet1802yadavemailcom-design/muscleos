@@ -461,7 +461,7 @@ export class AuthService {
     return tokens;
   }
 
-  async logout(userId: string, token?: string, sessionId?: string) {
+  async logout(userId: string, token?: string, sessionId?: string, pushToken?: string) {
     if (token) {
       await this.prisma.refreshToken.updateMany({
         where: { token, userId },
@@ -473,6 +473,12 @@ export class AuthService {
         where: { id: sessionId, userId },
         data: { isActive: false },
       });
+    }
+    if (pushToken) {
+      // Stop sending push notifications to a device the user just signed
+      // out of — scoped to this userId so one user can't delete another's
+      // token by guessing/replaying a value.
+      await this.prisma.pushToken.deleteMany({ where: { token: pushToken, userId } });
     }
     await this.redis.del(`session:${userId}`);
     return { message: 'Logged out successfully' };

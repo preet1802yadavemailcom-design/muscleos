@@ -114,8 +114,9 @@ export class AuthController {
     @CurrentUser('userId') userId: string,
     @Body('refreshToken') token?: string,
     @Body('sessionId') sessionId?: string,
+    @Body('pushToken') pushToken?: string,
   ) {
-    return this.authService.logout(userId, token, sessionId);
+    return this.authService.logout(userId, token, sessionId, pushToken);
   }
 
   @Post('change-password')
