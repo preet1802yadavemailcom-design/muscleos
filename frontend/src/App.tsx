@@ -36,6 +36,8 @@ import { PlansPage } from '@pages/super-admin/PlansPage';
 import { AuditLogsPage } from '@pages/super-admin/AuditLogsPage';
 import { SupportTicketsPage } from '@pages/super-admin/SupportTicketsPage';
 import { SupportTicketsPage as MySupportTicketsPage } from '@pages/support/SupportTicketsPage';
+import { MyFitnessPage } from '@pages/fitness/MyFitnessPage';
+import { AssignFitnessPlanPage } from '@pages/fitness/AssignFitnessPlanPage';
 
 const ROLES = {
   SUPER_ADMIN: 'SUPER_ADMIN',
@@ -159,6 +161,22 @@ function App() {
           element={
             <RoleRoute allowedRoles={[ROLES.GYM_OWNER, ROLES.TRAINER, ROLES.RECEPTION, ROLES.MEMBER]}>
               <MySupportTicketsPage />
+            </RoleRoute>
+          }
+        />
+        <Route
+          path="fitness/assign"
+          element={
+            <RoleRoute allowedRoles={[ROLES.GYM_OWNER, ROLES.TRAINER]}>
+              <AssignFitnessPlanPage />
+            </RoleRoute>
+          }
+        />
+        <Route
+          path="my/fitness"
+          element={
+            <RoleRoute allowedRoles={[ROLES.MEMBER]}>
+              <MyFitnessPage />
             </RoleRoute>
           }
         />

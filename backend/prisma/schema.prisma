@@ -252,6 +252,8 @@ model Gym {
   batches     Batch[]
   memberships Membership[]
   payments    Payment[]
+  dietPlans   DietPlan[]
+  workoutPlans WorkoutPlan[]
   attendance  Attendance[]
   notifications Notification[]
   reports     Report[]
@@ -372,6 +374,8 @@ model User {
   branch        Branch?    @relation(fields: [branchId], references: [id])
   memberProfile Member?    @relation("MemberUser")
   pushTokens    PushToken[]
+  dietPlansCreated    DietPlan[]
+  workoutPlansCreated WorkoutPlan[]
   emailVerified Boolean    @default(false)
   phoneVerified Boolean    @default(false)
   whatsappVerified Boolean @default(false)
@@ -504,6 +508,8 @@ model Member {
   memberships     Membership[]
   attendance      Attendance[]
   payments        Payment[]
+  dietPlans       DietPlan[]
+  workoutPlans    WorkoutPlan[]
   @@index([gymId])
   @@index([branchId])
   @@index([status])
@@ -822,4 +828,99 @@ model OtpVerification {
   @@index([phone])
   @@index([expiresAt])
   @@map("otp_verifications")
+}
+
+/* ------------------------------------------------------------------ */
+/* Diet & Workout plans — assigned by a trainer/owner to a member,     */
+/* structured into meals and day-by-day exercises rather than free text*/
+/* ------------------------------------------------------------------ */
+
+enum MealType {
+  BREAKFAST
+  LUNCH
+  DINNER
+  SNACK
+  PRE_WORKOUT
+  POST_WORKOUT
+}
+
+model DietPlan {
+  id            String     @id @default(uuid())
+  memberId      String
+  member        Member     @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  gymId         String
+  gym           Gym        @relation(fields: [gymId], references: [id], onDelete: Cascade)
+  createdBy     String
+  createdByUser User       @relation(fields: [createdBy], references: [id])
+  title         String
+  notes         String?
+  isActive      Boolean    @default(true)
+  meals         DietMeal[]
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+  @@index([memberId])
+  @@index([gymId])
+  @@map("diet_plans")
+}
+
+model DietMeal {
+  id          String   @id @default(uuid())
+  dietPlanId  String
+  dietPlan    DietPlan @relation(fields: [dietPlanId], references: [id], onDelete: Cascade)
+  mealType    MealType
+  name        String
+  description String?
+  calories    Int?
+  protein     Int?     // grams
+  carbs       Int?     // grams
+  fats        Int?     // grams
+  order       Int      @default(0)
+  @@index([dietPlanId])
+  @@map("diet_meals")
+}
+
+model WorkoutPlan {
+  id            String       @id @default(uuid())
+  memberId      String
+  member        Member       @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  gymId         String
+  gym           Gym          @relation(fields: [gymId], references: [id], onDelete: Cascade)
+  createdBy     String
+  createdByUser User         @relation(fields: [createdBy], references: [id])
+  title         String
+  notes         String?
+  isActive      Boolean      @default(true)
+  days          WorkoutDay[]
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  @@index([memberId])
+  @@index([gymId])
+  @@map("workout_plans")
+}
+
+model WorkoutDay {
+  id            String            @id @default(uuid())
+  workoutPlanId String
+  workoutPlan   WorkoutPlan       @relation(fields: [workoutPlanId], references: [id], onDelete: Cascade)
+  dayOfWeek     Int               // 0 = Sunday .. 6 = Saturday
+  name          String            // e.g. "Push Day", "Rest Day"
+  order         Int               @default(0)
+  exercises     WorkoutExercise[]
+  @@index([workoutPlanId])
+  @@map("workout_days")
+}
+
+model WorkoutExercise {
+  id           String     @id @default(uuid())
+  workoutDayId String
+  workoutDay   WorkoutDay @relation(fields: [workoutDayId], references: [id], onDelete: Cascade)
+  name         String
+  sets         Int
+  reps         String     // string on purpose — allows "8-12", "AMRAP", "30s hold"
+  weight       String?
+  restSeconds  Int?
+  notes        String?
+  order        Int        @default(0)
+  @@index([workoutDayId])
+  @@map("workout_exercises")
 }

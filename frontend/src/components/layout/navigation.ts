@@ -1,7 +1,7 @@
 import type { LucideIcon } from 'lucide-react';
 import {
   LayoutDashboard, Users, Calendar, QrCode,
-  CreditCard, BarChart3, Settings, RefreshCcw, UserCog, Bell, Building2,
+  CreditCard, BarChart3, Settings, RefreshCcw, UserCog, Bell, Building2, LifeBuoy, Dumbbell,
 } from 'lucide-react';
 
 export interface NavItem {
@@ -27,6 +27,9 @@ export const navigation: NavItem[] = [
   { name: 'Reports', href: '/reports', icon: BarChart3, roles: ['SUPER_ADMIN', 'GYM_OWNER'] },
   { name: 'Notifications', href: '/notifications', icon: Bell, roles: ['SUPER_ADMIN', 'GYM_OWNER'] },
   { name: 'Settings', href: '/settings', icon: Settings, roles: ['SUPER_ADMIN', 'GYM_OWNER'] },
+  { name: 'Support', href: '/support', icon: LifeBuoy, roles: ['SUPER_ADMIN', 'GYM_OWNER', 'TRAINER', 'RECEPTIONIST', 'MEMBER'] },
+  { name: 'Assign Fitness Plan', href: '/fitness/assign', icon: Dumbbell, roles: ['GYM_OWNER', 'TRAINER'] },
+  { name: 'My Fitness', href: '/my/fitness', icon: Dumbbell, roles: ['MEMBER'] },
 ];
 
 /** Member-facing PWA gets a focused bottom nav instead of the full admin

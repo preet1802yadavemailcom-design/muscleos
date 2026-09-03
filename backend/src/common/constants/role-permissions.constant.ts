@@ -19,6 +19,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, string[]> = {
     'notifications:create', 'notifications:read',
     'settings:read', 'settings:update',
     'users:create', 'users:read', 'users:update', 'users:delete',
+    'fitness:manage', 'fitness:read',
   ],
 
   [UserRole.TRAINER]: [
@@ -27,6 +28,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, string[]> = {
     'batches:read',
     'attendance:read', 'attendance:create',
     'memberships:read',
+    'fitness:manage', 'fitness:read',
   ],
 
   [UserRole.RECEPTIONIST]: [
@@ -44,6 +46,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, string[]> = {
     'attendance:read:own', 'attendance:create',
     'memberships:read:own',
     'payments:read:own',
+    'fitness:read:own',
   ],
 };
 

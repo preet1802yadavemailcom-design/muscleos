@@ -27,6 +27,8 @@ import { QrModule } from '@modules/qr/qr.module';
 import { BranchesModule } from '@modules/branches/branches.module';
 import { ProfileModule } from '@modules/profile/profile.module';
 import { SuperAdminModule } from '@modules/super-admin/super-admin.module';
+import { SupportModule } from '@modules/support/support.module';
+import { FitnessModule } from '@modules/fitness/fitness.module';
 import { HealthModule } from '@modules/health/health.module';
 
 import { AppController } from './app.controller';
@@ -65,6 +67,8 @@ import { AppController } from './app.controller';
     BranchesModule,
     ProfileModule,
     SuperAdminModule,
+    SupportModule,
+    FitnessModule,
     HealthModule,
   ],
   controllers: [AppController],
