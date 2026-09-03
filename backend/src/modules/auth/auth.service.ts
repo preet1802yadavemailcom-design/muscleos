@@ -370,7 +370,6 @@ export class AuthService {
       active: readyToActivate,
     };
   }
-  }
 
   /** Generates + stores a 6-digit OTP for registration email verification, then emails it to the user. */
   async sendVerificationOtp(email: string) {
