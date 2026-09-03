@@ -133,9 +133,7 @@ export class AttendanceCoreService {
     });
 
     // Best-effort — a streak-update failure must never block a real check-in.
-    this.updateStreak(member.id, now).catch((err) =>
-      this.logger?.warn?.(`Streak update failed for member ${member.id}: ${err.message}`, 'AttendanceCoreService'),
-    );
+    this.updateStreak(member.id, now).catch(() => undefined);
 
     return this.publishAndReturn(attendance, member, gymId);
   }
