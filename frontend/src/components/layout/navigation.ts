@@ -1,7 +1,7 @@
 import type { LucideIcon } from 'lucide-react';
 import {
   LayoutDashboard, Users, Calendar, QrCode,
-  CreditCard, BarChart3, Settings, RefreshCcw, UserCog, Bell, Building2, LifeBuoy, Dumbbell,
+  CreditCard, BarChart3, Settings, RefreshCcw, UserCog, Bell, Building2, LifeBuoy, Dumbbell, Wallet,
 } from 'lucide-react';
 
 export interface NavItem {
@@ -23,6 +23,7 @@ export const navigation: NavItem[] = [
   { name: 'Attendance', href: '/attendance', icon: QrCode, roles: ['SUPER_ADMIN', 'GYM_OWNER', 'TRAINER', 'RECEPTIONIST', 'MEMBER'] },
   { name: 'Memberships', href: '/memberships', icon: RefreshCcw, roles: ['SUPER_ADMIN', 'GYM_OWNER', 'RECEPTIONIST'] },
   { name: 'Payments', href: '/payments', icon: CreditCard, roles: ['SUPER_ADMIN', 'GYM_OWNER', 'RECEPTIONIST'] },
+  { name: 'Pending UPI', href: '/payments/pending-upi', icon: Wallet, roles: ['GYM_OWNER', 'RECEPTIONIST'] },
   { name: 'Reception', href: '/reception', icon: UserCog, roles: ['GYM_OWNER', 'RECEPTIONIST'] },
   { name: 'Reports', href: '/reports', icon: BarChart3, roles: ['SUPER_ADMIN', 'GYM_OWNER'] },
   { name: 'Notifications', href: '/notifications', icon: Bell, roles: ['SUPER_ADMIN', 'GYM_OWNER'] },

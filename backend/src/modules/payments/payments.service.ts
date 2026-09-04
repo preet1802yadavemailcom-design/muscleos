@@ -390,4 +390,154 @@ export class PaymentsService {
       refundedCount,
     };
   }
+
+  /* ---------------------------------------------------------------- */
+  /* Direct-to-owner UPI payments — no payment gateway needed. The gym  */
+  /* owner sets their own UPI ID once; every member payment goes       */
+  /* straight into the owner's own bank account (standard UPI person-  */
+  /* to-merchant transfer, zero platform fees). Since there's no       */
+  /* gateway API in the loop, there's no automatic webhook confirming  */
+  /* the transfer — the member reports the UTR reference after paying,*/
+  /* and staff/owner confirms it against their own bank/UPI app.       */
+  /* ---------------------------------------------------------------- */
+
+  async getUpiDetails(gymId: string) {
+    const rows = await this.prisma.gymSetting.findMany({ where: { gymId, category: 'payment_upi' } });
+    const settings: Record<string, string> = {};
+    for (const row of rows) settings[row.key] = row.value;
+    return {
+      configured: !!settings.upiId,
+      upiId: settings.upiId ?? null,
+      payeeName: settings.payeeName ?? null,
+    };
+  }
+
+  /** Builds the standard UPI deep-link (`upi://pay?...`) for a given
+   *  amount — tapping it on a phone opens whichever UPI app the member
+   *  has installed (GPay, PhonePe, Paytm, etc.) with the amount and payee
+   *  pre-filled, so they don't have to type anything by hand. Also
+   *  returns a QR-code PNG (data URL) of the same link, for members
+   *  paying from a kiosk/desktop rather than their own phone. */
+  async buildUpiPaymentLink(gymId: string, amount: number, note: string) {
+    const details = await this.getUpiDetails(gymId);
+    if (!details.configured || !details.upiId) {
+      throw new BadRequestException('This gym has not set up direct UPI payments yet.');
+    }
+    const params = new URLSearchParams({
+      pa: details.upiId,
+      pn: details.payeeName || 'Gym',
+      am: amount.toFixed(2),
+      cu: 'INR',
+      tn: note,
+    });
+    const link = `upi://pay?${params.toString()}`;
+
+    const QRCode = require('qrcode');
+    const qrDataUrl: string = await QRCode.toDataURL(link, { width: 300, margin: 1 });
+
+    return { link, qrDataUrl, upiId: details.upiId, payeeName: details.payeeName };
+  }
+
+  /** Member says "I've paid" and provides the UTR/reference number their
+   *  UPI app showed them — creates a PENDING payment row. Nothing is
+   *  auto-confirmed here on purpose: a member typing in a UTR is not
+   *  proof of payment by itself (they could type a fake or someone
+   *  else's), so this must be verified by staff/owner before it counts. */
+  async submitUpiClaim(gymId: string, userId: string, amount: number, utrReference: string, membershipId?: string) {
+    const member = await this.prisma.member.findFirst({ where: { userId, gymId } });
+    if (!member) throw new NotFoundException('No member profile found for this account in this gym.');
+    if (!utrReference || utrReference.trim().length < 4) {
+      throw new BadRequestException('Enter the UTR / reference number shown in your UPI app after paying.');
+    }
+
+    const receiptNumber = await this.nextSequence(gymId, 'RCPT');
+    const { tax, total } = this.calculateTotals(amount);
+
+    const payment = await this.prisma.payment.create({
+      data: {
+        amount, tax, total, discount: 0,
+        gateway: PaymentGateway.UPI,
+        method: PaymentMethod.UPI,
+        gatewayPaymentId: utrReference.trim(),
+        status: PaymentStatus.PENDING,
+        memberId: member.id,
+        membershipId,
+        receiptNumber,
+        notes: 'Direct UPI payment — pending owner/staff verification',
+        gymId,
+      },
+    });
+
+    await this.audit.log({
+      action: 'UPI_CLAIM_SUBMITTED', entity: 'Payment', entityId: payment.id, userId, gymId,
+      newValue: { amount, utrReference },
+    });
+
+    return payment;
+  }
+
+  /** Staff/owner-side list of UPI claims awaiting verification. */
+  async listPendingUpiClaims(gymId: string) {
+    return this.prisma.payment.findMany({
+      where: { gymId, gateway: PaymentGateway.UPI, status: PaymentStatus.PENDING },
+      include: { member: { select: { firstName: true, lastName: true, mobile: true } } },
+      orderBy: { createdAt: 'asc' },
+    });
+  }
+
+  /** Staff/owner checked their own bank/UPI app, saw the matching UTR
+   *  actually landed, and confirms it here — only then does it count as
+   *  a real completed payment (receipt generated, WhatsApp sent). */
+  async confirmUpiClaim(id: string, gymId: string, staffUserId: string) {
+    const payment = await this.prisma.payment.findFirst({ where: { id, gymId, gateway: PaymentGateway.UPI } });
+    if (!payment) throw new NotFoundException('UPI payment claim not found');
+    if (payment.status !== PaymentStatus.PENDING) {
+      throw new BadRequestException(`This claim is already ${payment.status.toLowerCase()}.`);
+    }
+
+    await this.prisma.payment.update({
+      where: { id },
+      data: { status: PaymentStatus.COMPLETED, verifiedAt: new Date(), collectedById: staffUserId },
+    });
+
+    await this.audit.log({
+      action: 'UPI_CLAIM_CONFIRMED', entity: 'Payment', entityId: id, userId: staffUserId, gymId,
+    });
+
+    const finalized = await this.finalizeReceipt(id, gymId);
+
+    if (payment.memberId) {
+      this.notifications.send(gymId, {
+        type: 'PAYMENT_SUCCESS' as any,
+        channel: 'WHATSAPP' as any,
+        memberId: payment.memberId,
+        content: `Hi, your payment of ₹${Number(payment.total).toFixed(2)} has been confirmed. Receipt #${payment.receiptNumber}. Thank you!`,
+        title: 'Payment confirmed',
+      } as any).catch(() => undefined);
+    }
+
+    return finalized;
+  }
+
+  /** Staff/owner rejects a claim that doesn't check out (UTR doesn't
+   *  match anything in their bank/UPI app, wrong amount, etc). */
+  async rejectUpiClaim(id: string, gymId: string, staffUserId: string, reason?: string) {
+    const payment = await this.prisma.payment.findFirst({ where: { id, gymId, gateway: PaymentGateway.UPI } });
+    if (!payment) throw new NotFoundException('UPI payment claim not found');
+    if (payment.status !== PaymentStatus.PENDING) {
+      throw new BadRequestException(`This claim is already ${payment.status.toLowerCase()}.`);
+    }
+
+    const updated = await this.prisma.payment.update({
+      where: { id },
+      data: { status: PaymentStatus.FAILED, notes: reason ? `Rejected: ${reason}` : 'Rejected by staff' },
+    });
+
+    await this.audit.log({
+      action: 'UPI_CLAIM_REJECTED', entity: 'Payment', entityId: id, userId: staffUserId, gymId,
+      newValue: { reason },
+    });
+
+    return updated;
+  }
 }

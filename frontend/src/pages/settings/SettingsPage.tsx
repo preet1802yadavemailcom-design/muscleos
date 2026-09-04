@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Save, Building2, Bell, Shield, Palette, Check, Moon, Sun } from 'lucide-react';
+import { Save, Building2, Bell, Shield, Palette, Check, Moon, Sun, Wallet } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -13,6 +13,7 @@ import { applyTheme, contrastText, loadTheme, saveTheme, ThemeSettings } from '@
 const tabs = [
   { id: 'general', name: 'General', icon: Building2 },
   { id: 'notifications', name: 'Notifications', icon: Bell },
+  { id: 'payments', name: 'Payments', icon: Wallet },
   { id: 'security', name: 'Security', icon: Shield },
   { id: 'appearance', name: 'Appearance', icon: Palette },
 ];
@@ -101,6 +102,37 @@ export function SettingsPage() {
     setBirthdayWishes(next.birthdayWishes);
     saveNotifPrefs.mutate(next);
   };
+
+  // ---------- Direct-to-owner UPI payments ----------
+  const { data: upiData, isLoading: upiLoading } = useQuery({
+    queryKey: ['settings-payment-upi'],
+    queryFn: () => api.get('/settings/payment_upi'),
+  });
+  const upiPrefs = (upiData as any)?.data ?? {};
+  const [upiId, setUpiId] = useState('');
+  const [payeeName, setPayeeName] = useState('');
+  const [upiInitialized, setUpiInitialized] = useState(false);
+  if (upiData && !upiInitialized) {
+    setUpiId(upiPrefs.upiId ?? '');
+    setPayeeName(upiPrefs.payeeName ?? '');
+    setUpiInitialized(true);
+  }
+
+  const saveUpiSettings = useMutation({
+    mutationFn: () =>
+      api.post('/settings/bulk', {
+        settings: [
+          { category: 'payment_upi', key: 'upiId', value: upiId.trim(), dataType: 'string' },
+          { category: 'payment_upi', key: 'payeeName', value: payeeName.trim(), dataType: 'string' },
+        ],
+      }),
+    onSuccess: () => {
+      toast({ title: 'UPI payment details saved — members can now pay you directly' });
+      queryClient.invalidateQueries({ queryKey: ['settings-payment-upi'] });
+    },
+    onError: (e: any) =>
+      toast({ title: 'Save failed', description: e?.response?.data?.message, variant: 'destructive' }),
+  });
 
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -223,6 +255,53 @@ export function SettingsPage() {
                     className="h-4 w-4"
                   />
                 </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {activeTab === 'payments' && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Wallet className="h-5 w-5" /> Direct UPI Payments
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <p className="text-sm text-muted-foreground">
+                  Set your own UPI ID once and members can pay their membership fees straight into
+                  your bank account — no payment gateway, no fees, no setup. Money lands in your
+                  account the moment they pay; you just confirm each payment here after checking
+                  your bank/UPI app.
+                </p>
+                {upiLoading ? (
+                  <p className="text-sm text-muted-foreground">Loading…</p>
+                ) : (
+                  <>
+                    <div className="space-y-2">
+                      <Label>Your UPI ID</Label>
+                      <Input
+                        value={upiId}
+                        onChange={(e) => setUpiId(e.target.value)}
+                        placeholder="yourname@okaxis / yourname@paytm / gymname@upi"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Display name (shown to members when they pay)</Label>
+                      <Input
+                        value={payeeName}
+                        onChange={(e) => setPayeeName(e.target.value)}
+                        placeholder="Your gym's name"
+                      />
+                    </div>
+                    <Button onClick={() => saveUpiSettings.mutate()} disabled={saveUpiSettings.isPending || !upiId.trim()}>
+                      <Save className="h-4 w-4 mr-2" />
+                      {saveUpiSettings.isPending ? 'Saving…' : 'Save UPI details'}
+                    </Button>
+                    {upiPrefs.upiId && (
+                      <p className="text-xs text-green-600">✓ UPI payments are active — members can now pay you directly.</p>
+                    )}
+                  </>
+                )}
               </CardContent>
             </Card>
           )}

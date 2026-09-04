@@ -99,6 +99,56 @@ export class PaymentsController {
     return this.service.initiateSelfPay(gymId, userId, dto.membershipId, dto.gateway, dto.method);
   }
 
+  /* ---------------- Direct-to-owner UPI (no gateway needed) ---------------- */
+
+  @Get('upi/link')
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard, GymOwnerGuard)
+  @ApiBearerAuth('access-token')
+  @ApiOperation({ summary: "Get the gym owner's UPI deep-link + QR code for a given amount" })
+  async getUpiLink(@GymId() gymId: string, @Query('amount') amount: string, @Query('note') note?: string) {
+    return this.service.buildUpiPaymentLink(gymId, Number(amount), note || 'Gym membership payment');
+  }
+
+  @Post('me/upi-claim')
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard, GymOwnerGuard)
+  @ApiBearerAuth('access-token')
+  @Roles(UserRole.MEMBER)
+  @ApiOperation({ summary: "Member reports they've paid via UPI directly to the owner — creates a pending claim for staff to verify" })
+  async submitUpiClaim(
+    @GymId() gymId: string,
+    @CurrentUser('userId') userId: string,
+    @Body() dto: { amount: number; utrReference: string; membershipId?: string },
+  ) {
+    return this.service.submitUpiClaim(gymId, userId, dto.amount, dto.utrReference, dto.membershipId);
+  }
+
+  @Get('upi/pending')
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard, GymOwnerGuard)
+  @ApiBearerAuth('access-token')
+  @Roles(UserRole.GYM_OWNER, UserRole.RECEPTIONIST)
+  @ApiOperation({ summary: 'List UPI payment claims awaiting owner/staff verification' })
+  async listPendingUpi(@GymId() gymId: string) {
+    return this.service.listPendingUpiClaims(gymId);
+  }
+
+  @Post('upi/:id/confirm')
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard, GymOwnerGuard)
+  @ApiBearerAuth('access-token')
+  @Roles(UserRole.GYM_OWNER, UserRole.RECEPTIONIST)
+  @ApiOperation({ summary: 'Confirm a UPI claim after checking it actually landed in the bank/UPI app' })
+  async confirmUpi(@Param('id') id: string, @GymId() gymId: string, @CurrentUser('userId') userId: string) {
+    return this.service.confirmUpiClaim(id, gymId, userId);
+  }
+
+  @Post('upi/:id/reject')
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard, GymOwnerGuard)
+  @ApiBearerAuth('access-token')
+  @Roles(UserRole.GYM_OWNER, UserRole.RECEPTIONIST)
+  @ApiOperation({ summary: "Reject a UPI claim that doesn't check out" })
+  async rejectUpi(@Param('id') id: string, @GymId() gymId: string, @CurrentUser('userId') userId: string, @Body('reason') reason?: string) {
+    return this.service.rejectUpiClaim(id, gymId, userId, reason);
+  }
+
   @Post()
   @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard, GymOwnerGuard)
   @ApiBearerAuth('access-token')

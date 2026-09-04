@@ -3,6 +3,7 @@ import { RefreshCcw, CreditCard, Calendar, AlertTriangle } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { PayNowButton } from '@components/payments/PayNowButton';
+import { PayViaUpiButton } from '@components/payments/PayViaUpiButton';
 import api from '@services/api';
 
 interface MyMembership {
@@ -86,8 +87,9 @@ export function MyMembershipPage() {
             </div>
           )}
           {current.paymentStatus !== 'COMPLETED' && (
-            <div className="col-span-2 sm:col-span-4 pt-2">
+            <div className="col-span-2 sm:col-span-4 pt-2 flex flex-wrap items-start gap-3">
               <PayNowButton membershipId={current.id} amount={current.amount} />
+              <PayViaUpiButton membershipId={current.id} amount={current.amount} />
             </div>
           )}
         </CardContent>

@@ -21,6 +21,7 @@ import { BatchesPage } from '@pages/batches/BatchesPage';
 import { AttendancePage } from '@pages/attendance/AttendancePage';
 import { MembershipsPage } from '@pages/memberships/MembershipsPage';
 import { PaymentsPage } from '@pages/payments/PaymentsPage';
+import { PendingUpiPaymentsPage } from '@pages/payments/PendingUpiPaymentsPage';
 import { ReceptionPage } from '@pages/reception/ReceptionPage';
 import { ReportsPage } from '@pages/reports/ReportsPage';
 import { NotificationsPage } from '@pages/notifications/NotificationsPage';
@@ -214,8 +215,15 @@ function App() {
           }
         />
         <Route
-          path="reception"
+          path="payments/pending-upi"
           element={
+            <RoleRoute allowedRoles={[ROLES.GYM_OWNER, ROLES.RECEPTION]}>
+              <PendingUpiPaymentsPage />
+            </RoleRoute>
+          }
+        />
+        <Route
+          path="reception"          element={
             <RoleRoute allowedRoles={[ROLES.GYM_OWNER, ROLES.RECEPTION]}>
               <ReceptionPage />
             </RoleRoute>
