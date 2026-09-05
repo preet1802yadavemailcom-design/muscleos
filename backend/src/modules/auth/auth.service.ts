@@ -510,16 +510,38 @@ export class AuthService {
     if (await this.redis.get(cooldownKey)) {
       throw new ForbiddenException('Please wait before requesting another OTP.');
     }
+
+    const resendCountKey = `verify_otp_resend_count:${email}`;
+    const resendCount = parseInt((await this.redis.get(resendCountKey)) ?? '0', 10);
+    if (resendCount >= MAX_OTP_RESEND_PER_WINDOW) {
+      throw new ForbiddenException('Too many OTPs requested. Please try again later.');
+    }
+    await this.redis.set(resendCountKey, String(resendCount + 1), OTP_RESEND_WINDOW_SECONDS);
+
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
     await this.redis.set(`verify_otp:${email}`, otp, 600);
     await this.redis.set(cooldownKey, '1', OTP_RESEND_COOLDOWN_SECONDS);
+    await this.redis.del(`verify_otp_attempts:${email}`);
     await this.dispatchOtpEmail(email, otp, 'Verify your MuscleOS email');
     return { message: 'OTP sent' };
   }
 
   async verifyEmail(dto: VerifyEmailDto) {
+    const attemptsKey = `verify_otp_attempts:${dto.email}`;
+    const attempts = parseInt((await this.redis.get(attemptsKey)) ?? '0', 10);
+    if (attempts >= MAX_OTP_VERIFY_ATTEMPTS) {
+      await this.redis.del(`verify_otp:${dto.email}`);
+    await this.redis.del(`verify_otp_attempts:${dto.email}`);
+    await this.redis.del(`verify_otp_resend_count:${dto.email}`);
+      await this.redis.del(attemptsKey);
+      throw new BadRequestException('Too many incorrect attempts. Please request a new OTP.');
+    }
+
     const stored = await this.redis.get(`verify_otp:${dto.email}`);
-    if (!stored || stored !== dto.otp) throw new BadRequestException('Invalid or expired OTP');
+    if (!stored || stored !== dto.otp) {
+      await this.redis.set(attemptsKey, String(attempts + 1), 600);
+      throw new BadRequestException('Invalid or expired OTP');
+    }
     const user = await this.prisma.user.findFirst({ where: { email: dto.email } });
     if (!user) throw new BadRequestException('User not found');
 
@@ -537,6 +559,8 @@ export class AuthService {
       },
     });
     await this.redis.del(`verify_otp:${dto.email}`);
+    await this.redis.del(`verify_otp_attempts:${dto.email}`);
+    await this.redis.del(`verify_otp_resend_count:${dto.email}`);
     await this.audit.log({
       action: 'EMAIL_VERIFIED',
       entity: 'User',
