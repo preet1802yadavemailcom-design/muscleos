@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, Search, Edit, Trash2, QrCode, Download, ChevronLeft, ChevronRight, Power } from 'lucide-react';
+import { Plus, Search, Edit, Trash2, QrCode, Download, ChevronLeft, ChevronRight, Power, UserRound } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -39,6 +40,7 @@ function downloadCsv(rows: Record<string, any>[], filename: string) {
 }
 
 export function MembersPage() {
+  const navigate = useNavigate();
   const { user } = useAuthStore();
   const canCreateOrEdit = user?.role === 'GYM_OWNER' || user?.role === 'SUPER_ADMIN' || user?.role === 'RECEPTIONIST';
   const canDelete = user?.role === 'GYM_OWNER' || user?.role === 'SUPER_ADMIN';
@@ -161,6 +163,9 @@ export function MembersPage() {
                       </td>
                       <td className="p-4">
                         <div className="flex gap-1">
+                          <Button variant="ghost" size="icon" title="View Profile (360)" onClick={() => navigate(`/members/${member.id}`)}>
+                            <UserRound className="h-4 w-4" />
+                          </Button>
                           <Button variant="ghost" size="icon" title="Digital ID / QR" onClick={() => setQrMember(member)}>
                             <QrCode className="h-4 w-4" />
                           </Button>

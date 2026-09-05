@@ -17,6 +17,7 @@ import { DashboardPage } from '@pages/dashboard/DashboardPage';
 import { SuperAdminDashboardPage } from '@pages/dashboard/SuperAdminDashboardPage';
 import { OwnerDashboardPage } from '@pages/dashboard/OwnerDashboardPage';
 import { MembersPage } from '@pages/members/MembersPage';
+import { MemberDetailPage } from '@pages/members/MemberDetailPage';
 import { BatchesPage } from '@pages/batches/BatchesPage';
 import { AttendancePage } from '@pages/attendance/AttendancePage';
 import { MembershipsPage } from '@pages/memberships/MembershipsPage';
@@ -138,6 +139,14 @@ function App() {
           element={
             <RoleRoute allowedRoles={[ROLES.GYM_OWNER, ROLES.TRAINER, ROLES.RECEPTION]}>
               <MembersPage />
+            </RoleRoute>
+          }
+        />
+        <Route
+          path="members/:id"
+          element={
+            <RoleRoute allowedRoles={[ROLES.GYM_OWNER, ROLES.TRAINER, ROLES.RECEPTION]}>
+              <MemberDetailPage />
             </RoleRoute>
           }
         />

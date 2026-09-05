@@ -123,6 +123,62 @@ export class MembersService {
     return member;
   }
 
+  /**
+   * Owner-facing Member 360: one combined view of membership history,
+   * recent attendance, recent payments and account/verification state —
+   * per the spec's "Owner/Staff Member 360" profile requirement. Read-only
+   * aggregation; does not create or mutate anything.
+   */
+  async getMember360(id: string, gymId: string) {
+    const member = await this.prisma.member.findFirst({
+      where: { id, gymId, deletedAt: null },
+      include: {
+        batch: true,
+        trainer: { select: { id: true, firstName: true, lastName: true } },
+        currentMembership: true,
+        memberships: { orderBy: { createdAt: 'desc' } },
+        user: { select: { id: true, phoneVerified: true, whatsappVerified: true, createdAt: true } },
+      },
+    });
+    if (!member) throw new NotFoundException('Member not found');
+
+    const [attendance, payments, lastPayment] = await Promise.all([
+      this.prisma.attendance.findMany({
+        where: { memberId: id, gymId },
+        orderBy: { checkInAt: 'desc' },
+        take: 15,
+      }),
+      this.prisma.payment.findMany({
+        where: { memberId: id, gymId, deletedAt: null },
+        orderBy: { createdAt: 'desc' },
+        take: 15,
+        include: {
+          monthAllocations: { include: { membershipMonth: { select: { monthStart: true } } } },
+        },
+      }),
+      this.prisma.payment.findFirst({
+        where: { memberId: id, gymId, deletedAt: null, status: 'COMPLETED' },
+        orderBy: { createdAt: 'desc' },
+        select: { createdAt: true, total: true },
+      }),
+    ]);
+
+    const accountState = !member.userId
+      ? 'NOT_LINKED'
+      : member.claimTokenExpiresAt && member.claimTokenExpiresAt > new Date()
+        ? 'ACTIVATION_PENDING'
+        : 'LINKED';
+
+    return {
+      member,
+      accountState,
+      lastVisit: attendance[0]?.checkInAt ?? null,
+      lastPayment: lastPayment ?? null,
+      attendance,
+      payments,
+    };
+  }
+
   async create(gymId: string, dto: CreateMemberDto) {
     if (dto.mobile) {
       const duplicate = await this.prisma.member.findFirst({

@@ -32,6 +32,11 @@ export class MembersController {
     return this.service.exportData(gymId, query);
   }
 
+  @Get(':id/360')
+  async getMember360(@Param('id') id: string, @GymId() gymId: string) {
+    return this.service.getMember360(id, gymId);
+  }
+
   @Get(':id')
   @Permissions('members:read')
   @ApiOperation({ summary: 'Get a single member with membership/batch details' })
