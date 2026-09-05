@@ -679,10 +679,16 @@ export class PaymentsService {
     }
 
     await this.prisma.$transaction(async (tx) => {
-      await tx.payment.update({
-        where: { id },
+      // Atomic guard: only succeeds if status is STILL PENDING at write time.
+      // Prevents two staff members clicking confirm at the same moment from
+      // both completing (and both notifying/receipting) the same claim.
+      const { count } = await tx.payment.updateMany({
+        where: { id, status: PaymentStatus.PENDING },
         data: { status: PaymentStatus.COMPLETED, verifiedAt: new Date(), verifiedById: staffUserId, collectedById: staffUserId },
       });
+      if (count === 0) {
+        throw new ConflictException('This claim was already processed by someone else.');
+      }
       for (const alloc of payment.monthAllocations) {
         await tx.membershipMonth.update({ where: { id: alloc.membershipMonthId }, data: { status: 'PAID', paymentId: id } });
       }
@@ -723,14 +729,17 @@ export class PaymentsService {
     }
 
     const updated = await this.prisma.$transaction(async (tx) => {
-      const u = await tx.payment.update({
-        where: { id },
+      const { count } = await tx.payment.updateMany({
+        where: { id, status: PaymentStatus.PENDING },
         data: { status: PaymentStatus.FAILED, notes: reason ? `Rejected: ${reason}` : 'Rejected by staff' },
       });
+      if (count === 0) {
+        throw new ConflictException('This claim was already processed by someone else.');
+      }
       for (const alloc of payment.monthAllocations) {
         await tx.membershipMonth.update({ where: { id: alloc.membershipMonthId }, data: { status: 'PAYABLE', paymentId: null } });
       }
-      return u;
+      return tx.payment.findUniqueOrThrow({ where: { id } });
     });
 
     await this.audit.log({
@@ -866,10 +875,13 @@ export class PaymentsService {
     const newStatus: PaymentStatus = approve ? 'COMPLETED' : 'FAILED';
 
     await this.prisma.$transaction(async (tx) => {
-      await tx.payment.update({
-        where: { id: paymentId },
+      const { count } = await tx.payment.updateMany({
+        where: { id: paymentId, status: 'PENDING' },
         data: { status: newStatus, verifiedById: verifierUserId, verifiedAt: new Date() },
       });
+      if (count === 0) {
+        throw new ConflictException('This payment was already verified by someone else.');
+      }
       for (const alloc of payment.monthAllocations) {
         await tx.membershipMonth.update({
           where: { id: alloc.membershipMonthId },

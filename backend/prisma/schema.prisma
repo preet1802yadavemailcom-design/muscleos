@@ -665,6 +665,7 @@ model Payment {
   discount         Decimal                  @default(0) @db.Decimal(10, 2)
   tax              Decimal                  @default(0) @db.Decimal(10, 2)
   total            Decimal                  @db.Decimal(10, 2)
+  refundedAmount   Decimal                  @default(0) @db.Decimal(10, 2)
   gateway          PaymentGateway
   gatewayPaymentId String?
   gatewayOrderId   String?
