@@ -64,9 +64,14 @@ export class PaymentsController {
   @Get('me')
   @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard, GymOwnerGuard)
   @ApiBearerAuth('access-token')
-  @ApiOperation({ summary: "Get the logged-in member's own payment history" })
-  async findMine(@GymId() gymId: string, @CurrentUser('userId') userId: string) {
-    return this.service.findMine(gymId, userId);
+  @ApiOperation({ summary: "Get the logged-in member's own payment history (paginated)" })
+  async findMine(
+    @GymId() gymId: string,
+    @CurrentUser('userId') userId: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.service.findMine(gymId, userId, Number(page) || 1, Number(limit) || 20);
   }
 
   @Get(':id')

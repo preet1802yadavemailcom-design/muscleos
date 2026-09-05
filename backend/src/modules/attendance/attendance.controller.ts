@@ -43,8 +43,13 @@ export class AttendanceController {
   @Get('my-history')
   @Permissions('attendance:read:own')
   @ApiOperation({ summary: "The logged-in user's own recent attendance (member self-service)" })
-  async myHistory(@GymId() gymId: string, @CurrentUser() user: CurrentUserPayload) {
-    return this.service.myHistory(gymId, user);
+  async myHistory(
+    @GymId() gymId: string,
+    @CurrentUser() user: CurrentUserPayload,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.service.myHistory(gymId, user, Number(page) || 1, Number(limit) || 30);
   }
 
   @Get()

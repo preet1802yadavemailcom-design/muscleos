@@ -147,16 +147,25 @@ export class PaymentsService {
   }
 
   /** Member's own payment history — identity resolved via Member.userId, never email/mobile matching. */
-  async findMine(gymId: string, userId: string) {
+  async findMine(gymId: string, userId: string, page = 1, limit = 20) {
     const member = await this.prisma.member.findFirst({ where: { userId, gymId, deletedAt: null } });
     if (!member) {
       throw new NotFoundException('No member profile is linked to this account yet — ask staff to link your profile.');
     }
-    return this.prisma.payment.findMany({
-      where: { memberId: member.id, gymId },
-      orderBy: { createdAt: 'desc' },
-      include: { membership: { select: { id: true, planName: true } } },
-    });
+    const safeLimit = Math.min(Math.max(limit, 1), 100);
+    const safePage = Math.max(page, 1);
+    const where = { memberId: member.id, gymId };
+    const [data, total] = await Promise.all([
+      this.prisma.payment.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        include: { membership: { select: { id: true, planName: true } } },
+        skip: (safePage - 1) * safeLimit,
+        take: safeLimit,
+      }),
+      this.prisma.payment.count({ where }),
+    ]);
+    return { data, total, page: safePage, limit: safeLimit };
   }
 
   /** Member's own payable/locked months for one of THEIR OWN memberships � ownership is

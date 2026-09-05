@@ -300,7 +300,7 @@ export class AttendanceService {
   }
 
   /** A member's own recent attendance (self-service page). */
-  async myHistory(gymId: string, user: CurrentUserPayload) {
+  async myHistory(gymId: string, user: CurrentUserPayload, page = 1, limit = 30) {
     const dbUser = await this.prisma.user.findUnique({
       where: { id: user.userId },
       select: { email: true, phone: true },
@@ -318,12 +318,19 @@ export class AttendanceService {
     });
     if (!member) return { member: null, data: [] };
 
-    const data = await this.prisma.attendance.findMany({
-      where: { memberId: member.id, gymId },
-      orderBy: { checkInAt: 'desc' },
-      take: 30,
-    });
-    return { member, data };
+    const safeLimit = Math.min(Math.max(limit, 1), 100);
+    const safePage = Math.max(page, 1);
+    const where = { memberId: member.id, gymId };
+    const [data, total] = await Promise.all([
+      this.prisma.attendance.findMany({
+        where,
+        orderBy: { checkInAt: 'desc' },
+        skip: (safePage - 1) * safeLimit,
+        take: safeLimit,
+      }),
+      this.prisma.attendance.count({ where }),
+    ]);
+    return { member, data, total, page: safePage, limit: safeLimit };
   }
 
   async findAll(gymId: string, query: QueryAttendanceDto) {

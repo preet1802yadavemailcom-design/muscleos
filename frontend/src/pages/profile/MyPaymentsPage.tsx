@@ -1,4 +1,4 @@
-﻿import { useQuery } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { Download, Receipt, AlertTriangle } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -29,10 +29,11 @@ const statusColor: Record<string, string> = {
  *  page can't be tricked into fetching someone else's receipt even by a
  *  crafted request. */
 export function MyPaymentsPage() {
-  const { data, isLoading, isError } = useQuery<MyPayment[]>({
+  const { data: response, isLoading, isError } = useQuery<{ data: MyPayment[]; total: number; page: number; limit: number }>({
     queryKey: ['payments', 'me'],
     queryFn: async () => (await api.get('/payments/me')).data,
   });
+  const data = response?.data;
 
   const downloadReceipt = async (id: string) => {
     const res = await api.get(`/payments/${id}/receipt`, { responseType: 'blob' });
@@ -73,7 +74,7 @@ export function MyPaymentsPage() {
                 <div className="min-w-0">
                   <p className="font-medium truncate">{p.membership?.planName ?? 'Payment'}</p>
                   <p className="text-xs text-muted-foreground">
-                    {new Date(p.createdAt).toLocaleDateString()} {p.receiptNumber ? `Â· ${p.receiptNumber}` : ''}
+                    {new Date(p.createdAt).toLocaleDateString()} {p.receiptNumber ? `· ${p.receiptNumber}` : ''}
                   </p>
                 </div>
                 <div className="flex items-center gap-3 shrink-0">
