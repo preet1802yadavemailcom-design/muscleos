@@ -568,7 +568,11 @@ export class PaymentsService {
   async listPendingUpiClaims(gymId: string) {
     return this.prisma.payment.findMany({
       where: { gymId, gateway: PaymentGateway.UPI, status: PaymentStatus.PENDING },
-      include: { member: { select: { firstName: true, lastName: true, mobile: true } } },
+      include: {
+        member: { select: { firstName: true, lastName: true, mobile: true } },
+        membership: { select: { planName: true } },
+        monthAllocations: { include: { membershipMonth: { select: { monthStart: true } } }, orderBy: { membershipMonth: { monthStart: 'asc' } } },
+      },
       orderBy: { createdAt: 'asc' },
     });
   }
