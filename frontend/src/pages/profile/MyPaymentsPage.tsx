@@ -23,7 +23,7 @@ const statusColor: Record<string, string> = {
   PARTIALLY_REFUNDED: 'bg-blue-100 text-blue-800',
 };
 
-/** GET /payments/me â€” server resolves identity via Member.userId, and
+/** GET /payments/me - server resolves identity via Member.userId, and
  *  GET /payments/:id/receipt independently re-checks that the payment
  *  belongs to the caller (see payments.service.ts#assertCanView), so this
  *  page can't be tricked into fetching someone else's receipt even by a

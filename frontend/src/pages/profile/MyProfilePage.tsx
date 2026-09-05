@@ -37,7 +37,7 @@ interface MyProfile {
   } | null;
 }
 
-/** Every authenticated role lands here for their OWN profile â€” this is not
+/** Every authenticated role lands here for their OWN profile - this is not
  *  an admin "manage users" page. Editable fields mirror exactly what the
  *  backend's UpdateMyProfileDto allows: name, phone, photo, emergency
  *  contact. Role/gym/branch/status/membership are shown read-only because
@@ -222,7 +222,7 @@ export function MyProfilePage() {
               </div>
             </div>
             <p className="mt-3 text-xs text-muted-foreground">
-              Check in on consecutive days to keep your streak alive â€” miss a day and it resets.
+              Check in on consecutive days to keep your streak alive - miss a day and it resets.
             </p>
           </CardContent>
         </Card>
