@@ -49,6 +49,43 @@ function withComputed(m: any) {
 
 import { NotificationsService } from '@modules/notifications/notifications.service';
 
+/**
+ * Generates the month-by-month payment ledger (MembershipMonth rows) for a
+ * membership right after it is created/renewed. numMonths is derived from
+ * duration in days (~30/month). totalAmount is split evenly across months,
+ * with any rounding remainder folded into the LAST month so amounts always
+ * sum exactly to totalAmount. First month = PAYABLE, rest = LOCKED,
+ * matching the "previous unpaid months cannot be skipped" rule.
+ */
+async function generateMembershipMonths(
+  tx: any,
+  membership: { id: string; startDate: Date; durationDays: number; totalAmount: number; gymId: string },
+) {
+  const numMonths = Math.max(1, Math.round(membership.durationDays / 30));
+  const perMonth = Math.floor((membership.totalAmount / numMonths) * 100) / 100;
+  const rows: { monthStart: Date; amountDue: number }[] = [];
+  let allocated = 0;
+  for (let i = 0; i < numMonths; i++) {
+    const monthStart = new Date(membership.startDate.getFullYear(), membership.startDate.getMonth() + i, 1);
+    const isLast = i === numMonths - 1;
+    const amountDue = isLast ? Number((membership.totalAmount - allocated).toFixed(2)) : perMonth;
+    allocated += amountDue;
+    rows.push({ monthStart, amountDue });
+  }
+
+  for (let i = 0; i < rows.length; i++) {
+    await tx.membershipMonth.create({
+      data: {
+        membershipId: membership.id,
+        monthStart: rows[i].monthStart,
+        amountDue: rows[i].amountDue,
+        status: i === 0 ? 'PAYABLE' : 'LOCKED',
+        gymId: membership.gymId,
+      },
+    });
+  }
+}
+
 @Injectable()
 export class MembershipsService {
   constructor(
@@ -159,6 +196,13 @@ export class MembershipsService {
         },
       });
       await tx.member.update({ where: { id: member.id }, data: { currentMembershipId: created.id, status: 'ACTIVE' } });
+      await generateMembershipMonths(tx, {
+        id: created.id,
+        startDate: created.startDate,
+        durationDays: durationDays,
+        totalAmount: Number(created.totalAmount),
+        gymId,
+      });
       return created;
     });
 
@@ -230,6 +274,13 @@ export class MembershipsService {
       if (existing.endDate <= now && existing.status === 'ACTIVE') {
         await tx.membership.update({ where: { id: existing.id }, data: { status: 'EXPIRED' } });
       }
+      await generateMembershipMonths(tx, {
+        id: created.id,
+        startDate: created.startDate,
+        durationDays: durationDays,
+        totalAmount: Number(created.totalAmount),
+        gymId,
+      });
       return created;
     });
 
