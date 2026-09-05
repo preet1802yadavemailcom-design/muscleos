@@ -33,6 +33,7 @@ import { PwaUpdatePrompt } from '@components/layout/PwaUpdatePrompt';
 import { MyProfilePage } from '@pages/profile/MyProfilePage';
 import { MyMembershipPage } from '@pages/profile/MyMembershipPage';
 import { MyPaymentsPage } from '@pages/profile/MyPaymentsPage';
+import { MyAttendancePage } from '@pages/profile/MyAttendancePage';
 import { OrganizationsPage } from '@pages/super-admin/OrganizationsPage';
 import { PlansPage } from '@pages/super-admin/PlansPage';
 import { AuditLogsPage } from '@pages/super-admin/AuditLogsPage';
@@ -196,6 +197,14 @@ function App() {
           element={
             <RoleRoute allowedRoles={[ROLES.MEMBER]}>
               <MyMembershipPage />
+            </RoleRoute>
+          }
+        />
+        <Route
+          path="my/attendance"
+          element={
+            <RoleRoute allowedRoles={[ROLES.MEMBER]}>
+              <MyAttendancePage />
             </RoleRoute>
           }
         />

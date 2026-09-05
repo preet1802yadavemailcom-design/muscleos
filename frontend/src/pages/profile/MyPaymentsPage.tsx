@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+﻿import { useQuery } from '@tanstack/react-query';
 import { Download, Receipt, AlertTriangle } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -23,7 +23,7 @@ const statusColor: Record<string, string> = {
   PARTIALLY_REFUNDED: 'bg-blue-100 text-blue-800',
 };
 
-/** GET /payments/me — server resolves identity via Member.userId, and
+/** GET /payments/me â€” server resolves identity via Member.userId, and
  *  GET /payments/:id/receipt independently re-checks that the payment
  *  belongs to the caller (see payments.service.ts#assertCanView), so this
  *  page can't be tricked into fetching someone else's receipt even by a
@@ -44,7 +44,7 @@ export function MyPaymentsPage() {
     window.URL.revokeObjectURL(url);
   };
 
-  if (isLoading) return <div className="p-6 text-sm text-muted-foreground">Loading payment history…</div>;
+  if (isLoading) return <div className="p-6 text-sm text-muted-foreground">Loading payment history...</div>;
   if (isError) {
     return (
       <div className="p-6 text-sm text-destructive flex items-center gap-2">
@@ -73,11 +73,11 @@ export function MyPaymentsPage() {
                 <div className="min-w-0">
                   <p className="font-medium truncate">{p.membership?.planName ?? 'Payment'}</p>
                   <p className="text-xs text-muted-foreground">
-                    {new Date(p.createdAt).toLocaleDateString()} {p.receiptNumber ? `· ${p.receiptNumber}` : ''}
+                    {new Date(p.createdAt).toLocaleDateString()} {p.receiptNumber ? `Â· ${p.receiptNumber}` : ''}
                   </p>
                 </div>
                 <div className="flex items-center gap-3 shrink-0">
-                  <span className="font-medium">₹{p.amount}</span>
+                  <span className="font-medium">Rs {p.amount}</span>
                   <Badge className={statusColor[p.status] ?? ''}>{p.status}</Badge>
                   {p.status === 'COMPLETED' && (
                     <Button variant="ghost" size="icon" onClick={() => downloadReceipt(p.id)} aria-label="Download receipt">

@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react';
+﻿import { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { User, Mail, MapPin, Calendar, ShieldCheck, ShieldAlert, Save, Flame } from 'lucide-react';
+import { User, Mail, MapPin, Calendar, ShieldCheck, ShieldAlert, Save, Flame, CreditCard, Clock, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -36,7 +37,7 @@ interface MyProfile {
   } | null;
 }
 
-/** Every authenticated role lands here for their OWN profile — this is not
+/** Every authenticated role lands here for their OWN profile â€” this is not
  *  an admin "manage users" page. Editable fields mirror exactly what the
  *  backend's UpdateMyProfileDto allows: name, phone, photo, emergency
  *  contact. Role/gym/branch/status/membership are shown read-only because
@@ -79,7 +80,7 @@ export function MyProfilePage() {
   });
 
   if (isLoading) {
-    return <div className="p-6 text-sm text-muted-foreground">Loading profile…</div>;
+    return <div className="p-6 text-sm text-muted-foreground">Loading profile...</div>;
   }
   if (!data) {
     return <div className="p-6 text-sm text-destructive">Couldn't load your profile. Please refresh.</div>;
@@ -93,6 +94,21 @@ export function MyProfilePage() {
         <h1 className="text-xl sm:text-2xl font-bold tracking-tight">My Profile</h1>
         <p className="text-sm text-muted-foreground">View and update your personal details.</p>
       </div>
+
+      {isMember && (
+        <Card>
+          <CardContent className="p-0 divide-y">
+            <Link to="/my/payments" className="flex items-center justify-between px-4 py-3 hover:bg-muted/50">
+              <span className="flex items-center gap-2 text-sm font-medium"><CreditCard className="h-4 w-4" /> My Payments</span>
+              <ChevronRight className="h-4 w-4 text-muted-foreground" />
+            </Link>
+            <Link to="/my/attendance" className="flex items-center justify-between px-4 py-3 hover:bg-muted/50">
+              <span className="flex items-center gap-2 text-sm font-medium"><Clock className="h-4 w-4" /> My Attendance</span>
+              <ChevronRight className="h-4 w-4 text-muted-foreground" />
+            </Link>
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>
@@ -153,7 +169,7 @@ export function MyProfilePage() {
           )}
 
           <Button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending} className="gap-2">
-            <Save className="h-4 w-4" /> {saveMutation.isPending ? 'Saving…' : 'Save changes'}
+            <Save className="h-4 w-4" /> {saveMutation.isPending ? 'Saving...' : 'Save changes'}
           </Button>
         </CardContent>
       </Card>
@@ -206,7 +222,7 @@ export function MyProfilePage() {
               </div>
             </div>
             <p className="mt-3 text-xs text-muted-foreground">
-              Check in on consecutive days to keep your streak alive — miss a day and it resets.
+              Check in on consecutive days to keep your streak alive â€” miss a day and it resets.
             </p>
           </CardContent>
         </Card>

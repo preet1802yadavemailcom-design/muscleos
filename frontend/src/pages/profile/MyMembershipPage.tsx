@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+﻿import { useQuery } from '@tanstack/react-query';
 import { RefreshCcw, CreditCard, Calendar, AlertTriangle } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -26,7 +26,7 @@ const statusColor: Record<string, string> = {
   PENDING: 'bg-amber-100 text-amber-800',
 };
 
-/** GET /memberships/me — resolved server-side via the caller's own
+/** GET /memberships/me â€” resolved server-side via the caller's own
  *  Member.userId link, so this can never return another member's data
  *  regardless of what's requested from the client. */
 export function MyMembershipPage() {
@@ -35,7 +35,7 @@ export function MyMembershipPage() {
     queryFn: async () => (await api.get('/memberships/me')).data,
   });
 
-  if (isLoading) return <div className="p-6 text-sm text-muted-foreground">Loading your membership…</div>;
+  if (isLoading) return <div className="p-6 text-sm text-muted-foreground">Loading your membership...</div>;
   if (isError) {
     return (
       <div className="p-6 text-sm text-destructive flex items-center gap-2">
@@ -44,7 +44,7 @@ export function MyMembershipPage() {
     );
   }
   if (!data || data.length === 0) {
-    return <div className="p-6 text-sm text-muted-foreground">No membership on file yet — ask staff at the front desk.</div>;
+    return <div className="p-6 text-sm text-muted-foreground">No membership on file yet â€” ask staff at the front desk.</div>;
   }
 
   const [current, ...history] = data;
@@ -78,7 +78,7 @@ export function MyMembershipPage() {
           </div>
           <div>
             <p className="text-muted-foreground flex items-center gap-1"><CreditCard className="h-3.5 w-3.5" /> Payment</p>
-            <p className="font-medium">{current.paymentStatus ?? '—'}</p>
+            <p className="font-medium">{current.paymentStatus ?? 'â€”'}</p>
           </div>
           {current.branch && (
             <div className="col-span-2 sm:col-span-4">
@@ -106,7 +106,7 @@ export function MyMembershipPage() {
                 <div className="min-w-0">
                   <p className="font-medium truncate">{m.planName}</p>
                   <p className="text-xs text-muted-foreground">
-                    {new Date(m.startDate).toLocaleDateString()} – {new Date(m.endDate).toLocaleDateString()}
+                    {new Date(m.startDate).toLocaleDateString()} â€“ {new Date(m.endDate).toLocaleDateString()}
                   </p>
                 </div>
                 <Badge className={statusColor[m.status] ?? ''}>{m.status}</Badge>
@@ -118,3 +118,4 @@ export function MyMembershipPage() {
     </div>
   );
 }
+
