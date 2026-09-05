@@ -19,7 +19,8 @@ export class NotificationsController {
   constructor(private readonly service: NotificationsService) {}
 
   @Get()
-  @ApiOperation({ summary: 'List notification logs' })
+  @Roles(UserRole.GYM_OWNER, UserRole.SUPER_ADMIN, UserRole.RECEPTIONIST)
+  @ApiOperation({ summary: 'List notification logs (staff only)' })
   @ApiQuery({ name: 'page', required: false, type: Number })
   @ApiQuery({ name: 'limit', required: false, type: Number })
   @ApiQuery({ name: 'status', required: false, enum: NotificationStatus })
@@ -42,7 +43,8 @@ export class NotificationsController {
   }
 
   @Get(':id')
-  @ApiOperation({ summary: 'Get a notification by id' })
+  @Roles(UserRole.GYM_OWNER, UserRole.SUPER_ADMIN, UserRole.RECEPTIONIST)
+  @ApiOperation({ summary: 'Get a notification by id (staff only)' })
   async findOne(@Param('id') id: string, @GymId() gymId: string) {
     return this.service.findOne(id, gymId);
   }

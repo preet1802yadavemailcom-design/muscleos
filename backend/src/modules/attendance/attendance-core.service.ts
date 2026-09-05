@@ -196,10 +196,17 @@ export class AttendanceCoreService {
     const durationMinutes = Math.round((now.getTime() - open.checkInAt.getTime()) / 60000);
     const isEarlyLeave = this.computeEarlyLeave(member, open.checkInAt, now);
 
-    const attendance = await this.prisma.attendance.update({
-      where: { id: open.id },
+    // Atomic guard: only succeeds if checkOutAt is STILL null at write time.
+    // Prevents two concurrent checkout requests from both updating the same
+    // row (second one previously silently overwrote the first's checkout).
+    const { count } = await this.prisma.attendance.updateMany({
+      where: { id: open.id, checkOutAt: null },
       data: { checkOutAt: now, duration: durationMinutes, isEarlyLeave, type: AttendanceType.CHECK_OUT },
     });
+    if (count === 0) {
+      throw new BadRequestException('This session was already checked out by another request.');
+    }
+    const attendance = await this.prisma.attendance.findUniqueOrThrow({ where: { id: open.id } });
 
     await this.audit.log({
       action: 'CHECK_OUT',

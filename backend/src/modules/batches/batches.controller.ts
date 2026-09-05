@@ -31,12 +31,14 @@ export class BatchesController {
   constructor(private readonly service: BatchesService) {}
 
   @Get()
+  @Roles(UserRole.GYM_OWNER, UserRole.SUPER_ADMIN, UserRole.TRAINER, UserRole.RECEPTIONIST, UserRole.MEMBER)
   @ApiOperation({ summary: 'List batches (paginated, filterable)' })
   async findAll(@GymId() gymId: string, @Query() query: QueryBatchDto) {
     return this.service.findAll(gymId, query);
   }
 
   @Get('calendar')
+  @Roles(UserRole.GYM_OWNER, UserRole.SUPER_ADMIN, UserRole.TRAINER, UserRole.RECEPTIONIST, UserRole.MEMBER)
   @ApiOperation({ summary: 'Batch calendar for a given month' })
   @ApiQuery({ name: 'year', type: Number })
   @ApiQuery({ name: 'month', type: Number, description: '1-12' })
@@ -56,13 +58,15 @@ export class BatchesController {
   }
 
   @Get(':id')
+  @Roles(UserRole.GYM_OWNER, UserRole.SUPER_ADMIN, UserRole.TRAINER, UserRole.RECEPTIONIST, UserRole.MEMBER)
   @ApiOperation({ summary: 'Get batch by id' })
   async findOne(@Param('id') id: string, @GymId() gymId: string) {
     return this.service.findOne(id, gymId);
   }
 
   @Get(':id/analytics')
-  @ApiOperation({ summary: 'Batch analytics: members, utilization, attendance %, revenue' })
+  @Roles(UserRole.GYM_OWNER, UserRole.SUPER_ADMIN, UserRole.TRAINER, UserRole.RECEPTIONIST)
+  @ApiOperation({ summary: 'Batch analytics: members, utilization, attendance %, revenue (staff only)' })
   @ApiQuery({ name: 'from', required: false, type: String })
   @ApiQuery({ name: 'to', required: false, type: String })
   async analytics(
@@ -75,7 +79,8 @@ export class BatchesController {
   }
 
   @Get(':id/history')
-  @ApiOperation({ summary: 'Audit history for a batch' })
+  @Roles(UserRole.GYM_OWNER, UserRole.SUPER_ADMIN, UserRole.TRAINER, UserRole.RECEPTIONIST)
+  @ApiOperation({ summary: 'Audit history for a batch (staff only)' })
   async history(@Param('id') id: string, @GymId() gymId: string) {
     return this.service.history(id, gymId);
   }
