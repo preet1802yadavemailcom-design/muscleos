@@ -1,10 +1,11 @@
-﻿import { PrismaService } from '@database/prisma.service';
+import { PrismaService } from '@database/prisma.service';
 import { BadRequestException, Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { PaymentGateway, PaymentMethod, PaymentStatus, Prisma } from '@prisma/client';
 import { AuditService } from '@shared/services/audit.service';
 import { LoggerService } from '@shared/services/logger.service';
 
 import { CreatePaymentDto } from './dto/create-payment.dto';
+import { AllocateMonthsDto } from './dto/allocate-months.dto';
 import { QueryPaymentDto } from './dto/query-payment.dto';
 import { RefundPaymentDto } from './dto/refund-payment.dto';
 import { VerifyRazorpayPaymentDto } from './dto/verify-payment.dto';
@@ -73,11 +74,11 @@ export class PaymentsService {
   }
 
   /**
-   * Member self-pay ("Pay Now" on MyMembershipPage) â€” deliberately a
+   * Member self-pay ("Pay Now" on MyMembershipPage) — deliberately a
    * separate, narrow entry point rather than exposing the generic
    * initiate() to MEMBER role directly. The generic one trusts
    * dto.amount/memberId/membershipId from the client, which would let a
-   * member pay an arbitrary (e.g. â‚¹1) amount for their real membership, or
+   * member pay an arbitrary (e.g. ₹1) amount for their real membership, or
    * name someone else's memberId. Here, membershipId is the only client
    * input; amount and memberId are both derived server-side from the
    * membership row itself, and ownership is checked via the same
@@ -86,7 +87,7 @@ export class PaymentsService {
   async initiateSelfPay(gymId: string, userId: string, membershipId: string, gateway: PaymentGateway, method: PaymentMethod) {
     const member = await this.prisma.member.findFirst({ where: { userId, gymId, deletedAt: null } });
     if (!member) {
-      throw new NotFoundException('No member profile is linked to this account yet â€” ask staff to link your profile.');
+      throw new NotFoundException('No member profile is linked to this account yet — ask staff to link your profile.');
     }
     const membership = await this.prisma.membership.findFirst({
       where: { id: membershipId, memberId: member.id, gymId },
@@ -127,7 +128,7 @@ export class PaymentsService {
     return payment;
   }
 
-  /** Members may only reach their own payment/receipt â€” this is the
+  /** Members may only reach their own payment/receipt — this is the
    *  ownership check the plain gymId scoping above doesn't provide, since
    *  gymId scoping alone still lets any member in the gym see any other
    *  member's payment by id. */
@@ -139,11 +140,11 @@ export class PaymentsService {
     }
   }
 
-  /** Member's own payment history â€” identity resolved via Member.userId, never email/mobile matching. */
+  /** Member's own payment history — identity resolved via Member.userId, never email/mobile matching. */
   async findMine(gymId: string, userId: string) {
     const member = await this.prisma.member.findFirst({ where: { userId, gymId, deletedAt: null } });
     if (!member) {
-      throw new NotFoundException('No member profile is linked to this account yet â€” ask staff to link your profile.');
+      throw new NotFoundException('No member profile is linked to this account yet — ask staff to link your profile.');
     }
     return this.prisma.payment.findMany({
       where: { memberId: member.id, gymId },
@@ -191,7 +192,7 @@ export class PaymentsService {
       gatewayOrder = await this.stripe.createPaymentIntent(Math.round(total * 100), 'usd', { paymentId: payment.id, gymId });
       await this.prisma.payment.update({ where: { id: payment.id }, data: { gatewayOrderId: gatewayOrder.id } });
     } else {
-      // offline payment already marked completed â€” generate receipt immediately
+      // offline payment already marked completed — generate receipt immediately
       await this.finalizeReceipt(payment.id, gymId);
     }
 
@@ -220,7 +221,7 @@ export class PaymentsService {
   /** Atomic idempotency check: returns true the FIRST time a given
    *  (provider, eventId) is seen, false on every replay. The unique
    *  constraint (not a prior SELECT) is what actually enforces this, so
-   *  two webhook deliveries racing each other can't both slip through â€”
+   *  two webhook deliveries racing each other can't both slip through —
    *  whichever loses the DB-level race gets the P2002 and is treated as
    *  a duplicate rather than reprocessed. */
   async recordWebhookEventOnce(provider: string, eventId: string, eventType: string, payload: any): Promise<boolean> {
@@ -294,7 +295,7 @@ export class PaymentsService {
       this.logger.error(`Invoice generation failed for payment ${paymentId}: ${err}`, undefined, 'PaymentsService');
     }
 
-    // Best-effort — a failed WhatsApp send must never fail the payment
+    // Best-effort � a failed WhatsApp send must never fail the payment
     // itself, which is why this comes after the invoice generation and is
     // caught independently rather than allowed to throw.
     if (payment.member) {
@@ -302,7 +303,7 @@ export class PaymentsService {
         type: 'PAYMENT_SUCCESS' as any,
         channel: 'WHATSAPP' as any,
         memberId: payment.member.id,
-        content: `Hi ${payment.member.firstName}, we received your payment of ₹${Number(payment.total).toFixed(2)}. Receipt #${payment.receiptNumber}. Thank you!`,
+        content: `Hi ${payment.member.firstName}, we received your payment of ?${Number(payment.total).toFixed(2)}. Receipt #${payment.receiptNumber}. Thank you!`,
         title: 'Payment received',
       } as any).catch(() => undefined);
     }
@@ -340,7 +341,7 @@ export class PaymentsService {
   async refund(id: string, gymId: string, dto: RefundPaymentDto, userId: string) {
     const payment = await this.findOne(id, gymId);
     if (payment.status !== PaymentStatus.COMPLETED) {
-      // Also blocks a second refund attempt outright â€” once PARTIALLY_REFUNDED
+      // Also blocks a second refund attempt outright — once PARTIALLY_REFUNDED
       // or REFUNDED, status is no longer COMPLETED, so a duplicate/retried
       // refund request can't silently double-refund on the gateway side.
       throw new BadRequestException('Only completed payments can be refunded');
@@ -392,12 +393,12 @@ export class PaymentsService {
   }
 
   /* ---------------------------------------------------------------- */
-  /* Direct-to-owner UPI payments — no payment gateway needed. The gym  */
+  /* Direct-to-owner UPI payments � no payment gateway needed. The gym  */
   /* owner sets their own UPI ID once; every member payment goes       */
   /* straight into the owner's own bank account (standard UPI person-  */
   /* to-merchant transfer, zero platform fees). Since there's no       */
   /* gateway API in the loop, there's no automatic webhook confirming  */
-  /* the transfer — the member reports the UTR reference after paying,*/
+  /* the transfer � the member reports the UTR reference after paying,*/
   /* and staff/owner confirms it against their own bank/UPI app.       */
   /* ---------------------------------------------------------------- */
 
@@ -413,7 +414,7 @@ export class PaymentsService {
   }
 
   /** Builds the standard UPI deep-link (`upi://pay?...`) for a given
-   *  amount — tapping it on a phone opens whichever UPI app the member
+   *  amount � tapping it on a phone opens whichever UPI app the member
    *  has installed (GPay, PhonePe, Paytm, etc.) with the amount and payee
    *  pre-filled, so they don't have to type anything by hand. Also
    *  returns a QR-code PNG (data URL) of the same link, for members
@@ -439,7 +440,7 @@ export class PaymentsService {
   }
 
   /** Member says "I've paid" and provides the UTR/reference number their
-   *  UPI app showed them — creates a PENDING payment row. Nothing is
+   *  UPI app showed them � creates a PENDING payment row. Nothing is
    *  auto-confirmed here on purpose: a member typing in a UTR is not
    *  proof of payment by itself (they could type a fake or someone
    *  else's), so this must be verified by staff/owner before it counts. */
@@ -463,7 +464,7 @@ export class PaymentsService {
         memberId: member.id,
         membershipId,
         receiptNumber,
-        notes: 'Direct UPI payment — pending owner/staff verification',
+        notes: 'Direct UPI payment � pending owner/staff verification',
         gymId,
       },
     });
@@ -486,7 +487,7 @@ export class PaymentsService {
   }
 
   /** Staff/owner checked their own bank/UPI app, saw the matching UTR
-   *  actually landed, and confirms it here — only then does it count as
+   *  actually landed, and confirms it here � only then does it count as
    *  a real completed payment (receipt generated, WhatsApp sent). */
   async confirmUpiClaim(id: string, gymId: string, staffUserId: string) {
     const payment = await this.prisma.payment.findFirst({ where: { id, gymId, gateway: PaymentGateway.UPI } });
@@ -511,7 +512,7 @@ export class PaymentsService {
         type: 'PAYMENT_SUCCESS' as any,
         channel: 'WHATSAPP' as any,
         memberId: payment.memberId,
-        content: `Hi, your payment of ₹${Number(payment.total).toFixed(2)} has been confirmed. Receipt #${payment.receiptNumber}. Thank you!`,
+        content: `Hi, your payment of ?${Number(payment.total).toFixed(2)} has been confirmed. Receipt #${payment.receiptNumber}. Thank you!`,
         title: 'Payment confirmed',
       } as any).catch(() => undefined);
     }
@@ -539,5 +540,142 @@ export class PaymentsService {
     });
 
     return updated;
+  }
+
+  /**
+   * Staff-recorded manual payment (cash / wall-QR UPI / bank transfer) that
+   * covers one or more CONSECUTIVE unpaid months of a membership.
+   */
+  async recordManualPaymentWithMonths(
+    gymId: string,
+    staffUserId: string,
+    dto: AllocateMonthsDto,
+  ) {
+    const membership = await this.prisma.membership.findFirst({
+      where: { id: dto.membershipId, gymId, deletedAt: null },
+    });
+    if (!membership) throw new NotFoundException('Membership not found in this gym.');
+
+    const requestedStarts = dto.monthStarts
+      .map((d) => new Date(d))
+      .sort((a, b) => a.getTime() - b.getTime());
+
+    const months = await this.prisma.membershipMonth.findMany({
+      where: { membershipId: dto.membershipId, monthStart: { in: requestedStarts } },
+      orderBy: { monthStart: 'asc' },
+    });
+
+    if (months.length !== requestedStarts.length) {
+      throw new BadRequestException('One or more requested months do not exist for this membership.');
+    }
+    if (months.some((m) => m.status === 'PAID')) {
+      throw new BadRequestException('One or more selected months are already paid.');
+    }
+    if (months.some((m) => m.status === 'PENDING')) {
+      throw new BadRequestException('One or more selected months already have a pending verification.');
+    }
+
+    const earliestRequested = requestedStarts[0];
+    const earlierUnpaid = await this.prisma.membershipMonth.count({
+      where: {
+        membershipId: dto.membershipId,
+        monthStart: { lt: earliestRequested },
+        status: { not: 'PAID' },
+      },
+    });
+    if (earlierUnpaid > 0) {
+      throw new BadRequestException('Cannot pay this month while an earlier month is still unpaid.');
+    }
+
+    for (let i = 1; i < months.length; i++) {
+      const prev = new Date(months[i - 1].monthStart);
+      const expectedNext = new Date(prev.getFullYear(), prev.getMonth() + 1, 1);
+      if (new Date(months[i].monthStart).getTime() !== expectedNext.getTime()) {
+        throw new BadRequestException('Selected months must be consecutive.');
+      }
+    }
+
+    const totalAmount = months.reduce((sum, m) => sum + Number(m.amountDue), 0);
+    const isCash = dto.gateway === 'CASH';
+    const status: PaymentStatus = isCash ? 'COMPLETED' : 'PENDING';
+    const receiptNumber = isCash ? await this.nextSequence(gymId, 'RCPT') : null;
+
+    const result = await this.prisma.$transaction(async (tx) => {
+      const payment = await tx.payment.create({
+        data: {
+          amount: totalAmount,
+          discount: 0,
+          tax: 0,
+          total: totalAmount,
+          gateway: dto.gateway,
+          method: dto.method,
+          source: 'STAFF',
+          status,
+          utr: dto.utr,
+          receiptNumber,
+          notes: dto.notes,
+          memberId: membership.memberId,
+          membershipId: membership.id,
+          collectedById: staffUserId,
+          verifiedById: isCash ? staffUserId : null,
+          verifiedAt: isCash ? new Date() : null,
+          gymId,
+        },
+      });
+
+      for (const month of months) {
+        await tx.paymentMonthAllocation.create({
+          data: { paymentId: payment.id, membershipMonthId: month.id, amount: month.amountDue },
+        });
+        await tx.membershipMonth.update({
+          where: { id: month.id },
+          data: { status: isCash ? 'PAID' : 'PENDING', paymentId: payment.id },
+        });
+      }
+
+      return payment;
+    });
+
+    this.logger.log(`Manual payment ${result.id} recorded for membership ${membership.id} (${status})`, 'PaymentsService');
+    return result;
+  }
+
+  /**
+   * Owner/staff verifies a PENDING wall-QR UPI submission.
+   */
+  async verifyManualPayment(gymId: string, paymentId: string, verifierUserId: string, approve: boolean) {
+    const payment = await this.prisma.payment.findFirst({
+      where: { id: paymentId, gymId, deletedAt: null },
+      include: { monthAllocations: true },
+    });
+    if (!payment) throw new NotFoundException('Payment not found in this gym.');
+    if (payment.status !== 'PENDING') {
+      throw new BadRequestException('Only PENDING payments can be verified.');
+    }
+
+    const newStatus: PaymentStatus = approve ? 'COMPLETED' : 'FAILED';
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.payment.update({
+        where: { id: paymentId },
+        data: { status: newStatus, verifiedById: verifierUserId, verifiedAt: new Date() },
+      });
+      for (const alloc of payment.monthAllocations) {
+        await tx.membershipMonth.update({
+          where: { id: alloc.membershipMonthId },
+          data: { status: approve ? 'PAID' : 'PAYABLE', paymentId: approve ? paymentId : null },
+        });
+      }
+    });
+
+    await this.audit.log({
+      action: approve ? 'PAYMENT_VERIFIED' : 'PAYMENT_REJECTED',
+      entity: 'Payment',
+      entityId: paymentId,
+      userId: verifierUserId,
+      gymId,
+    });
+
+    return { id: paymentId, status: newStatus };
   }
 }

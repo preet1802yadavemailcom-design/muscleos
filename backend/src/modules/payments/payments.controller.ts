@@ -1,5 +1,6 @@
 import { CurrentUser, CurrentUserPayload } from '@common/decorators/current-user.decorator';
 import { GymId } from '@common/decorators/gym-id.decorator';
+import { AllocateMonthsDto } from './dto/allocate-months.dto';
 import { Public } from '@common/decorators/public.decorator';
 import { Roles } from '@common/decorators/roles.decorator';
 import { GymOwnerGuard } from '@common/guards/gym-owner.guard';
@@ -245,5 +246,28 @@ export class PaymentsController {
       await this.service.markFailedFromWebhook(intent.id, event);
     }
     return { received: true };
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('GYM_OWNER', 'RECEPTIONIST')
+  @Post('manual-with-months')
+  async recordManualWithMonths(
+    @GymId() gymId: string,
+    @CurrentUser() user: CurrentUserPayload,
+    @Body() dto: AllocateMonthsDto,
+  ) {
+    return this.service.recordManualPaymentWithMonths(gymId, user.userId, dto);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('GYM_OWNER', 'RECEPTIONIST')
+  @Post(':id/verify-manual')
+  async verifyManual(
+    @GymId() gymId: string,
+    @Param('id') id: string,
+    @CurrentUser() user: CurrentUserPayload,
+    @Body('approve') approve: boolean,
+  ) {
+    return this.service.verifyManualPayment(gymId, id, user.userId, approve);
   }
 }
