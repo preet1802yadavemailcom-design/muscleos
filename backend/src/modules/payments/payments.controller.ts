@@ -100,6 +100,15 @@ export class PaymentsController {
     return this.service.initiateSelfPay(gymId, userId, dto.membershipId, dto.gateway, dto.method);
   }
 
+  @Get('me/payable-months')
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard, GymOwnerGuard)
+  @ApiBearerAuth('access-token')
+  @Roles(UserRole.MEMBER)
+  @ApiOperation({ summary: "List the logged-in member's payable/pending months for one of their own memberships" })
+  async getPayableMonths(@GymId() gymId: string, @CurrentUser('userId') userId: string, @Query('membershipId') membershipId: string) {
+    return this.service.getPayableMonths(gymId, userId, membershipId);
+  }
+
   /* ---------------- Direct-to-owner UPI (no gateway needed) ---------------- */
 
   @Post('upi/link')

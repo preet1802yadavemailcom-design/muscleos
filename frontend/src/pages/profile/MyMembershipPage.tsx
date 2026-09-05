@@ -89,7 +89,7 @@ export function MyMembershipPage() {
           {current.paymentStatus !== 'COMPLETED' && (
             <div className="col-span-2 sm:col-span-4 pt-2 flex flex-wrap items-start gap-3">
               <PayNowButton membershipId={current.id} amount={current.amount} />
-              <PayViaUpiButton membershipId={current.id} amount={current.amount} />
+              <PayViaUpiButton membershipId={current.id} />
             </div>
           )}
         </CardContent>

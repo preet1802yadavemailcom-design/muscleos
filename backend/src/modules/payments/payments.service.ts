@@ -153,6 +153,31 @@ export class PaymentsService {
     });
   }
 
+  /** Member's own payable/locked months for one of THEIR OWN memberships — ownership is
+   *  verified via Member.userId before any month rows are returned, so a member can never
+   *  probe another member's membershipId to see what they owe. */
+  async getPayableMonths(gymId: string, userId: string, membershipId: string) {
+    const member = await this.prisma.member.findFirst({ where: { userId, gymId, deletedAt: null } });
+    if (!member) {
+      throw new NotFoundException('No member profile is linked to this account yet — ask staff to link your profile.');
+    }
+    const membership = await this.prisma.membership.findFirst({
+      where: { id: membershipId, gymId, memberId: member.id },
+    });
+    if (!membership) {
+      throw new NotFoundException('Membership not found');
+    }
+    const months = await this.prisma.membershipMonth.findMany({
+      where: { membershipId, status: { in: ['PAYABLE', 'PENDING'] } },
+      orderBy: { monthStart: 'asc' },
+    });
+    return months.map((m) => ({
+      monthStart: m.monthStart,
+      amountDue: m.amountDue,
+      status: m.status,
+    }));
+  }
+
   /** Step 1: create a pending payment record + gateway order for online payments. */
   async initiate(dto: CreatePaymentDto, gymId: string, collectedById: string) {
     const { tax, total } = this.calculateTotals(dto.amount, dto.discount ?? 0, dto.gstPercentage ?? 0);
