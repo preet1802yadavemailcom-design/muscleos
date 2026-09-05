@@ -1,4 +1,4 @@
-import { randomUUID } from 'crypto';
+import { randomUUID, randomBytes, createHash } from 'crypto';
 
 import { PrismaService } from '@database/prisma.service';
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
@@ -325,6 +325,41 @@ export class MembersService {
   }
 
   /** memberCode format: GYM-prefix + zero-padded sequence, e.g. MOS-000123 */
+  /**
+   * Staff-assisted registration recovery: generates a one-time activation
+   * link for a Member who has no User account yet (broken phone, no
+   * verification access, or simply never self-registered). The plain
+   * token is returned ONCE to the calling staff member to relay to the
+   * person in front of them; only a SHA-256 hash of it is stored, per the
+   * schema's "hashed at rest" comment on claimToken. The owner/staff never
+   * sees or sets the member's password — that happens when the member
+   * completes activation themselves via POST /auth/claim.
+   */
+  async generateClaimLink(id: string, gymId: string, staffUserId: string) {
+    const member = await this.prisma.member.findFirst({ where: { id, gymId, deletedAt: null } });
+    if (!member) throw new NotFoundException('Member not found');
+    if (member.userId) throw new BadRequestException('This member is already linked to an account.');
+
+    const plainToken = randomBytes(32).toString('hex');
+    const hashedToken = createHash('sha256').update(plainToken).digest('hex');
+    const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000); // 48 hours
+
+    await this.prisma.member.update({
+      where: { id },
+      data: { claimToken: hashedToken, claimTokenExpiresAt: expiresAt },
+    });
+
+    await this.audit.log({
+      action: 'CLAIM_LINK_GENERATED',
+      entity: 'Member',
+      entityId: id,
+      userId: staffUserId,
+      gymId,
+    });
+
+    return { token: plainToken, expiresAt };
+  }
+
   private async generateMemberCode(gymId: string): Promise<string> {
     const gym = await this.prisma.gym.findUnique({ where: { id: gymId }, select: { slug: true } });
     const prefix = (gym?.slug || 'MOS').slice(0, 4).toUpperCase();

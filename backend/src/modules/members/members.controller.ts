@@ -1,4 +1,5 @@
 import { GymId } from '@common/decorators/gym-id.decorator';
+import { CurrentUser, CurrentUserPayload } from '@common/decorators/current-user.decorator';
 import { Permissions } from '@common/decorators/permissions.decorator';
 import { GymOwnerGuard } from '@common/guards/gym-owner.guard';
 import { JwtAuthGuard } from '@common/guards/jwt-auth.guard';
@@ -30,6 +31,11 @@ export class MembersController {
   @ApiOperation({ summary: 'Export the (filtered) member list — rows for PDF/Excel/CSV' })
   async export(@GymId() gymId: string, @Query() query: QueryMemberDto) {
     return this.service.exportData(gymId, query);
+  }
+
+  @Post(':id/claim-link')
+  async generateClaimLink(@Param('id') id: string, @GymId() gymId: string, @CurrentUser() user: CurrentUserPayload) {
+    return this.service.generateClaimLink(id, gymId, user.userId);
   }
 
   @Get(':id/360')

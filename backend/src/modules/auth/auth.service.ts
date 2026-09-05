@@ -1,4 +1,4 @@
-import { randomUUID } from 'crypto';
+import { randomUUID, createHash } from 'crypto';
 
 import { parseUserAgent } from '@common/utils/user-agent.util';
 import { PrismaService } from '@database/prisma.service';
@@ -16,6 +16,7 @@ import { LoggerService } from '@shared/services/logger.service';
 import * as bcrypt from 'bcryptjs';
 
 import { LoginDto, RegisterDto, RefreshTokenDto, ForgotPasswordDto, ResetPasswordDto, VerifyEmailDto } from './dto';
+import { ClaimAccountDto } from './dto/claim-account.dto';
 import { TwoFactorService } from './two-factor.service';
 
 
@@ -309,6 +310,56 @@ export class AuthService {
     // here; the frontend calls confirmPhoneVerification() afterward with
     // the resulting ID token.
     return { user: this.sanitizeUser(user), message: 'Registered. Please verify your phone number to activate your account.' };
+  }
+
+  /**
+   * Completes a staff-assisted registration recovery: the member arrives
+   * with a one-time token (relayed by staff, not typed by staff) and sets
+   * their own password here. The backend never sees or stores that
+   * password on staff's behalf. Matches the hashed token against every
+   * non-expired claimToken, creates a new User scoped to that Member's
+   * gym, links Member.userId, and clears the token so it cannot be reused.
+   */
+  async claimAccount(dto: ClaimAccountDto) {
+    const hashedToken = createHash('sha256').update(dto.token).digest('hex');
+    const member = await this.prisma.member.findFirst({
+      where: { claimToken: hashedToken, claimTokenExpiresAt: { gt: new Date() }, deletedAt: null },
+    });
+    if (!member) throw new BadRequestException('This activation link is invalid or has expired. Ask staff for a new one.');
+    if (member.userId) throw new BadRequestException('This member is already linked to an account.');
+
+    const hashedPassword = await bcrypt.hash(dto.password, this.configService.get('app.bcryptRounds', 12));
+
+    const user = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.user.create({
+        data: {
+          email: member.email ?? `${member.mobile}@placeholder.muscleos`,
+          password: hashedPassword,
+          firstName: member.firstName,
+          lastName: member.lastName,
+          phone: member.mobile,
+          role: 'MEMBER',
+          gymId: member.gymId,
+          status: 'ACTIVE',
+        },
+      });
+      await tx.member.update({
+        where: { id: member.id },
+        data: { userId: created.id, claimToken: null, claimTokenExpiresAt: null },
+      });
+      return created;
+    });
+
+    await this.audit.log({
+      action: 'ACCOUNT_CLAIMED',
+      entity: 'Member',
+      entityId: member.id,
+      userId: user.id,
+      gymId: member.gymId,
+    });
+
+    this.logger.log(`Member ${member.id} claimed account ${user.id}`, 'AuthService');
+    return { user: this.sanitizeUser(user), message: 'Account activated. You can now log in.' };
   }
 
   /** Generates a 6-digit OTP, stores it keyed by userId (not phone — a
