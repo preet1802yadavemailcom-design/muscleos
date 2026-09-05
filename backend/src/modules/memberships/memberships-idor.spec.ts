@@ -1,7 +1,8 @@
-import { NotFoundException } from '@nestjs/common';
+﻿import { NotFoundException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { PrismaService } from '@database/prisma.service';
 import { AuditService } from '@shared/services/audit.service';
+import { NotificationsService } from '@modules/notifications/notifications.service';
 
 import { MembershipsService } from './memberships.service';
 
@@ -32,6 +33,7 @@ describe('MembershipsService#findMine (IDOR regression coverage)', () => {
       providers: [
         MembershipsService,
         { provide: PrismaService, useValue: prisma },
+        { provide: NotificationsService, useValue: {} },
         { provide: AuditService, useValue: { log: jest.fn() } },
       ],
     }).compile();
@@ -45,8 +47,6 @@ describe('MembershipsService#findMine (IDOR regression coverage)', () => {
 
     await service.findMine(gymId, userId);
 
-    // The only identity input into the member lookup is the JWT-derived
-    // userId — nothing from a request body/param ever reaches this query.
     expect(prisma.member.findFirst).toHaveBeenCalledWith({
       where: { userId, gymId, deletedAt: null },
     });
@@ -60,8 +60,6 @@ describe('MembershipsService#findMine (IDOR regression coverage)', () => {
 
     const callArgs = prisma.membership.findMany.mock.calls[0][0];
     expect(callArgs.where.memberId).toBe(myMemberId);
-    // Explicitly NOT a bare gymId-only filter, which would return every
-    // member's memberships — the exact shape of the original bug.
     expect(callArgs.where.memberId).not.toBeUndefined();
   });
 

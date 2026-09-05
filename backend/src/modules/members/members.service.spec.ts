@@ -1,4 +1,4 @@
-import { PrismaService } from '@database/prisma.service';
+﻿import { PrismaService } from '@database/prisma.service';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { UserStatus } from '@prisma/client';
@@ -6,6 +6,7 @@ import { AuditService } from '@shared/services/audit.service';
 import { EncryptionService } from '@shared/services/encryption.service';
 
 import { MembersService } from './members.service';
+import { SequenceService } from '@shared/services/sequence.service';
 
 
 describe('MembersService', () => {
@@ -40,6 +41,7 @@ describe('MembersService', () => {
       providers: [
         MembersService,
         { provide: PrismaService, useValue: prisma },
+        { provide: SequenceService, useValue: { next: jest.fn().mockResolvedValue('MEM-000001') } },
         { provide: AuditService, useValue: audit },
         {
           provide: EncryptionService,
@@ -67,10 +69,10 @@ describe('MembersService', () => {
 
       const result = await service.create(gymId, baseDto);
 
-      expect(result.memberCode).toBe('IRON-000001');
+      expect(result.memberCode).toBe('IRON-MEM-000001');
       expect(result.qrCode).toBe('hashed-qr-code');
       expect(result.qrCodeData).toBe('encrypted-qr-payload');
-      expect(result.referralCode).toBe('IRON-000001-REF');
+      expect(result.referralCode).toBe('IRON-MEM-000001-REF');
       expect(result.status).toBe(UserStatus.ACTIVE);
       expect(audit.log).toHaveBeenCalledWith(expect.objectContaining({ action: 'CREATE', entity: 'Member' }));
     });
@@ -172,3 +174,6 @@ describe('MembersService', () => {
     });
   });
 });
+
+
+

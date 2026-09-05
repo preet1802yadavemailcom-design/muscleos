@@ -1,4 +1,4 @@
-import { PrismaService } from '@database/prisma.service';
+﻿import { PrismaService } from '@database/prisma.service';
 import { RedisService } from '@database/redis.service';
 import { ForbiddenException, UnauthorizedException, BadRequestException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -9,6 +9,9 @@ import { AuditService } from '@shared/services/audit.service';
 import { EncryptionService } from '@shared/services/encryption.service';
 import { LoggerService } from '@shared/services/logger.service';
 import { EmailProvider } from '@modules/notifications/providers/email.provider';
+import { WhatsappProvider } from '@modules/notifications/providers/whatsapp.provider';
+import { FirebaseAdminService } from '@shared/services/firebase-admin.service';
+import { TwoFactorService } from './two-factor.service';
 import * as bcrypt from 'bcryptjs';
 
 import { AuthService } from './auth.service';
@@ -78,6 +81,9 @@ describe('AuthService', () => {
         { provide: LoggerService, useValue: { log: jest.fn(), error: jest.fn(), warn: jest.fn() } },
         { provide: AuditService, useValue: { log: jest.fn() } },
         { provide: EmailProvider, useValue: { send: jest.fn().mockResolvedValue({ success: true }) } },
+        { provide: WhatsappProvider, useValue: { send: jest.fn().mockResolvedValue({ success: true }) } },
+        { provide: FirebaseAdminService, useValue: { verifyPhoneToken: jest.fn() } },
+        { provide: TwoFactorService, useValue: {} },
       ],
     }).compile();
 
@@ -105,7 +111,7 @@ describe('AuthService', () => {
       redis.get.mockResolvedValue(null);
       prisma.user.findFirst.mockResolvedValue(baseUser);
       // login() now returns a union (full session | 2FA-setup-required |
-      // 2FA-pending) since the mandatory-Super-Admin-2FA change — baseUser
+      // 2FA-pending) since the mandatory-Super-Admin-2FA change â€” baseUser
       // here has 2FA disabled so this branch is always the full-session
       // shape at runtime; narrow explicitly so the assertions below
       // type-check against that shape rather than the union.
@@ -144,7 +150,7 @@ describe('AuthService', () => {
       ).rejects.toBeInstanceOf(BadRequestException);
     });
 
-    it('creates a PENDING user and triggers a verification OTP', async () => {
+    it('creates a PENDING user for Firebase phone verification', async () => {
       prisma.user.findFirst.mockResolvedValue(null);
       prisma.user.create.mockResolvedValue({ ...baseUser, status: UserStatus.PENDING });
       redis.get.mockResolvedValue(null);
@@ -155,12 +161,9 @@ describe('AuthService', () => {
         lastName: 'User',
       } as any);
       expect(prisma.user.create).toHaveBeenCalled();
-      expect(redis.set).toHaveBeenCalledWith(
-        expect.stringContaining('verify_otp:'),
-        expect.any(String),
-        600,
-      );
-      expect(result.message).toMatch(/verify/i);
+
+      expect(result.user.status).toBe(UserStatus.PENDING);
+      expect(result.message).toMatch(/phone/i);
     });
   });
 
@@ -209,3 +212,8 @@ describe('AuthService', () => {
     });
   });
 });
+
+
+
+
+

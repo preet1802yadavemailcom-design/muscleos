@@ -1,13 +1,15 @@
-import { ForbiddenException, NotFoundException } from '@nestjs/common';
+﻿import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { PrismaService } from '@database/prisma.service';
 import { AuditService } from '@shared/services/audit.service';
 import { LoggerService } from '@shared/services/logger.service';
+import { NotificationsService } from '@modules/notifications/notifications.service';
 
 import { PaymentsService } from './payments.service';
 import { RazorpayGateway } from './gateways/razorpay.gateway';
 import { StripeGateway } from './gateways/stripe.gateway';
 import { InvoiceGenerator } from './invoice.generator';
+import { SequenceService } from '@shared/services/sequence.service';
 
 /**
  * Regression coverage for the IDOR found+fixed this session: GET
@@ -42,6 +44,8 @@ describe('PaymentsService — payment ownership (IDOR regression coverage)', () 
         { provide: RazorpayGateway, useValue: {} },
         { provide: StripeGateway, useValue: {} },
         { provide: InvoiceGenerator, useValue: {} },
+        { provide: NotificationsService, useValue: {} },
+        { provide: SequenceService, useValue: { next: jest.fn() } },
       ],
     }).compile();
 
@@ -59,7 +63,6 @@ describe('PaymentsService — payment ownership (IDOR regression coverage)', () 
 
   it('blocks a member from viewing a DIFFERENT member\'s payment by id', async () => {
     prisma.payment.findFirst.mockResolvedValue({ id: targetPaymentId, memberId: targetMemberId });
-    // The requester's own Member row resolves to someone else entirely.
     prisma.member.findFirst.mockResolvedValue({ id: 'member-attacker', userId: 'user-attacker' });
 
     await expect(
@@ -82,8 +85,7 @@ describe('PaymentsService — payment ownership (IDOR regression coverage)', () 
     await expect(
       service.findOne(targetPaymentId, gymId, { userId: 'owner-user', role: 'GYM_OWNER' }),
     ).resolves.toBeDefined();
-    // Ownership lookup is a MEMBER-only concern — staff shouldn't even
-    // trigger the extra Member lookup.
+
     expect(prisma.member.findFirst).not.toHaveBeenCalled();
   });
 
@@ -95,3 +97,4 @@ describe('PaymentsService — payment ownership (IDOR regression coverage)', () 
     ).rejects.toBeInstanceOf(NotFoundException);
   });
 });
+
