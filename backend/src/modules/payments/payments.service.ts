@@ -168,13 +168,13 @@ export class PaymentsService {
     return { data, total, page: safePage, limit: safeLimit };
   }
 
-  /** Member's own payable/locked months for one of THEIR OWN memberships — ownership is
+  /** Member's own payable/locked months for one of THEIR OWN memberships â€” ownership is
    *  verified via Member.userId before any month rows are returned, so a member can never
    *  probe another member's membershipId to see what they owe. */
   async getPayableMonths(gymId: string, userId: string, membershipId: string) {
     const member = await this.prisma.member.findFirst({ where: { userId, gymId, deletedAt: null } });
     if (!member) {
-      throw new NotFoundException('No member profile is linked to this account yet — ask staff to link your profile.');
+      throw new NotFoundException('No member profile is linked to this account yet â€” ask staff to link your profile.');
     }
     const membership = await this.prisma.membership.findFirst({
       where: { id: membershipId, gymId, memberId: member.id },
@@ -335,7 +335,7 @@ export class PaymentsService {
       this.logger.error(`Invoice generation failed for payment ${paymentId}: ${err}`, undefined, 'PaymentsService');
     }
 
-    // Best-effort — a failed WhatsApp send must never fail the payment
+    // Best-effort â€” a failed WhatsApp send must never fail the payment
     // itself, which is why this comes after the invoice generation and is
     // caught independently rather than allowed to throw.
     if (payment.member) {
@@ -433,12 +433,12 @@ export class PaymentsService {
   }
 
   /* ---------------------------------------------------------------- */
-  /* Direct-to-owner UPI payments — no payment gateway needed. The gym  */
+  /* Direct-to-owner UPI payments â€” no payment gateway needed. The gym  */
   /* owner sets their own UPI ID once; every member payment goes       */
   /* straight into the owner's own bank account (standard UPI person-  */
   /* to-merchant transfer, zero platform fees). Since there's no       */
   /* gateway API in the loop, there's no automatic webhook confirming  */
-  /* the transfer — the member reports the UTR reference after paying,*/
+  /* the transfer â€” the member reports the UTR reference after paying,*/
   /* and staff/owner confirms it against their own bank/UPI app.       */
   /* ---------------------------------------------------------------- */
 
@@ -454,7 +454,7 @@ export class PaymentsService {
   }
 
   /** Builds the standard UPI deep-link (`upi://pay?...`) for a given
-   *  amount — tapping it on a phone opens whichever UPI app the member
+   *  amount â€” tapping it on a phone opens whichever UPI app the member
    *  has installed (GPay, PhonePe, Paytm, etc.) with the amount and payee
    *  pre-filled, so they don't have to type anything by hand. Also
    *  returns a QR-code PNG (data URL) of the same link, for members
@@ -532,7 +532,7 @@ export class PaymentsService {
   }
 
   /** Member says "I've paid" and provides the UTR/reference number their
-   *  UPI app showed them — creates a PENDING payment row. Nothing is
+   *  UPI app showed them â€” creates a PENDING payment row. Nothing is
    *  auto-confirmed here on purpose: a member typing in a UTR is not
    *  proof of payment by itself (they could type a fake or someone
    *  else's), so this must be verified by staff/owner before it counts. */
@@ -558,7 +558,7 @@ export class PaymentsService {
           memberId: member.id,
           membershipId,
           receiptNumber,
-          notes: 'Direct UPI payment — pending owner/staff verification',
+          notes: 'Direct UPI payment â€” pending owner/staff verification',
           gymId,
         },
       });
@@ -593,7 +593,7 @@ export class PaymentsService {
   }
 
   /** Staff/owner checked their own bank/UPI app, saw the matching UTR
-   *  actually landed, and confirms it here — only then does it count as
+   *  actually landed, and confirms it here â€” only then does it count as
    *  a real completed payment (receipt generated, WhatsApp sent). */
   async confirmUpiClaim(id: string, gymId: string, staffUserId: string) {
     const payment = await this.prisma.payment.findFirst({
