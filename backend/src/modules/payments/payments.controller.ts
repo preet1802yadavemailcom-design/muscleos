@@ -1,4 +1,4 @@
-import { CurrentUser, CurrentUserPayload } from '@common/decorators/current-user.decorator';
+﻿import { CurrentUser, CurrentUserPayload } from '@common/decorators/current-user.decorator';
 import { GymId } from '@common/decorators/gym-id.decorator';
 import { AllocateMonthsDto } from './dto/allocate-months.dto';
 import { Public } from '@common/decorators/public.decorator';
@@ -264,6 +264,14 @@ export class PaymentsController {
 
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('GYM_OWNER', 'RECEPTIONIST')
+  @Get('membership/:membershipId/months')
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard, GymOwnerGuard)
+  @ApiBearerAuth('access-token')
+  @Roles(UserRole.GYM_OWNER, UserRole.RECEPTIONIST)
+  @ApiOperation({ summary: "Staff view of all months (any status) for a member's membership" })
+  async getMembershipMonthsForStaff(@GymId() gymId: string, @Param('membershipId') membershipId: string) {
+    return this.service.getMembershipMonthsForStaff(gymId, membershipId);
+  }
   @Post('manual-with-months')
   async recordManualWithMonths(
     @GymId() gymId: string,

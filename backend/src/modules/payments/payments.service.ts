@@ -1,4 +1,4 @@
-import { PrismaService } from '@database/prisma.service';
+﻿import { PrismaService } from '@database/prisma.service';
 import { BadRequestException, Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { PaymentGateway, PaymentMethod, PaymentStatus, Prisma } from '@prisma/client';
 import { AuditService } from '@shared/services/audit.service';
@@ -191,6 +191,18 @@ export class PaymentsService {
       amountDue: m.amountDue,
       status: m.status,
     }));
+  }
+  /** Staff/owner view of ALL months (any status) for a membership, gym-scoped
+   *  only (not member-owned) -- used by the "record manual payment" screen. */
+  async getMembershipMonthsForStaff(gymId: string, membershipId: string) {
+    const membership = await this.prisma.membership.findFirst({ where: { id: membershipId, gymId } });
+    if (!membership) throw new NotFoundException('Membership not found in this gym.');
+
+    const months = await this.prisma.membershipMonth.findMany({
+      where: { membershipId },
+      orderBy: { monthStart: 'asc' },
+    });
+    return months.map((m) => ({ id: m.id, monthStart: m.monthStart, amountDue: m.amountDue, status: m.status }));
   }
 
   /** Step 1: create a pending payment record + gateway order for online payments. */
