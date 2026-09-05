@@ -32,7 +32,7 @@ const monthLabel = (iso: string) =>
 
 /** Owner/reception review queue for direct-to-owner UPI payments. Since
  *  there's no payment gateway in this flow, the app can't automatically
- *  know a transfer landed — staff check their own bank/UPI app for the
+ *  know a transfer landed â€” staff check their own bank/UPI app for the
  *  matching UTR, then confirm (or reject) each claim here. Confirming
  *  flips the claimed months to PAID; rejecting puts them back to
  *  PAYABLE so the member can retry. */
@@ -75,13 +75,13 @@ export function PendingUpiPaymentsPage() {
           <Wallet className="h-6 w-6" /> Pending UPI Payments
         </h1>
         <p className="text-sm text-muted-foreground">
-          Check each UTR against your bank/UPI app before confirming — this is what actually credits the member's payment.
+          Check each UTR against your bank/UPI app before confirming â€” this is what actually credits the member's payment.
         </p>
       </div>
 
-      {isLoading && <p className="text-sm text-muted-foreground">Loading…</p>}
+      {isLoading && <p className="text-sm text-muted-foreground">Loadingâ€¦</p>}
       {!isLoading && data?.length === 0 && (
-        <p className="text-sm text-muted-foreground">No pending UPI claims — you're all caught up.</p>
+        <p className="text-sm text-muted-foreground">No pending UPI claims â€” you're all caught up.</p>
       )}
 
       <div className="space-y-3">
@@ -90,13 +90,13 @@ export function PendingUpiPaymentsPage() {
             <CardHeader className="pb-2">
               <CardTitle className="text-base flex items-center justify-between">
                 <span>{claim.member ? `${claim.member.firstName} ${claim.member.lastName}` : 'Unknown member'}</span>
-                <span className="text-lg font-bold">?{claim.total}</span>
+                <span className="text-lg font-bold">â‚¹{claim.total}</span>
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
               <div className="text-sm text-muted-foreground space-y-1">
-                <p>UTR / Reference: <span className="font-mono font-medium text-foreground">{claim.utr ?? '—'}</span></p>
-                <p>Mobile: {claim.member?.mobile ?? '—'}</p>
+                <p>UTR / Reference: <span className="font-mono font-medium text-foreground">{claim.utr ?? 'â€”'}</span></p>
+                <p>Mobile: {claim.member?.mobile ?? 'â€”'}</p>
                 {claim.membership?.planName && <p>Plan: {claim.membership.planName}</p>}
                 {claim.monthAllocations.length > 0 && (
                   <p>
@@ -106,11 +106,11 @@ export function PendingUpiPaymentsPage() {
                     </span>
                   </p>
                 )}
-                <p>Receipt #{claim.receiptNumber} · {new Date(claim.createdAt).toLocaleString()}</p>
+                <p>Receipt #{claim.receiptNumber} ï¿½ {new Date(claim.createdAt).toLocaleString()}</p>
               </div>
               <div className="flex gap-2">
                 <Button size="sm" onClick={() => confirm.mutate(claim.id)} disabled={confirm.isPending} className="gap-1">
-                  <CheckCircle2 className="h-4 w-4" /> Confirm — found in bank
+                  <CheckCircle2 className="h-4 w-4" /> Confirm â€” found in bank
                 </Button>
                 <Button
                   size="sm"
@@ -154,7 +154,7 @@ export function PendingUpiPaymentsPage() {
               disabled={reject.isPending}
               onClick={() => rejectTarget && reject.mutate({ id: rejectTarget.id, reason: rejectReason.trim() })}
             >
-              {reject.isPending ? 'Rejecting…' : 'Reject claim'}
+              {reject.isPending ? 'Rejectingâ€¦' : 'Reject claim'}
             </Button>
           </DialogFooter>
         </DialogContent>
