@@ -8,8 +8,9 @@ import api from '@services/api';
 export function VerifyOtpPage() {
   const navigate = useNavigate();
   const location = useLocation();
-  const email = (location.state as { email?: string; userId?: string })?.email || '';
-  const userId = (location.state as { email?: string; userId?: string })?.userId || '';
+  const email = (location.state as { email?: string; userId?: string; phone?: string })?.email || '';
+  const userId = (location.state as { email?: string; userId?: string; phone?: string })?.userId || '';
+  const phone = (location.state as { email?: string; userId?: string; phone?: string })?.phone || '';
 
   const [otp, setOtp] = useState<string[]>(new Array(6).fill(''));
   const [isLoading, setIsLoading] = useState(false);
@@ -49,11 +50,10 @@ export function VerifyOtpPage() {
       setError('');
       const res: any = await api.post('/auth/verify-email', { email, otp: code });
       setSuccess(true);
-      if (res.data?.requiresWhatsappVerification && userId) {
-        // Gym owners have a second step — WhatsApp — before their account
-        // activates. The OTP for that was already auto-sent by the backend
-        // right after this email verification succeeded.
-        setTimeout(() => navigate('/verify-whatsapp', { state: { userId } }), 1200);
+      if (res.data?.requiresPhoneVerification && userId) {
+        // Gym owners have a second step — phone verification via Firebase
+        // — before their account activates.
+        setTimeout(() => navigate('/verify-phone', { state: { userId, phone } }), 1200);
       } else {
         setTimeout(() => navigate('/login'), 1200);
       }
@@ -93,7 +93,7 @@ export function VerifyOtpPage() {
 
         {success ? (
           <div className="rounded-lg bg-green-500/10 p-4 text-sm text-green-600 text-center">
-            {userId ? 'Email verified! One more step — check WhatsApp...' : 'Email verified! Redirecting to sign in...'}
+            {userId ? 'Email verified! One more step — verify your phone...' : 'Email verified! Redirecting to sign in...'}
           </div>
         ) : (
           <div className="space-y-6">

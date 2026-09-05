@@ -9,6 +9,7 @@ import { JwtService } from '@nestjs/jwt';
 import { UserRole, UserStatus } from '@prisma/client';
 import { EmailProvider } from '@modules/notifications/providers/email.provider';
 import { WhatsappProvider } from '@modules/notifications/providers/whatsapp.provider';
+import { FirebaseAdminService } from '@shared/services/firebase-admin.service';
 import { AuditService } from '@shared/services/audit.service';
 import { EncryptionService } from '@shared/services/encryption.service';
 import { LoggerService } from '@shared/services/logger.service';
@@ -36,6 +37,7 @@ export class AuthService {
     private readonly audit: AuditService,
     private readonly email: EmailProvider,
     private readonly whatsapp: WhatsappProvider,
+    private readonly firebaseAdmin: FirebaseAdminService,
     private readonly twoFactor: TwoFactorService,
   ) {}
 
@@ -302,10 +304,11 @@ export class AuthService {
       },
     });
     this.logger.log(`New user registered: ${user.email}`, 'AuthService', { userId: user.id });
-    // Members verify via WhatsApp only — no email OTP step. Email/password
-    // are still used for login itself, just not for verifying identity.
-    await this.sendWhatsappVerificationOtp(user.id);
-    return { user: this.sanitizeUser(user), message: 'Registered. Please verify your WhatsApp number with the code sent.' };
+    // Members verify their phone via Firebase Phone Auth — the SMS itself
+    // is triggered client-side by the frontend's Firebase SDK, not from
+    // here; the frontend calls confirmPhoneVerification() afterward with
+    // the resulting ID token.
+    return { user: this.sanitizeUser(user), message: 'Registered. Please verify your phone number to activate your account.' };
   }
 
   /** Generates a 6-digit OTP, stores it keyed by userId (not phone — a
@@ -338,6 +341,50 @@ export class AuthService {
   /** Verifies the WhatsApp OTP. For GYM_OWNER accounts, this is step two of
    *  onboarding (after email) and only now flips status to ACTIVE. For
    *  MEMBER self-signup, this is the only verification step required. */
+  /** Verifies a Firebase Phone Auth ID token (the actual SMS send+check
+   *  happens client-side via the Firebase SDK) and activates the account.
+   *  Checks the verified phone number actually matches what the user
+   *  registered with — otherwise someone could verify a phone that isn't
+   *  the one tied to this account. */
+  async confirmPhoneVerification(userId: string, idToken: string) {
+    const verifiedPhone = await this.firebaseAdmin.verifyPhoneToken(idToken);
+
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new BadRequestException('User not found');
+    if (!user.phone) throw new BadRequestException('No phone number on file for this account.');
+
+    const normalize = (p: string) => p.replace(/\D/g, '').slice(-10);
+    if (normalize(user.phone) !== normalize(verifiedPhone)) {
+      throw new BadRequestException('The verified phone number does not match the number on your account.');
+    }
+
+    // Gym owners must have already verified email first — phone is step
+    // two, not a way to skip email verification.
+    const readyToActivate = user.role === UserRole.GYM_OWNER ? user.emailVerified : true;
+
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        phoneVerified: true,
+        ...(readyToActivate ? { status: UserStatus.ACTIVE } : {}),
+      },
+    });
+
+    await this.audit.log({
+      action: 'PHONE_VERIFIED', entity: 'User', entityId: userId, userId, gymId: user.gymId ?? undefined,
+    });
+
+    return {
+      message: readyToActivate
+        ? 'Phone verified — your account is now active.'
+        : 'Phone verified — please also verify your email to activate your account.',
+      active: readyToActivate,
+    };
+  }
+
+  /** @deprecated superseded by confirmPhoneVerification() (Firebase Phone
+   *  Auth) — kept in case WhatsApp verification is turned back on later;
+   *  not called from register()/verifyEmail() anymore. */
   async verifyWhatsappOtp(userId: string, otp: string) {
     const stored = await this.redis.get(`whatsapp_otp:${userId}`);
     if (!stored || stored !== otp) throw new BadRequestException('Invalid or expired code');
@@ -390,17 +437,17 @@ export class AuthService {
     const user = await this.prisma.user.findFirst({ where: { email: dto.email } });
     if (!user) throw new BadRequestException('User not found');
 
-    // Gym owners have a second step (WhatsApp) before their account
-    // activates — email alone is no longer sufficient for that role. Other
-    // roles created through this flow (e.g. staff invited by an owner)
-    // still activate on email alone, matching the previous behavior.
-    const isOwnerNeedingWhatsapp = user.role === UserRole.GYM_OWNER && !user.whatsappVerified;
+    // Gym owners have a second step (phone verification) before their
+    // account activates — email alone is no longer sufficient for that
+    // role. Other roles created through this flow (e.g. staff invited by
+    // an owner) still activate on email alone, matching prior behavior.
+    const isOwnerNeedingPhoneVerify = user.role === UserRole.GYM_OWNER && !user.phoneVerified;
 
     await this.prisma.user.update({
       where: { id: user.id },
       data: {
         emailVerified: true,
-        ...(isOwnerNeedingWhatsapp ? {} : { status: UserStatus.ACTIVE }),
+        ...(isOwnerNeedingPhoneVerify ? {} : { status: UserStatus.ACTIVE }),
       },
     });
     await this.redis.del(`verify_otp:${dto.email}`);
@@ -412,16 +459,10 @@ export class AuthService {
       gymId: user.gymId ?? undefined,
     });
 
-    if (isOwnerNeedingWhatsapp) {
-      // Automatically kick off step two so the owner doesn't have to find
-      // a separate button — they just get a WhatsApp message right after
-      // confirming their email.
-      if (user.phone) {
-        await this.sendWhatsappVerificationOtp(user.id).catch((err) =>
-          this.logger.warn(`Could not auto-send WhatsApp OTP after email verify: ${err.message}`, 'AuthService'),
-        );
-      }
-      return { message: 'Email verified. Please also verify your WhatsApp number to activate your account.', requiresWhatsappVerification: true };
+    if (isOwnerNeedingPhoneVerify) {
+      // Phone verification (Firebase Phone Auth) is triggered from the
+      // frontend right after this — no server-side OTP send needed here.
+      return { message: 'Email verified. Please also verify your phone number to activate your account.', requiresPhoneVerification: true };
     }
 
     // Best-effort — email verification succeeding must not be blocked by a

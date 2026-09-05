@@ -12,7 +12,7 @@ import { RegisterPage } from '@pages/auth/RegisterPage';
 import { ForgotPasswordPage } from '@pages/auth/ForgotPasswordPage';
 import { ResetPasswordPage } from '@pages/auth/ResetPasswordPage';
 import { VerifyOtpPage } from '@pages/auth/VerifyOtpPage';
-import { VerifyWhatsappPage } from '@pages/auth/VerifyWhatsappPage';
+import { VerifyPhonePage } from '@pages/auth/VerifyPhonePage';
 import { DashboardPage } from '@pages/dashboard/DashboardPage';
 import { SuperAdminDashboardPage } from '@pages/dashboard/SuperAdminDashboardPage';
 import { OwnerDashboardPage } from '@pages/dashboard/OwnerDashboardPage';
@@ -77,7 +77,7 @@ function App() {
       <Route path="/forgot-password" element={<ForgotPasswordPage />} />
       <Route path="/reset-password" element={<ResetPasswordPage />} />
       <Route path="/verify-otp" element={<VerifyOtpPage />} />
-      <Route path="/verify-whatsapp" element={<VerifyWhatsappPage />} />
+      <Route path="/verify-phone" element={<VerifyPhonePage />} />
       <Route path="/checkin" element={<CheckInPage />} />
       <Route path="/gym/:slug" element={<PublicProfilePage />} />
 

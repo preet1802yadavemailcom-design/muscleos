@@ -81,10 +81,12 @@ export class AuthController {
     return this.authService.sendVerificationOtp(email);
   }
 
+  /** @deprecated see /verify-phone below — kept working in case WhatsApp
+   *  verification is re-enabled later, but the frontend no longer calls this. */
   @Post('verify-whatsapp')
   @Public()
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Verify WhatsApp OTP — activates the account (final step for members; step two for gym owners after email)' })
+  @ApiOperation({ summary: '[Deprecated] Verify WhatsApp OTP' })
   async verifyWhatsapp(@Body('userId') userId: string, @Body('otp') otp: string) {
     return this.authService.verifyWhatsappOtp(userId, otp);
   }
@@ -92,9 +94,17 @@ export class AuthController {
   @Post('resend-whatsapp-otp')
   @Public()
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Resend the WhatsApp verification code' })
+  @ApiOperation({ summary: '[Deprecated] Resend the WhatsApp verification code' })
   async resendWhatsappOtp(@Body('userId') userId: string) {
     return this.authService.sendWhatsappVerificationOtp(userId);
+  }
+
+  @Post('verify-phone')
+  @Public()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Verify a phone number using a Firebase Phone Auth ID token — activates the account (final step for members; step two for gym owners after email)' })
+  async verifyPhone(@Body('userId') userId: string, @Body('idToken') idToken: string) {
+    return this.authService.confirmPhoneVerification(userId, idToken);
   }
 
   @Public()

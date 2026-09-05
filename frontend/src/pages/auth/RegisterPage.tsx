@@ -56,7 +56,7 @@ export function RegisterPage() {
       });
       setSuccess(true);
       setTimeout(
-        () => navigate('/verify-otp', { state: { email: data.email, userId: res.data?.ownerId } }),
+        () => navigate('/verify-otp', { state: { email: data.email, userId: res.data?.ownerId, phone: data.phone } }),
         1200,
       );
     } catch (err: any) {
