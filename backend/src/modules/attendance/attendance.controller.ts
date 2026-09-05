@@ -11,7 +11,7 @@ import { UserRole } from '@prisma/client';
 import { Roles } from '@common/decorators/roles.decorator';
 
 import { AttendanceService } from './attendance.service';
-import { ScanQrDto, QueryAttendanceDto } from './dto';
+import { ScanQrDto, QueryAttendanceDto, ManualCheckInDto } from './dto';
 
 @ApiTags('Attendance')
 @Controller('attendance')
@@ -31,6 +31,17 @@ export class AttendanceController {
     @CurrentUser() user: CurrentUserPayload,
   ) {
     return this.service.scan(gymId, dto, user);
+  }
+
+  @Post('manual')
+  @Permissions('attendance:create')
+  @ApiOperation({ summary: 'MANUAL mode - staff finds the member (GET /members?search=) and checks them in/out with no QR/phone needed' })
+  async manual(
+    @Body() dto: ManualCheckInDto,
+    @GymId() gymId: string,
+    @CurrentUser() user: CurrentUserPayload,
+  ) {
+    return this.service.manualCheckIn(gymId, dto.memberId, user);
   }
 
   // NOTE: the old /gym-qr, /gym-qr, /gym-qr/regenerate endpoints were

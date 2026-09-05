@@ -117,39 +117,8 @@ export class AttendanceService {
       };
     }
 
-    // 4. Membership validity.
-    //    Members added from the Members page have no membership record yet —
-    //    grant a 14-day trial on their first scan so check-in actually works
-    //    instead of silently failing. Only block when a membership exists but
-    //    is expired, frozen, or otherwise not active.
-    let membership = member.currentMembership;
-    if (!membership) {
-      membership = await this.grantTrialMembership(member.id, scannerGymId);
-      member.currentMembership = membership;
-    }
-    if (membership.endDate < new Date()) {
-      throw new ForbiddenException('Membership has expired — please renew to check in');
-    }
-    if (membership.status === MembershipStatus.FROZEN) {
-      throw new ForbiddenException('Membership is currently frozen');
-    }
-    if (membership.status !== MembershipStatus.ACTIVE) {
-      throw new ForbiddenException(`Membership is ${membership.status.toLowerCase()} — attendance blocked`);
-    }
-
-    // 3.5 OTHER_DEVICE identity confirmation gate: never mark attendance
-    // until the scanning device explicitly resubmits with confirmed:true.
-    if (isOtherDevice && !dto.confirmed) {
-      return {
-        requiresConfirmation: true,
-        member: {
-          id: member.id,
-          name: `${member.firstName} ${member.lastName}`,
-          memberCode: member.memberCode,
-          photo: member.photo ?? null,
-        },
-      };
-    }
+    // 4. Membership validity - shared with the manual (no-QR) flow below.
+    await this.ensureMembershipValid(member, scannerGymId);
 
     // 4.5 Geofence — an ADDITIONAL signal, not the sole security control (per
     // spec: GPS can be spoofed, so this narrows accidental/opportunistic
@@ -184,7 +153,57 @@ export class AttendanceService {
     });
   }
 
-  /**
+    /**
+   * MANUAL mode - the third of the spec's three attendance modes. No QR, no
+   * member phone needed at all: staff search for the member by name/code/
+   * mobile (existing GET /members?search=), see their identity, confirm,
+   * and check them in/out directly. Always recorded under the authorized
+   * staff member's own identity (performedBy), never anonymously.
+   */
+  async manualCheckIn(gymId: string, memberId: string, staffUser: CurrentUserPayload) {
+    const member = await this.prisma.member.findFirst({
+      where: { id: memberId, gymId, deletedAt: null },
+      include: { currentMembership: true, batch: true },
+    });
+    if (!member) throw new NotFoundException('Member not found');
+
+    if (member.status !== UserStatus.ACTIVE) {
+      throw new ForbiddenException(`Member is ${member.status.toLowerCase()} - attendance blocked`);
+    }
+
+    await this.ensureMembershipValid(member, gymId);
+
+    return this.core.recordScan({
+      member,
+      gymId,
+      branchId: member.branchId ?? undefined,
+      source: 'MANUAL' as any,
+      performedBy: staffUser.userId,
+      deviceType: 'reception',
+    });
+  }
+
+  /** Shared membership-validity gate for both the QR scan flow and the
+   *  MANUAL (no-QR) flow. */
+  private async ensureMembershipValid(member: any, gymId: string) {
+    let membership = member.currentMembership;
+    if (!membership) {
+      membership = await this.grantTrialMembership(member.id, gymId);
+      member.currentMembership = membership;
+    }
+    if (membership.endDate < new Date()) {
+      throw new ForbiddenException('Membership has expired - please renew to check in');
+    }
+    if (membership.status === MembershipStatus.FROZEN) {
+      throw new ForbiddenException('Membership is currently frozen');
+    }
+    if (membership.status !== MembershipStatus.ACTIVE) {
+      throw new ForbiddenException(`Membership is ${membership.status.toLowerCase()} - attendance blocked`);
+    }
+    return membership;
+  }
+
+/**
    * Finds the Member profile belonging to a logged-in user (by email/phone +
    * gym), creating one on first scan so self check-in works end to end.
    * A brand-new profile also gets a 14-day trial membership (mirroring the

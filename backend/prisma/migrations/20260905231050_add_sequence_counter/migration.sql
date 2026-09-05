@@ -1,4 +1,4 @@
-﻿CREATE TABLE "sequence_counters" (
+CREATE TABLE "sequence_counters" (
     "id" TEXT NOT NULL,
     "gymId" TEXT NOT NULL,
     "scope" TEXT NOT NULL,

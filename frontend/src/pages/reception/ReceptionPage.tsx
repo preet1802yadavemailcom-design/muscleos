@@ -1,9 +1,12 @@
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { Search, Users, CalendarCheck, Clock3, Wallet, QrCode } from 'lucide-react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Search, Users, CalendarCheck, Clock3, Wallet, QrCode, LogIn } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { useToast } from '@/hooks/use-toast';
+import { apiErrorMessage } from '@/lib/api-error';
 import api from '@services/api';
 
 interface StatCardProps {
@@ -31,11 +34,13 @@ function StatCard({ label, value, icon: Icon }: StatCardProps) {
  * member search, and a live check-in feed. Registration, payment
  * collection, and renewals are reachable from here but reuse the same
  * Members / Payments / Memberships flows reception is scoped to via
- * the backend's /reception facade endpoints â€” deliberately no reports
+ * the backend's /reception facade endpoints — deliberately no reports
  * or analytics surface.
  */
 export function ReceptionPage() {
   const [search, setSearch] = useState('');
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
 
   const { data: dashboard, isLoading: dashboardLoading } = useQuery({
     queryKey: ['reception-dashboard'],
@@ -55,6 +60,26 @@ export function ReceptionPage() {
     refetchInterval: 15000,
   });
 
+  // MANUAL attendance mode (per spec): no QR or member phone needed at all —
+  // staff have already found + visually confirmed the member above, so a
+  // click here records the check-in/out directly against the authorized
+  // staff identity.
+  const manualCheckIn = useMutation({
+    mutationFn: (memberId: string) => api.post('/attendance/manual', { memberId }),
+    onSuccess: (res: any) => {
+      const result = res.data;
+      toast({
+        title: result.type === 'CHECK_IN' ? 'Checked in' : 'Checked out',
+        description: result.member?.name ?? 'Attendance recorded',
+      });
+      queryClient.invalidateQueries({ queryKey: ['reception-attendance-today'] });
+      queryClient.invalidateQueries({ queryKey: ['reception-dashboard'] });
+    },
+    onError: (err: unknown) => {
+      toast({ title: 'Could not check in', description: apiErrorMessage(err), variant: 'destructive' });
+    },
+  });
+
   const stats = dashboard?.data;
   const members = searchResults?.data ?? [];
   const feed = liveFeed?.data ?? [];
@@ -67,10 +92,10 @@ export function ReceptionPage() {
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard label="Check-ins Today" value={dashboardLoading ? 'â€”' : stats?.todayCheckIns ?? 0} icon={CalendarCheck} />
-        <StatCard label="Active Members" value={dashboardLoading ? 'â€”' : stats?.activeMembers ?? 0} icon={Users} />
-        <StatCard label="Expiring (7 days)" value={dashboardLoading ? 'â€”' : stats?.expiringSoon ?? 0} icon={Clock3} />
-        <StatCard label="Pending Payments" value={dashboardLoading ? 'â€”' : stats?.pendingPayments ?? 0} icon={Wallet} />
+        <StatCard label="Check-ins Today" value={dashboardLoading ? '—' : stats?.todayCheckIns ?? 0} icon={CalendarCheck} />
+        <StatCard label="Active Members" value={dashboardLoading ? '—' : stats?.activeMembers ?? 0} icon={Users} />
+        <StatCard label="Expiring (7 days)" value={dashboardLoading ? '—' : stats?.expiringSoon ?? 0} icon={Clock3} />
+        <StatCard label="Pending Payments" value={dashboardLoading ? '—' : stats?.pendingPayments ?? 0} icon={Wallet} />
       </div>
 
       <Card>
@@ -111,6 +136,17 @@ export function ReceptionPage() {
                             {m.status}
                           </Badge>
                         </td>
+                        <td className="p-3">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={m.status !== 'ACTIVE' || manualCheckIn.isPending}
+                            onClick={() => manualCheckIn.mutate(m.id)}
+                            className="gap-1"
+                          >
+                            <LogIn className="h-3.5 w-3.5" /> Check In/Out
+                          </Button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -149,13 +185,13 @@ export function ReceptionPage() {
                   {feed.map((a: any) => (
                     <tr key={a.id} className="border-b last:border-0">
                       <td className="p-4">
-                        {a.member ? `${a.member.firstName} ${a.member.lastName}` : 'â€”'}
+                        {a.member ? `${a.member.firstName} ${a.member.lastName}` : '—'}
                       </td>
                       <td className="p-4 text-muted-foreground">
-                        {a.checkInAt ? new Date(a.checkInAt).toLocaleTimeString() : 'â€”'}
+                        {a.checkInAt ? new Date(a.checkInAt).toLocaleTimeString() : '—'}
                       </td>
                       <td className="p-4 text-muted-foreground">
-                        {a.checkOutAt ? new Date(a.checkOutAt).toLocaleTimeString() : 'â€”'}
+                        {a.checkOutAt ? new Date(a.checkOutAt).toLocaleTimeString() : '—'}
                       </td>
                       <td className="p-4">
                         <Badge variant={a.checkOutAt ? 'secondary' : 'default'}>
