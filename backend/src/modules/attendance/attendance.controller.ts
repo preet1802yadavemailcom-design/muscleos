@@ -34,8 +34,9 @@ export class AttendanceController {
   }
 
   @Post('manual')
-  @Permissions('attendance:create')
-  @ApiOperation({ summary: 'MANUAL mode - staff finds the member (GET /members?search=) and checks them in/out with no QR/phone needed' })
+  @Roles(UserRole.GYM_OWNER, UserRole.SUPER_ADMIN, UserRole.RECEPTIONIST, UserRole.TRAINER)
+  @Permissions('attendance:staff-checkin')
+  @ApiOperation({ summary: 'MANUAL mode (STAFF ONLY) - staff finds the member (GET /members?search=) and checks them in/out with no QR/phone needed' })
   async manual(
     @Body() dto: ManualCheckInDto,
     @GymId() gymId: string,

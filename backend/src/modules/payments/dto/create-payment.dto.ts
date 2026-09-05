@@ -1,6 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { PaymentGateway, PaymentMethod } from '@prisma/client';
-import { IsEnum, IsNumber, IsOptional, IsString, IsUUID, Min } from 'class-validator';
+import { IsEnum, IsNumber, IsOptional, IsString, IsUUID, Min, Max } from 'class-validator';
 
 export class CreatePaymentDto {
   @ApiProperty({ example: 2000 })
@@ -17,6 +17,8 @@ export class CreatePaymentDto {
   @ApiPropertyOptional({ example: 18, description: 'GST percentage' })
   @IsOptional()
   @IsNumber()
+  @Min(0)
+  @Max(100)
   gstPercentage?: number;
 
   @ApiPropertyOptional()
