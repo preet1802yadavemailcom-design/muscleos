@@ -202,6 +202,15 @@ enum AttendanceSource {
   MANUAL
   STAFF
   KIOSK
+  // Per the three-mode attendance model in the spec: SELF = the member's
+  // own phone scanning a branch QR (already authenticated, no separate
+  // identity confirmation needed); OTHER_DEVICE = a member's personal QR
+  // scanned on a device that isn't theirs (front desk, a friend's phone,
+  // etc.) � possession of that QR alone doesn't prove identity, so this
+  // path requires an explicit photo/name confirmation step before the
+  // attendance record is created.
+  SELF
+  OTHER_DEVICE
 }
 
 // Idempotency ledger for payment gateway webhooks. Prevents the same

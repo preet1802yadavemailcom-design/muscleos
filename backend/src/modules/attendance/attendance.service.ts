@@ -77,6 +77,7 @@ export class AttendanceService {
 
     // 2. Resolve the member being checked in/out.
     let member;
+    const isOtherDevice = decodedMemberId !== undefined;
     if (decodedMemberId === undefined && branchId !== undefined) {
       // Self check-in via branch QR: the person scanning IS the member.
       member = await this.resolveMemberForUser(scannerGymId, user);
@@ -100,6 +101,20 @@ export class AttendanceService {
       throw new ForbiddenException(`Member is ${member.status.toLowerCase()} — attendance blocked`);
     }
 
+    // 3.5 OTHER_DEVICE identity confirmation gate: never mark attendance
+    // until the scanning device explicitly resubmits with confirmed:true.
+    if (isOtherDevice && !dto.confirmed) {
+      return {
+        requiresConfirmation: true,
+        member: {
+          id: member.id,
+          name: `${member.firstName} ${member.lastName}`,
+          memberCode: member.memberCode,
+          photo: member.photo ?? null,
+        },
+      };
+    }
+
     // 4. Membership validity.
     //    Members added from the Members page have no membership record yet —
     //    grant a 14-day trial on their first scan so check-in actually works
@@ -118,6 +133,20 @@ export class AttendanceService {
     }
     if (membership.status !== MembershipStatus.ACTIVE) {
       throw new ForbiddenException(`Membership is ${membership.status.toLowerCase()} — attendance blocked`);
+    }
+
+    // 3.5 OTHER_DEVICE identity confirmation gate: never mark attendance
+    // until the scanning device explicitly resubmits with confirmed:true.
+    if (isOtherDevice && !dto.confirmed) {
+      return {
+        requiresConfirmation: true,
+        member: {
+          id: member.id,
+          name: `${member.firstName} ${member.lastName}`,
+          memberCode: member.memberCode,
+          photo: member.photo ?? null,
+        },
+      };
     }
 
     // 4.5 Geofence — an ADDITIONAL signal, not the sole security control (per
@@ -144,8 +173,8 @@ export class AttendanceService {
       member,
       gymId: scannerGymId,
       branchId: branchId ?? member.branchId,
-      source: 'QR' as any,
-      performedBy: decodedMemberId ? user.userId : null,
+      source: (isOtherDevice ? 'OTHER_DEVICE' : 'SELF') as any,
+      performedBy: isOtherDevice ? user.userId : null,
       deviceType: dto.deviceType,
       location: dto.location,
       latitude: dto.latitude,

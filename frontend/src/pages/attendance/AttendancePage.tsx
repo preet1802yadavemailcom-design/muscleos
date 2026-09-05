@@ -46,6 +46,14 @@ export function AttendancePage() {
   const [qrData, setQrData] = useState('');
   const [scanResult, setScanResult] = useState<ScanResult | null>(null);
   const [scanError, setScanError] = useState('');
+  // A member's personal QR read on a device that isn't theirs (front desk,
+  // a friend's phone) never attends automatically — the backend sends back
+  // a name+photo preview instead, and this holds it until staff explicitly
+  // confirm the person in front of them actually matches.
+  const [pendingConfirm, setPendingConfirm] = useState<{
+    qrCodeData: string;
+    member: { id: string; name: string; memberCode?: string; photo?: string | null };
+  } | null>(null);
   const [cameraOn, setCameraOn] = useState(false);
   const [cameraError, setCameraError] = useState('');
   const [historyPage, setHistoryPage] = useState(1);
@@ -133,11 +141,21 @@ export function AttendancePage() {
   });
 
   const scanMutation = useMutation({
-    mutationFn: (payload: { qrCodeData: string }) => api.post('/attendance/scan', payload),
-    onSuccess: (res: any) => {
-      const result = res.data as ScanResult;
+    mutationFn: (payload: { qrCodeData: string; confirmed?: boolean }) => api.post('/attendance/scan', payload),
+    onSuccess: (res: any, variables) => {
+      const body = res.data;
+      if (body?.requiresConfirmation) {
+        // Not a self-scan — hold for an explicit identity confirmation
+        // before anything gets recorded.
+        setPendingConfirm({ qrCodeData: variables.qrCodeData, member: body.member });
+        setScanResult(null);
+        setScanError('');
+        return;
+      }
+      const result = body as ScanResult;
       setScanResult(result);
       setScanError('');
+      setPendingConfirm(null);
       setQrData('');
       setNow(new Date());
       queryClient.invalidateQueries({ queryKey: ['attendance-live'] });
@@ -150,11 +168,17 @@ export function AttendancePage() {
     },
     onError: (err: any) => {
       setScanResult(null);
+      setPendingConfirm(null);
       const message = err.response?.data?.message || 'Could not process the QR code.';
       setScanError(message);
       toast({ title: 'Scan failed', description: message, variant: 'destructive' });
     },
   });
+
+  const confirmPendingScan = useCallback(() => {
+    if (!pendingConfirm) return;
+    scanMutation.mutate({ qrCodeData: pendingConfirm.qrCodeData, confirmed: true });
+  }, [pendingConfirm, scanMutation]);
 
   const handleScan = useCallback(
     async (value: string) => {
@@ -557,6 +581,40 @@ export function AttendancePage() {
               <CardContent>
                 {scanMutation.isPending ? (
                   <div className="text-center py-12 text-muted-foreground">Processing scan...</div>
+                ) : pendingConfirm ? (
+                  <div className="flex flex-col items-center gap-4 py-6 text-center">
+                    <div className="rounded-full bg-amber-50 p-2 text-amber-700">
+                      <AlertTriangle className="h-5 w-5" />
+                    </div>
+                    <p className="text-sm font-medium">Confirm this is really them before checking in</p>
+                    {pendingConfirm.member.photo ? (
+                      <img
+                        src={pendingConfirm.member.photo}
+                        alt={pendingConfirm.member.name}
+                        className="h-20 w-20 rounded-full object-cover ring-2 ring-amber-400"
+                      />
+                    ) : (
+                      <div className="flex h-20 w-20 items-center justify-center rounded-full bg-amber-100 text-xl font-bold text-amber-700">
+                        {initials(pendingConfirm.member.name)}
+                      </div>
+                    )}
+                    <div>
+                      <p className="text-lg font-semibold">{pendingConfirm.member.name}</p>
+                      {pendingConfirm.member.memberCode && (
+                        <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-muted-foreground">
+                          {pendingConfirm.member.memberCode}
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex gap-2">
+                      <Button variant="outline" size="sm" onClick={() => setPendingConfirm(null)}>
+                        Not them — cancel
+                      </Button>
+                      <Button size="sm" onClick={confirmPendingScan} disabled={scanMutation.isPending}>
+                        Yes, this is {pendingConfirm.member.name.split(' ')[0]} — check in
+                      </Button>
+                    </div>
+                  </div>
                 ) : scanError ? (
                   <div className="flex flex-col items-center gap-3 py-10 text-center">
                     <div className="rounded-full bg-destructive/10 p-3 text-destructive">
