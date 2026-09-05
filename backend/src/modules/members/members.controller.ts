@@ -33,6 +33,8 @@ export class MembersController {
   }
 
   @Get(':id/360')
+  @Permissions('members:read')
+  @ApiOperation({ summary: 'Full 360-degree member profile (membership, attendance, payments) — staff only' })
   async getMember360(@Param('id') id: string, @GymId() gymId: string) {
     return this.service.getMember360(id, gymId);
   }
