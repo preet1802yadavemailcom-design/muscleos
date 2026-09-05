@@ -25,6 +25,13 @@ const MAX_LOGIN_ATTEMPTS = 5;
 const LOCK_DURATION_MINUTES = 15;
 const OTP_RESEND_COOLDOWN_SECONDS = 60;
 const PENDING_2FA_TTL_SECONDS = 5 * 60;
+// OTP verification/resend hardening (spec section 10): bounded attempts so
+// an OTP can't be brute-forced, and a bounded resend count per window so
+// the cooldown alone (which only rate-limits back-to-back requests) can't
+// be worked around by simply waiting out each cooldown repeatedly.
+const MAX_OTP_VERIFY_ATTEMPTS = 5;
+const MAX_OTP_RESEND_PER_WINDOW = 5;
+const OTP_RESEND_WINDOW_SECONDS = 60 * 60;
 
 @Injectable()
 export class AuthService {
@@ -375,9 +382,22 @@ export class AuthService {
     if (await this.redis.get(cooldownKey)) {
       throw new ForbiddenException('Please wait before requesting another code.');
     }
+
+    // Bounded resend count per rolling window — the short cooldown above
+    // only stops back-to-back spamming, this stops "wait out the cooldown
+    // and try again" repeated indefinitely.
+    const resendCountKey = `whatsapp_otp_resend_count:${userId}`;
+    const resendCount = parseInt((await this.redis.get(resendCountKey)) ?? '0', 10);
+    if (resendCount >= MAX_OTP_RESEND_PER_WINDOW) {
+      throw new ForbiddenException('Too many verification codes requested. Please try again later.');
+    }
+    await this.redis.set(resendCountKey, String(resendCount + 1), OTP_RESEND_WINDOW_SECONDS);
+
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
     await this.redis.set(`whatsapp_otp:${userId}`, otp, 600); // 10 min
     await this.redis.set(cooldownKey, '1', OTP_RESEND_COOLDOWN_SECONDS);
+    // A fresh code means a fresh set of guesses — clear any prior failed attempts.
+    await this.redis.del(`whatsapp_otp_attempts:${userId}`);
 
     const sent = await this.whatsapp.sendTemplate(user.phone, 'muscleos_alert', 'en', [
       user.firstName,
@@ -437,8 +457,21 @@ export class AuthService {
    *  Auth) â€” kept in case WhatsApp verification is turned back on later;
    *  not called from register()/verifyEmail() anymore. */
   async verifyWhatsappOtp(userId: string, otp: string) {
+    const attemptsKey = `whatsapp_otp_attempts:${userId}`;
+    const attempts = parseInt((await this.redis.get(attemptsKey)) ?? '0', 10);
+    if (attempts >= MAX_OTP_VERIFY_ATTEMPTS) {
+      // Too many wrong guesses against this code — invalidate it outright
+      // rather than let the attempt counter alone gate an otherwise-live code.
+      await this.redis.del(`whatsapp_otp:${userId}`);
+      await this.redis.del(attemptsKey);
+      throw new BadRequestException('Too many incorrect attempts. Please request a new code.');
+    }
+
     const stored = await this.redis.get(`whatsapp_otp:${userId}`);
-    if (!stored || stored !== otp) throw new BadRequestException('Invalid or expired code');
+    if (!stored || stored !== otp) {
+      await this.redis.set(attemptsKey, String(attempts + 1), 600);
+      throw new BadRequestException('Invalid or expired code');
+    }
 
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw new BadRequestException('User not found');
@@ -456,6 +489,8 @@ export class AuthService {
     });
     await this.redis.del(`whatsapp_otp:${userId}`);
     await this.redis.del(`whatsapp_otp_cooldown:${userId}`);
+    await this.redis.del(`whatsapp_otp_attempts:${userId}`);
+    await this.redis.del(`whatsapp_otp_resend_count:${userId}`);
 
     await this.audit.log({
       action: 'WHATSAPP_VERIFIED', entity: 'User', entityId: userId, userId, gymId: user.gymId ?? undefined,
