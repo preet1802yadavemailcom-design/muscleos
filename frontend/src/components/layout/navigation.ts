@@ -18,7 +18,7 @@ export const navigation: NavItem[] = [
   { name: 'Platform Plans', href: '/super-admin/plans', icon: CreditCard, roles: ['SUPER_ADMIN'] },
   { name: 'Audit Logs', href: '/super-admin/audit-logs', icon: Bell, roles: ['SUPER_ADMIN'] },
   { name: 'Support Tickets', href: '/super-admin/tickets', icon: UserCog, roles: ['SUPER_ADMIN'] },
-  { name: 'Members', href: '/members', icon: Users, roles: ['SUPER_ADMIN', 'GYM_OWNER', 'TRAINER', 'RECEPTION'] },
+  { name: 'Members', href: '/members', icon: Users, roles: ['SUPER_ADMIN', 'GYM_OWNER', 'TRAINER', 'RECEPTIONIST'] },
   { name: 'Batches', href: '/batches', icon: Calendar, roles: ['SUPER_ADMIN', 'GYM_OWNER', 'TRAINER'] },
   { name: 'Attendance', href: '/attendance', icon: QrCode, roles: ['SUPER_ADMIN', 'GYM_OWNER', 'TRAINER', 'RECEPTIONIST', 'MEMBER'] },
   { name: 'Memberships', href: '/memberships', icon: RefreshCcw, roles: ['SUPER_ADMIN', 'GYM_OWNER', 'RECEPTIONIST'] },

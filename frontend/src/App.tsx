@@ -56,11 +56,18 @@ function PrivateRoute({ children }: { children: React.ReactNode }) {
   return isAuthenticated ? <>{children}</> : <Navigate to="/welcome" replace />;
 }
 
-/** Renders the correct dashboard based on the signed-in user's role. */
+/** Renders the correct dashboard based on the signed-in user's role. Every
+ *  role gets its own real, backend-connected home screen - there is no
+ *  generic fallback with placeholder/mock data, since that would show a
+ *  MEMBER or RECEPTIONIST numbers that have nothing to do with their
+ *  account (e.g. "Total Members: 1,234"). */
 function RoleAwareDashboard() {
   const { user } = useAuthStore();
   if (user?.role === ROLES.SUPER_ADMIN) return <SuperAdminDashboardPage />;
   if (user?.role === ROLES.GYM_OWNER) return <OwnerDashboardPage />;
+  if (user?.role === ROLES.MEMBER) return <Navigate to="/my/membership" replace />;
+  if (user?.role === ROLES.RECEPTION) return <Navigate to="/reception" replace />;
+  if (user?.role === ROLES.TRAINER) return <Navigate to="/batches" replace />;
   return <DashboardPage />;
 }
 
