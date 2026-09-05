@@ -5,6 +5,7 @@ import { Injectable, NotFoundException, BadRequestException } from '@nestjs/comm
 import { UserStatus, Prisma } from '@prisma/client';
 import { AuditService } from '@shared/services/audit.service';
 import { EncryptionService } from '@shared/services/encryption.service';
+import { SequenceService } from '@shared/services/sequence.service';
 
 import { CreateMemberDto, UpdateMemberDto, QueryMemberDto } from './dto';
 
@@ -16,6 +17,7 @@ export class MembersService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly encryption: EncryptionService,
+    private readonly sequence: SequenceService,
   ) {}
 
   async findAll(gymId: string, query: QueryMemberDto) {
@@ -363,10 +365,9 @@ export class MembersService {
   private async generateMemberCode(gymId: string): Promise<string> {
     const gym = await this.prisma.gym.findUnique({ where: { id: gymId }, select: { slug: true } });
     const prefix = (gym?.slug || 'MOS').slice(0, 4).toUpperCase();
-    const count = await this.prisma.member.count({ where: { gymId } });
-    const sequence = (count + 1).toString().padStart(6, '0');
-    const candidate = `${prefix}-${sequence}`;
-    const clash = await this.prisma.member.findUnique({ where: { memberCode: candidate } });
-    return clash ? `${prefix}-${Date.now().toString().slice(-6)}` : candidate;
+    // Atomic per-gym counter -- immune to the count()+1 race where two
+    // simultaneous registrations could otherwise land on the same code.
+    const next = await this.sequence.next(gymId, 'MEMBER_CODE');
+    return `${prefix}-${next.toString().padStart(6, '0')}`;
   }
 }

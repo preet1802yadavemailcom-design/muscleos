@@ -1018,3 +1018,20 @@ model WorkoutExercise {
   @@index([workoutDayId])
   @@map("workout_exercises")
 }
+
+// Race-condition-safe, gym-scoped sequential number generator backing
+// member codes, receipt numbers, and invoice numbers. A single unique
+// (gymId, scope) row per counter means concurrent requests are
+// serialized by the database's own row lock on that upsert -- unlike a
+// plain count()+1 read, which can hand two simultaneous requests the
+// same next number.
+model SequenceCounter {
+  id        String   @id @default(uuid())
+  gymId     String
+  scope     String
+  value     Int      @default(0)
+  updatedAt DateTime @updatedAt
+
+  @@unique([gymId, scope])
+  @@map("sequence_counters")
+}

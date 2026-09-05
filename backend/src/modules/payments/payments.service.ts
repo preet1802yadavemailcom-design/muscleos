@@ -3,6 +3,7 @@ import { BadRequestException, Injectable, NotFoundException, ForbiddenException 
 import { PaymentGateway, PaymentMethod, PaymentStatus, Prisma } from '@prisma/client';
 import { AuditService } from '@shared/services/audit.service';
 import { LoggerService } from '@shared/services/logger.service';
+import { SequenceService } from '@shared/services/sequence.service';
 
 import { CreatePaymentDto } from './dto/create-payment.dto';
 import { AllocateMonthsDto } from './dto/allocate-months.dto';
@@ -24,12 +25,17 @@ export class PaymentsService {
     private readonly stripe: StripeGateway,
     private readonly invoiceGenerator: InvoiceGenerator,
     private readonly notifications: NotificationsService,
+    private readonly sequence: SequenceService,
   ) {}
 
   private async nextSequence(gymId: string, prefix: 'RCPT' | 'INV') {
-    const count = await this.prisma.payment.count({ where: { gymId } });
+    // Atomic per-gym, per-scope counter (scoped by prefix+year so receipt
+    // and invoice numbers each get their own yearly sequence) -- immune to
+    // the count()+1 race where two simultaneous payments could otherwise
+    // be issued the same receipt/invoice number.
     const year = new Date().getFullYear();
-    return `${prefix}-${year}-${String(count + 1).padStart(5, '0')}`;
+    const next = await this.sequence.next(gymId, `${prefix}-${year}`);
+    return `${prefix}-${year}-${String(next).padStart(5, '0')}`;
   }
 
   private calculateTotals(amount: number, discount = 0, gstPercentage = 0) {
