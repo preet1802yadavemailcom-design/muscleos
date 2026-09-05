@@ -1,1 +1,0 @@
-ALTER TABLE "attendance" ADD COLUMN IF NOT EXISTS "isAutoClosed" BOOLEAN NOT NULL DEFAULT false;
