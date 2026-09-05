@@ -639,12 +639,21 @@ export class AuthService {
     if (await this.redis.get(cooldownKey)) {
       throw new ForbiddenException(`Please wait before requesting another OTP.`);
     }
+
+    const resendCountKey = `otp_resend_count:${dto.email}`;
+    const resendCount = parseInt((await this.redis.get(resendCountKey)) ?? '0', 10);
+    if (resendCount >= MAX_OTP_RESEND_PER_WINDOW) {
+      throw new ForbiddenException('Too many requests. Please try again later.');
+    }
+    await this.redis.set(resendCountKey, String(resendCount + 1), OTP_RESEND_WINDOW_SECONDS);
+    await this.redis.set(cooldownKey, '1', OTP_RESEND_COOLDOWN_SECONDS);
+
     const user = await this.prisma.user.findFirst({ where: { email: dto.email } });
     if (!user) return { message: 'If email exists, reset link will be sent' };
 
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
     await this.redis.set(`otp:${dto.email}`, otp, 600); // 10 min validity
-    await this.redis.set(cooldownKey, '1', OTP_RESEND_COOLDOWN_SECONDS);
+    await this.redis.del(`otp_attempts:${dto.email}`);
     await this.audit.log({
       action: 'PASSWORD_RESET_REQUESTED',
       entity: 'User',
@@ -684,8 +693,19 @@ export class AuthService {
   }
 
   async resetPassword(dto: ResetPasswordDto) {
+    const attemptsKey = `otp_attempts:${dto.email}`;
+    const attempts = parseInt((await this.redis.get(attemptsKey)) ?? '0', 10);
+    if (attempts >= MAX_OTP_VERIFY_ATTEMPTS) {
+      await this.redis.del(`otp:${dto.email}`);
+      await this.redis.del(attemptsKey);
+      throw new BadRequestException('Too many incorrect attempts. Please request a new OTP.');
+    }
+
     const storedOtp = await this.redis.get(`otp:${dto.email}`);
-    if (!storedOtp || storedOtp !== dto.otp) throw new BadRequestException('Invalid or expired OTP');
+    if (!storedOtp || storedOtp !== dto.otp) {
+      await this.redis.set(attemptsKey, String(attempts + 1), 600);
+      throw new BadRequestException('Invalid or expired OTP');
+    }
     const user = await this.prisma.user.findFirst({ where: { email: dto.email } });
     if (!user) throw new BadRequestException('No account found for this email');
     const hashedPassword = await bcrypt.hash(dto.newPassword, 12);
@@ -700,6 +720,8 @@ export class AuthService {
     });
     await this.redis.del(`otp:${dto.email}`);
     await this.redis.del(`otp_cooldown:${dto.email}`);
+    await this.redis.del(`otp_attempts:${dto.email}`);
+    await this.redis.del(`otp_resend_count:${dto.email}`);
     if (user) {
       // Reset password invalidates all existing sessions
       await this.prisma.refreshToken.updateMany({
