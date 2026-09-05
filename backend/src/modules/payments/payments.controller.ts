@@ -102,12 +102,12 @@ export class PaymentsController {
 
   /* ---------------- Direct-to-owner UPI (no gateway needed) ---------------- */
 
-  @Get('upi/link')
+  @Post('upi/link')
   @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard, GymOwnerGuard)
   @ApiBearerAuth('access-token')
   @ApiOperation({ summary: "Get the gym owner's UPI deep-link + QR code for a given amount" })
-  async getUpiLink(@GymId() gymId: string, @Query('amount') amount: string, @Query('note') note?: string) {
-    return this.service.buildUpiPaymentLink(gymId, Number(amount), note || 'Gym membership payment');
+  async getUpiLink(@GymId() gymId: string, @CurrentUser('userId') userId: string, @Body() dto: { membershipId: string; monthStarts: string[]; note?: string }) {
+    return this.service.buildUpiPaymentLink(gymId, userId, dto.membershipId, dto.monthStarts, dto.note || 'Gym membership payment');
   }
 
   @Post('me/upi-claim')
@@ -118,9 +118,9 @@ export class PaymentsController {
   async submitUpiClaim(
     @GymId() gymId: string,
     @CurrentUser('userId') userId: string,
-    @Body() dto: { amount: number; utrReference: string; membershipId?: string },
+    @Body() dto: { membershipId: string; monthStarts: string[]; utrReference: string },
   ) {
-    return this.service.submitUpiClaim(gymId, userId, dto.amount, dto.utrReference, dto.membershipId);
+    return this.service.submitUpiClaim(gymId, userId, dto.membershipId, dto.monthStarts, dto.utrReference);
   }
 
   @Get('upi/pending')

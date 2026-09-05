@@ -419,7 +419,59 @@ export class PaymentsService {
    *  pre-filled, so they don't have to type anything by hand. Also
    *  returns a QR-code PNG (data URL) of the same link, for members
    *  paying from a kiosk/desktop rather than their own phone. */
-  async buildUpiPaymentLink(gymId: string, amount: number, note: string) {
+  private async priceMonths(gymId: string, membershipId: string, monthStarts: string[]) {
+    const membership = await this.prisma.membership.findFirst({
+      where: { id: membershipId, gymId, deletedAt: null },
+    });
+    if (!membership) throw new NotFoundException('Membership not found in this gym.');
+
+    const requestedStarts = monthStarts.map((d) => new Date(d)).sort((a, b) => a.getTime() - b.getTime());
+    const months = await this.prisma.membershipMonth.findMany({
+      where: { membershipId, monthStart: { in: requestedStarts } },
+      orderBy: { monthStart: 'asc' },
+    });
+
+    if (months.length !== requestedStarts.length) {
+      throw new BadRequestException('One or more requested months do not exist for this membership.');
+    }
+    if (months.some((m) => m.status === 'PAID')) {
+      throw new BadRequestException('One or more selected months are already paid.');
+    }
+    if (months.some((m) => m.status === 'PENDING')) {
+      throw new BadRequestException('One or more selected months already have a pending verification.');
+    }
+
+    const earlierUnpaid = await this.prisma.membershipMonth.count({
+      where: { membershipId, monthStart: { lt: requestedStarts[0] }, status: { not: 'PAID' } },
+    });
+    if (earlierUnpaid > 0) {
+      throw new BadRequestException('Cannot pay this month while an earlier month is still unpaid.');
+    }
+
+    for (let i = 1; i < months.length; i++) {
+      const prev = new Date(months[i - 1].monthStart);
+      const expectedNext = new Date(prev.getFullYear(), prev.getMonth() + 1, 1);
+      if (new Date(months[i].monthStart).getTime() !== expectedNext.getTime()) {
+        throw new BadRequestException('Selected months must be consecutive.');
+      }
+    }
+
+    const totalAmount = months.reduce((sum, m) => sum + Number(m.amountDue), 0);
+    return { membership, months, totalAmount };
+  }
+
+  private async assertOwnMembership(gymId: string, userId: string, membershipId: string) {
+    const member = await this.prisma.member.findFirst({ where: { userId, gymId } });
+    if (!member) throw new NotFoundException('No member profile found for this account in this gym.');
+    const membership = await this.prisma.membership.findFirst({ where: { id: membershipId, gymId, memberId: member.id } });
+    if (!membership) throw new ForbiddenException('This membership does not belong to your account.');
+    return member;
+  }
+
+  async buildUpiPaymentLink(gymId: string, userId: string, membershipId: string, monthStarts: string[], note: string) {
+    await this.assertOwnMembership(gymId, userId, membershipId);
+    const { totalAmount } = await this.priceMonths(gymId, membershipId, monthStarts);
+
     const details = await this.getUpiDetails(gymId);
     if (!details.configured || !details.upiId) {
       throw new BadRequestException('This gym has not set up direct UPI payments yet.');
@@ -427,7 +479,7 @@ export class PaymentsService {
     const params = new URLSearchParams({
       pa: details.upiId,
       pn: details.payeeName || 'Gym',
-      am: amount.toFixed(2),
+      am: totalAmount.toFixed(2),
       cu: 'INR',
       tn: note,
     });
@@ -436,7 +488,7 @@ export class PaymentsService {
     const QRCode = require('qrcode');
     const qrDataUrl: string = await QRCode.toDataURL(link, { width: 300, margin: 1 });
 
-    return { link, qrDataUrl, upiId: details.upiId, payeeName: details.payeeName };
+    return { link, qrDataUrl, upiId: details.upiId, payeeName: details.payeeName, amount: totalAmount };
   }
 
   /** Member says "I've paid" and provides the UTR/reference number their
@@ -444,34 +496,44 @@ export class PaymentsService {
    *  auto-confirmed here on purpose: a member typing in a UTR is not
    *  proof of payment by itself (they could type a fake or someone
    *  else's), so this must be verified by staff/owner before it counts. */
-  async submitUpiClaim(gymId: string, userId: string, amount: number, utrReference: string, membershipId?: string) {
-    const member = await this.prisma.member.findFirst({ where: { userId, gymId } });
-    if (!member) throw new NotFoundException('No member profile found for this account in this gym.');
+  async submitUpiClaim(gymId: string, userId: string, membershipId: string, monthStarts: string[], utrReference: string) {
+    const member = await this.assertOwnMembership(gymId, userId, membershipId);
     if (!utrReference || utrReference.trim().length < 4) {
       throw new BadRequestException('Enter the UTR / reference number shown in your UPI app after paying.');
     }
 
+    const { months, totalAmount } = await this.priceMonths(gymId, membershipId, monthStarts);
     const receiptNumber = await this.nextSequence(gymId, 'RCPT');
-    const { tax, total } = this.calculateTotals(amount);
+    const { tax, total } = this.calculateTotals(totalAmount);
 
-    const payment = await this.prisma.payment.create({
-      data: {
-        amount, tax, total, discount: 0,
-        gateway: PaymentGateway.UPI,
-        method: PaymentMethod.UPI,
-        gatewayPaymentId: utrReference.trim(),
-        status: PaymentStatus.PENDING,
-        memberId: member.id,
-        membershipId,
-        receiptNumber,
-        notes: 'Direct UPI payment — pending owner/staff verification',
-        gymId,
-      },
+    const payment = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.payment.create({
+        data: {
+          amount: totalAmount, tax, total, discount: 0,
+          gateway: PaymentGateway.UPI,
+          method: PaymentMethod.UPI,
+          source: 'ONLINE',
+          utr: utrReference.trim(),
+          status: PaymentStatus.PENDING,
+          memberId: member.id,
+          membershipId,
+          receiptNumber,
+          notes: 'Direct UPI payment — pending owner/staff verification',
+          gymId,
+        },
+      });
+      for (const month of months) {
+        await tx.paymentMonthAllocation.create({
+          data: { paymentId: created.id, membershipMonthId: month.id, amount: month.amountDue },
+        });
+        await tx.membershipMonth.update({ where: { id: month.id }, data: { status: 'PENDING', paymentId: created.id } });
+      }
+      return created;
     });
 
     await this.audit.log({
       action: 'UPI_CLAIM_SUBMITTED', entity: 'Payment', entityId: payment.id, userId, gymId,
-      newValue: { amount, utrReference },
+      newValue: { amount: totalAmount, utrReference, monthStarts },
     });
 
     return payment;
@@ -490,15 +552,23 @@ export class PaymentsService {
    *  actually landed, and confirms it here — only then does it count as
    *  a real completed payment (receipt generated, WhatsApp sent). */
   async confirmUpiClaim(id: string, gymId: string, staffUserId: string) {
-    const payment = await this.prisma.payment.findFirst({ where: { id, gymId, gateway: PaymentGateway.UPI } });
+    const payment = await this.prisma.payment.findFirst({
+      where: { id, gymId, gateway: PaymentGateway.UPI },
+      include: { monthAllocations: true },
+    });
     if (!payment) throw new NotFoundException('UPI payment claim not found');
     if (payment.status !== PaymentStatus.PENDING) {
       throw new BadRequestException(`This claim is already ${payment.status.toLowerCase()}.`);
     }
 
-    await this.prisma.payment.update({
-      where: { id },
-      data: { status: PaymentStatus.COMPLETED, verifiedAt: new Date(), collectedById: staffUserId },
+    await this.prisma.$transaction(async (tx) => {
+      await tx.payment.update({
+        where: { id },
+        data: { status: PaymentStatus.COMPLETED, verifiedAt: new Date(), verifiedById: staffUserId, collectedById: staffUserId },
+      });
+      for (const alloc of payment.monthAllocations) {
+        await tx.membershipMonth.update({ where: { id: alloc.membershipMonthId }, data: { status: 'PAID', paymentId: id } });
+      }
     });
 
     await this.audit.log({
@@ -523,15 +593,24 @@ export class PaymentsService {
   /** Staff/owner rejects a claim that doesn't check out (UTR doesn't
    *  match anything in their bank/UPI app, wrong amount, etc). */
   async rejectUpiClaim(id: string, gymId: string, staffUserId: string, reason?: string) {
-    const payment = await this.prisma.payment.findFirst({ where: { id, gymId, gateway: PaymentGateway.UPI } });
+    const payment = await this.prisma.payment.findFirst({
+      where: { id, gymId, gateway: PaymentGateway.UPI },
+      include: { monthAllocations: true },
+    });
     if (!payment) throw new NotFoundException('UPI payment claim not found');
     if (payment.status !== PaymentStatus.PENDING) {
       throw new BadRequestException(`This claim is already ${payment.status.toLowerCase()}.`);
     }
 
-    const updated = await this.prisma.payment.update({
-      where: { id },
-      data: { status: PaymentStatus.FAILED, notes: reason ? `Rejected: ${reason}` : 'Rejected by staff' },
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const u = await tx.payment.update({
+        where: { id },
+        data: { status: PaymentStatus.FAILED, notes: reason ? `Rejected: ${reason}` : 'Rejected by staff' },
+      });
+      for (const alloc of payment.monthAllocations) {
+        await tx.membershipMonth.update({ where: { id: alloc.membershipMonthId }, data: { status: 'PAYABLE', paymentId: null } });
+      }
+      return u;
     });
 
     await this.audit.log({
