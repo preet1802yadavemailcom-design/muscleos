@@ -130,6 +130,10 @@ export class BatchesService {
 
   async create(gymId: string, dto: CreateBatchDto) {
     this.validateTiming(dto.startTime, dto.endTime, dto.days);
+    if (dto.trainerId) {
+      const trainer = await this.prisma.user.findFirst({ where: { id: dto.trainerId, gymId } });
+      if (!trainer) throw new BadRequestException('This trainer does not belong to your gym.');
+    }
     await this.detectConflict(gymId, dto.trainerId, dto.startTime, dto.endTime, dto.days);
 
     const item = await this.prisma.batch.create({
@@ -155,6 +159,10 @@ export class BatchesService {
 
     if (dto.startTime || dto.endTime || dto.days) {
       this.validateTiming(startTime, endTime, days);
+    }
+    if (dto.trainerId) {
+      const trainer = await this.prisma.user.findFirst({ where: { id: dto.trainerId, gymId } });
+      if (!trainer) throw new BadRequestException('This trainer does not belong to your gym.');
     }
     if (dto.trainerId !== undefined || dto.startTime || dto.endTime || dto.days) {
       await this.detectConflict(gymId, trainerId ?? undefined, startTime, endTime, days, id);

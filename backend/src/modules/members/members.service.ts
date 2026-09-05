@@ -1,7 +1,7 @@
 import { randomUUID } from 'crypto';
 
 import { PrismaService } from '@database/prisma.service';
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { UserStatus, Prisma } from '@prisma/client';
 import { AuditService } from '@shared/services/audit.service';
 import { EncryptionService } from '@shared/services/encryption.service';
@@ -127,7 +127,7 @@ export class MembersService {
 
   /**
    * Owner-facing Member 360: one combined view of membership history,
-   * recent attendance, recent payments and account/verification state —
+   * recent attendance, recent payments and account/verification state ï¿½
    * per the spec's "Owner/Staff Member 360" profile requirement. Read-only
    * aggregation; does not create or mutate anything.
    */
@@ -189,6 +189,17 @@ export class MembersService {
       if (duplicate) throw new BadRequestException('A member with this mobile number already exists');
     }
 
+    // Cross-tenant integrity: a batchId/trainerId from another gym must never
+    // be assignable here just because the FK target happens to exist in the DB.
+    if (dto.batchId) {
+      const batch = await this.prisma.batch.findFirst({ where: { id: dto.batchId, gymId } });
+      if (!batch) throw new ForbiddenException('This batch does not belong to your gym.');
+    }
+    if (dto.trainerId) {
+      const trainer = await this.prisma.user.findFirst({ where: { id: dto.trainerId, gymId } });
+      if (!trainer) throw new ForbiddenException('This trainer does not belong to your gym.');
+    }
+
     const memberCode = await this.generateMemberCode(gymId);
     const memberId = randomUUID();
     const qrCodeData = this.encryption.generateQRCodeData(memberId, gymId);
@@ -241,6 +252,15 @@ export class MembersService {
 
   async update(id: string, gymId: string, dto: UpdateMemberDto) {
     const existing = await this.findOne(id, gymId);
+
+    if (dto.batchId) {
+      const batch = await this.prisma.batch.findFirst({ where: { id: dto.batchId, gymId } });
+      if (!batch) throw new ForbiddenException('This batch does not belong to your gym.');
+    }
+    if (dto.trainerId) {
+      const trainer = await this.prisma.user.findFirst({ where: { id: dto.trainerId, gymId } });
+      if (!trainer) throw new ForbiddenException('This trainer does not belong to your gym.');
+    }
 
     if (dto.mobile && dto.mobile !== existing.mobile) {
       const duplicate = await this.prisma.member.findFirst({

@@ -1,5 +1,5 @@
 import { PrismaService } from '@database/prisma.service';
-import { BadRequestException, Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException, ForbiddenException, ConflictException } from '@nestjs/common';
 import { PaymentGateway, PaymentMethod, PaymentStatus, Prisma } from '@prisma/client';
 import { AuditService } from '@shared/services/audit.service';
 import { LoggerService } from '@shared/services/logger.service';
@@ -626,10 +626,20 @@ export class PaymentsService {
         },
       });
       for (const month of months) {
+        // Atomic claim: only succeeds if the month's status hasn't changed
+        // since we read it above â€” closes the race where two concurrent
+        // requests could both pass the earlier pre-check and both allocate
+        // the same month.
+        const { count } = await tx.membershipMonth.updateMany({
+          where: { id: month.id, status: month.status },
+          data: { status: 'PENDING', paymentId: created.id },
+        });
+        if (count !== 1) {
+          throw new ConflictException('One or more selected months were just claimed by another payment â€” please refresh and try again.');
+        }
         await tx.paymentMonthAllocation.create({
           data: { paymentId: created.id, membershipMonthId: month.id, amount: month.amountDue },
         });
-        await tx.membershipMonth.update({ where: { id: month.id }, data: { status: 'PENDING', paymentId: created.id } });
       }
       return created;
     });
@@ -818,12 +828,15 @@ export class PaymentsService {
       });
 
       for (const month of months) {
+        const { count } = await tx.membershipMonth.updateMany({
+          where: { id: month.id, status: month.status },
+          data: { status: isCash ? 'PAID' : 'PENDING', paymentId: payment.id },
+        });
+        if (count !== 1) {
+          throw new ConflictException('One or more selected months were just claimed by another payment â€” please refresh and try again.');
+        }
         await tx.paymentMonthAllocation.create({
           data: { paymentId: payment.id, membershipMonthId: month.id, amount: month.amountDue },
-        });
-        await tx.membershipMonth.update({
-          where: { id: month.id },
-          data: { status: isCash ? 'PAID' : 'PENDING', paymentId: payment.id },
         });
       }
       if (isCash) {
