@@ -39,6 +39,7 @@ interface Member360Response {
     trainer?: { firstName: string; lastName: string } | null;
   };
   accountState: 'NOT_LINKED' | 'ACTIVATION_PENDING' | 'LINKED';
+  canSeeFinancials: boolean;
   lastVisit: string | null;
   lastPayment: { createdAt: string; total: string } | null;
   attendance: { id: string; checkInAt: string; checkOutAt: string | null; duration: number | null; source: string }[];
@@ -113,7 +114,7 @@ export function MemberDetailPage() {
     return <div className="p-6 text-sm text-destructive">Could not load this member's profile.</div>;
   }
 
-  const { member, accountState, lastVisit, lastPayment, attendance, payments } = data;
+  const { member, accountState, canSeeFinancials, lastVisit, lastPayment, attendance, payments } = data;
   const badge = accountBadge[accountState];
 
   return (
@@ -181,7 +182,7 @@ export function MemberDetailPage() {
               <div>
                 <p className="font-medium">{member.currentMembership.plan}</p>
                 <p className="text-sm text-muted-foreground">
-                  {fmtDate(member.currentMembership.startDate)} ? {fmtDate(member.currentMembership.endDate)} · ?{member.currentMembership.totalAmount}
+                  {fmtDate(member.currentMembership.startDate)} ? {fmtDate(member.currentMembership.endDate)} · ?{member.currentMembership.totalAmount != null ? member.currentMembership.totalAmount : 'N/A'}
                 </p>
               </div>
               <Badge className={member.currentMembership.status === 'ACTIVE' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-700'}>
@@ -203,7 +204,7 @@ export function MemberDetailPage() {
             <div key={m.id} className="py-2.5 flex flex-wrap items-center justify-between gap-2">
               <div>
                 <p className="text-sm font-medium">{m.plan}</p>
-                <p className="text-xs text-muted-foreground">{fmtDate(m.startDate)} ? {fmtDate(m.endDate)} · ?{m.totalAmount}</p>
+                <p className="text-xs text-muted-foreground">{fmtDate(m.startDate)} ? {fmtDate(m.endDate)} · ?{m.totalAmount != null ? m.totalAmount : 'N/A'}</p>
               </div>
               <Badge variant="outline" className="text-xs">{m.status}</Badge>
             </div>
@@ -232,8 +233,11 @@ export function MemberDetailPage() {
       <Card>
         <CardHeader className="pb-2"><CardTitle className="text-base flex items-center gap-2"><CreditCard className="h-4 w-4" /> Payment History</CardTitle></CardHeader>
         <CardContent className="divide-y">
-          {payments.length === 0 && <p className="text-sm text-muted-foreground py-3">No payments recorded yet.</p>}
-          {payments.map((p) => (
+          {!canSeeFinancials && (
+            <p className="text-sm text-muted-foreground py-3">Your role doesn't have access to financial details for this member.</p>
+          )}
+          {canSeeFinancials && payments.length === 0 && <p className="text-sm text-muted-foreground py-3">No payments recorded yet.</p>}
+          {canSeeFinancials && payments.map((p) => (
             <div key={p.id} className="py-3 flex flex-wrap items-center justify-between gap-2">
               <div className="min-w-0">
                 <p className="text-sm font-medium">?{p.total} · {p.method} · {p.source}</p>

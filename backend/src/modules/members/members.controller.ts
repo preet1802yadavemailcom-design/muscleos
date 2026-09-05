@@ -39,8 +39,8 @@ export class MembersController {
   }
 
   @Get(':id/360')
-  async getMember360(@Param('id') id: string, @GymId() gymId: string) {
-    return this.service.getMember360(id, gymId);
+  async getMember360(@Param('id') id: string, @GymId() gymId: string, @CurrentUser('role') role: string) {
+    return this.service.getMember360(id, gymId, role);
   }
 
   @Get(':id')

@@ -131,7 +131,7 @@ export class MembersService {
    * per the spec's "Owner/Staff Member 360" profile requirement. Read-only
    * aggregation; does not create or mutate anything.
    */
-  async getMember360(id: string, gymId: string) {
+  async getMember360(id: string, gymId: string, role: string) {
     const member = await this.prisma.member.findFirst({
       where: { id, gymId, deletedAt: null },
       include: {
@@ -171,13 +171,28 @@ export class MembersService {
         ? 'ACTIVATION_PENDING'
         : 'LINKED';
 
+    // Spec: "complete operational data for the owner does not mean every
+    // staff role sees sensitive fields" -- trainers get the operational
+    // view (attendance, membership status) but not financial detail.
+    const canSeeFinancials = role === 'GYM_OWNER' || role === 'RECEPTIONIST' || role === 'SUPER_ADMIN';
+
+    const redactMembership = (m: any) => (m ? { ...m, totalAmount: null } : m);
+    const sanitizedMember = canSeeFinancials
+      ? member
+      : {
+          ...member,
+          currentMembership: redactMembership(member.currentMembership),
+          memberships: member.memberships.map(redactMembership),
+        };
+
     return {
-      member,
+      member: sanitizedMember,
       accountState,
+      canSeeFinancials,
       lastVisit: attendance[0]?.checkInAt ?? null,
-      lastPayment: lastPayment ?? null,
+      lastPayment: canSeeFinancials ? (lastPayment ?? null) : null,
       attendance,
-      payments,
+      payments: canSeeFinancials ? payments : [],
     };
   }
 
