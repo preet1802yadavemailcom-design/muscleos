@@ -14,6 +14,7 @@ import {
 import { AuditService } from '@shared/services/audit.service';
 import { EncryptionService } from '@shared/services/encryption.service';
 import { LoggerService } from '@shared/services/logger.service';
+import { SequenceService } from '@shared/services/sequence.service';
 import { Decimal } from '@prisma/client/runtime/library';
 
 import {
@@ -44,6 +45,7 @@ export class CheckinService {
     private readonly attendanceCore: AttendanceCoreService,
     private readonly qr: QrService,
     private readonly notifications: NotificationsService,
+    private readonly sequence: SequenceService,
   ) {}
 
   /* ------------------------------------------------------------------ */
@@ -519,12 +521,14 @@ export class CheckinService {
     });
   }
 
-  /** memberCode format: GYM-prefix + zero-padded sequence, e.g. MOS-000001 */
+  /** memberCode format: GYM-prefix + zero-padded sequence, e.g. MOS-000001.
+   *  Uses the atomic SequenceService instead of count()+1 — two
+   *  simultaneous kiosk registrations can never be handed the same code. */
   private async generateMemberCode(gymId: string): Promise<string> {
     const gym = await this.prisma.gym.findUnique({ where: { id: gymId }, select: { slug: true } });
     const prefix = (gym?.slug || 'MOS').slice(0, 4).toUpperCase();
-    const count = await this.prisma.member.count({ where: { gymId } });
-    const sequence = (count + 1).toString().padStart(6, '0');
+    const next = await this.sequence.next(gymId, 'MEMBER_CODE');
+    const sequence = next.toString().padStart(6, '0');
     const candidate = `${prefix}-${sequence}`;
     const clash = await this.prisma.member.findUnique({ where: { memberCode: candidate } });
     return clash ? `${prefix}-${Date.now().toString().slice(-6)}` : candidate;

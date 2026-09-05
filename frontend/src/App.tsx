@@ -3,7 +3,6 @@ import { useAuthStore } from '@store/auth.store';
 import { Layout } from '@components/layout/Layout';
 import { RoleRoute } from '@components/auth/RoleRoute';
 import { LoginPage } from '@pages/auth/LoginPage';
-import { ClaimAccountPage } from '@pages/auth/ClaimAccountPage';
 import { WelcomePage } from '@pages/auth/WelcomePage';
 import { AuthCallbackPage } from '@pages/auth/AuthCallbackPage';
 import { CompleteProfilePage } from '@pages/auth/CompleteProfilePage';
@@ -72,7 +71,6 @@ function App() {
       {/* Public / unauthenticated routes */}
       <Route path="/welcome" element={<WelcomePage />} />
       <Route path="/login" element={<LoginPage />} />
-      <Route path="/claim" element={<ClaimAccountPage />} />
       <Route path="/auth/callback" element={<AuthCallbackPage />} />
       <Route path="/complete-profile" element={<CompleteProfilePage />} />
       <Route path="/2fa-setup" element={<TwoFactorSetupPage />} />

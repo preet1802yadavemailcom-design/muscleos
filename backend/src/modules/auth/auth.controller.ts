@@ -12,7 +12,6 @@ import { AuthService } from './auth.service';
 import { TwoFactorService } from './two-factor.service';
 import { StepUpService } from './step-up.service';
 import { LoginDto, RegisterDto, RefreshTokenDto, ForgotPasswordDto, ResetPasswordDto, VerifyEmailDto, ChangePasswordDto } from './dto';
-import { ClaimAccountDto } from './dto/claim-account.dto';
 
 @ApiTags('Authentication')
 @Controller('auth')
@@ -63,14 +62,6 @@ export class AuthController {
   @ApiOperation({ summary: 'Register new user' })
   async register(@Body() dto: RegisterDto) {
     return this.authService.register(dto);
-  }
-
-  @Public()
-  @Post('claim')
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Complete staff-assisted registration recovery using a one-time activation token' })
-  async claim(@Body() dto: ClaimAccountDto) {
-    return this.authService.claimAccount(dto);
   }
 
   @Public()

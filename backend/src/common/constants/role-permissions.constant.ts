@@ -14,7 +14,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, string[]> = {
     'batches:create', 'batches:read', 'batches:update', 'batches:delete',
     'attendance:read', 'attendance:create', 'attendance:export',
     'memberships:create', 'memberships:read', 'memberships:update', 'memberships:freeze', 'memberships:transfer',
-    'payments:create', 'payments:read', 'payments:refund', 'payments:export',
+    'payments:create', 'payments:read', 'payments:verify', 'payments:refund', 'payments:export',
     'reports:read', 'reports:export',
     'notifications:create', 'notifications:read',
     'settings:read', 'settings:update',
@@ -37,7 +37,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, string[]> = {
     'batches:read',
     'attendance:read', 'attendance:create',
     'memberships:read', 'memberships:renew',
-    'payments:create', 'payments:read',
+    'payments:create', 'payments:read', 'payments:verify',
     'reception:view',
   ],
 

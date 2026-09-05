@@ -23,14 +23,14 @@ const monthLabel = (iso: string) =>
   new Date(iso).toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
 
 /**
- * Direct-to-owner UPI payment â€” no gateway, no fees. The member picks how
+ * Direct-to-owner UPI payment — no gateway, no fees. The member picks how
  * many of their next payable months to pay (always the earliest ones
  * first, so a month can never be skipped), the server prices and locks
  * that total, then shows the owner's UPI QR code + a deep-link button
  * that opens the member's own UPI app (GPay/PhonePe/Paytm) with the
  * amount pre-filled. Since there's no gateway API confirming the
  * transfer automatically, the member enters the UTR/reference number
- * their UPI app shows after paying, which creates a PENDING claim â€”
+ * their UPI app shows after paying, which creates a PENDING claim —
  * staff/owner then confirms it against their own bank app before it
  * counts as a real payment.
  */
@@ -85,7 +85,7 @@ export function PayViaUpiButton({ membershipId, onSubmitted }: PayViaUpiButtonPr
       }),
     onSuccess: () => {
       setSubmitted(true);
-      toast({ title: 'Payment reported', description: "We've notified your gym â€” they'll confirm it shortly." });
+      toast({ title: 'Payment reported', description: "We've notified your gym — they'll confirm it shortly." });
       queryClient.invalidateQueries({ queryKey: ['payments', 'me'] });
       queryClient.invalidateQueries({ queryKey: ['payments', 'payable-months', membershipId] });
       onSubmitted?.();
@@ -107,14 +107,14 @@ export function PayViaUpiButton({ membershipId, onSubmitted }: PayViaUpiButtonPr
     <div className="rounded-lg border p-4 space-y-4 max-w-sm">
       {monthsLoading && (
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Loader2 className="h-4 w-4 animate-spin" /> Loading your payable monthsâ€¦
+          <Loader2 className="h-4 w-4 animate-spin" /> Loading your payable months…
         </div>
       )}
       {monthsError && (
         <p className="text-sm text-destructive">Couldn't load your payable months. Please try again shortly.</p>
       )}
       {!monthsLoading && !monthsError && payableMonths.length === 0 && (
-        <p className="text-sm text-muted-foreground">You're all caught up â€” no months are due right now.</p>
+        <p className="text-sm text-muted-foreground">You're all caught up — no months are due right now.</p>
       )}
 
       {!monthsLoading && payableMonths.length > 0 && !submitted && (
@@ -156,11 +156,11 @@ export function PayViaUpiButton({ membershipId, onSubmitted }: PayViaUpiButtonPr
 
           {linkLoading && (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" /> Locking amount with your gymâ€¦
+              <Loader2 className="h-4 w-4 animate-spin" /> Locking amount with your gym…
             </div>
           )}
           {linkError && (
-            <p className="text-sm text-destructive">Your gym hasn't set up direct UPI payments yet â€” use "Pay now" instead.</p>
+            <p className="text-sm text-destructive">Your gym hasn't set up direct UPI payments yet — use "Pay now" instead.</p>
           )}
           {upi && !linkLoading && (
             <>
@@ -168,7 +168,7 @@ export function PayViaUpiButton({ membershipId, onSubmitted }: PayViaUpiButtonPr
                 <img src={upi.qrDataUrl} alt="UPI QR code" className="mx-auto h-40 w-40 rounded-md border" />
                 <p className="text-sm font-medium">{upi.payeeName}</p>
                 <p className="text-xs text-muted-foreground">{upi.upiId}</p>
-                <p className="text-lg font-bold">â‚¹{upi.amount}</p>
+                <p className="text-lg font-bold">?{upi.amount}</p>
               </div>
               <a href={upi.link} className="block">
                 <Button className="w-full">Open in UPI app</Button>
@@ -182,7 +182,7 @@ export function PayViaUpiButton({ membershipId, onSubmitted }: PayViaUpiButtonPr
                   disabled={utr.trim().length < 4 || claimMutation.isPending}
                   onClick={() => claimMutation.mutate()}
                 >
-                  {claimMutation.isPending ? 'Submittingâ€¦' : "I've paid â€” notify my gym"}
+                  {claimMutation.isPending ? 'Submitting…' : "I've paid — notify my gym"}
                 </Button>
               </div>
             </>
@@ -192,7 +192,7 @@ export function PayViaUpiButton({ membershipId, onSubmitted }: PayViaUpiButtonPr
 
       {submitted && (
         <div className="flex items-center gap-2 text-sm text-green-600">
-          <CheckCircle2 className="h-4 w-4" /> Reported â€” your gym will confirm this shortly.
+          <CheckCircle2 className="h-4 w-4" /> Reported — your gym will confirm this shortly.
         </div>
       )}
     </div>

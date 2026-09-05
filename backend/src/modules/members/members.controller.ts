@@ -1,5 +1,4 @@
 import { GymId } from '@common/decorators/gym-id.decorator';
-import { CurrentUser, CurrentUserPayload } from '@common/decorators/current-user.decorator';
 import { Permissions } from '@common/decorators/permissions.decorator';
 import { GymOwnerGuard } from '@common/guards/gym-owner.guard';
 import { JwtAuthGuard } from '@common/guards/jwt-auth.guard';
@@ -33,14 +32,9 @@ export class MembersController {
     return this.service.exportData(gymId, query);
   }
 
-  @Post(':id/claim-link')
-  async generateClaimLink(@Param('id') id: string, @GymId() gymId: string, @CurrentUser() user: CurrentUserPayload) {
-    return this.service.generateClaimLink(id, gymId, user.userId);
-  }
-
   @Get(':id/360')
-  async getMember360(@Param('id') id: string, @GymId() gymId: string, @CurrentUser('role') role: string) {
-    return this.service.getMember360(id, gymId, role);
+  async getMember360(@Param('id') id: string, @GymId() gymId: string) {
+    return this.service.getMember360(id, gymId);
   }
 
   @Get(':id')

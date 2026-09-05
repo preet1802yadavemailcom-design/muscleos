@@ -1,4 +1,4 @@
-import { randomUUID, randomBytes, createHash } from 'crypto';
+import { randomUUID } from 'crypto';
 
 import { PrismaService } from '@database/prisma.service';
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
@@ -131,7 +131,7 @@ export class MembersService {
    * per the spec's "Owner/Staff Member 360" profile requirement. Read-only
    * aggregation; does not create or mutate anything.
    */
-  async getMember360(id: string, gymId: string, role: string) {
+  async getMember360(id: string, gymId: string) {
     const member = await this.prisma.member.findFirst({
       where: { id, gymId, deletedAt: null },
       include: {
@@ -171,28 +171,13 @@ export class MembersService {
         ? 'ACTIVATION_PENDING'
         : 'LINKED';
 
-    // Spec: "complete operational data for the owner does not mean every
-    // staff role sees sensitive fields" -- trainers get the operational
-    // view (attendance, membership status) but not financial detail.
-    const canSeeFinancials = role === 'GYM_OWNER' || role === 'RECEPTIONIST' || role === 'SUPER_ADMIN';
-
-    const redactMembership = (m: any) => (m ? { ...m, totalAmount: null } : m);
-    const sanitizedMember = canSeeFinancials
-      ? member
-      : {
-          ...member,
-          currentMembership: redactMembership(member.currentMembership),
-          memberships: member.memberships.map(redactMembership),
-        };
-
     return {
-      member: sanitizedMember,
+      member,
       accountState,
-      canSeeFinancials,
       lastVisit: attendance[0]?.checkInAt ?? null,
-      lastPayment: canSeeFinancials ? (lastPayment ?? null) : null,
+      lastPayment: lastPayment ?? null,
       attendance,
-      payments: canSeeFinancials ? payments : [],
+      payments,
     };
   }
 
@@ -341,48 +326,16 @@ export class MembersService {
     return { qrCode: member.qrCode, qrCodeData: member.qrCodeData };
   }
 
-  /** memberCode format: GYM-prefix + zero-padded sequence, e.g. MOS-000123 */
-  /**
-   * Staff-assisted registration recovery: generates a one-time activation
-   * link for a Member who has no User account yet (broken phone, no
-   * verification access, or simply never self-registered). The plain
-   * token is returned ONCE to the calling staff member to relay to the
-   * person in front of them; only a SHA-256 hash of it is stored, per the
-   * schema's "hashed at rest" comment on claimToken. The owner/staff never
-   * sees or sets the member's password — that happens when the member
-   * completes activation themselves via POST /auth/claim.
-   */
-  async generateClaimLink(id: string, gymId: string, staffUserId: string) {
-    const member = await this.prisma.member.findFirst({ where: { id, gymId, deletedAt: null } });
-    if (!member) throw new NotFoundException('Member not found');
-    if (member.userId) throw new BadRequestException('This member is already linked to an account.');
-
-    const plainToken = randomBytes(32).toString('hex');
-    const hashedToken = createHash('sha256').update(plainToken).digest('hex');
-    const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000); // 48 hours
-
-    await this.prisma.member.update({
-      where: { id },
-      data: { claimToken: hashedToken, claimTokenExpiresAt: expiresAt },
-    });
-
-    await this.audit.log({
-      action: 'CLAIM_LINK_GENERATED',
-      entity: 'Member',
-      entityId: id,
-      userId: staffUserId,
-      gymId,
-    });
-
-    return { token: plainToken, expiresAt };
-  }
-
+  /** memberCode format: GYM-prefix + zero-padded sequence, e.g. MOS-000123.
+   *  Uses the atomic SequenceService instead of count()+1 â€” two
+   *  simultaneous registrations can never be handed the same code. */
   private async generateMemberCode(gymId: string): Promise<string> {
     const gym = await this.prisma.gym.findUnique({ where: { id: gymId }, select: { slug: true } });
     const prefix = (gym?.slug || 'MOS').slice(0, 4).toUpperCase();
-    // Atomic per-gym counter -- immune to the count()+1 race where two
-    // simultaneous registrations could otherwise land on the same code.
     const next = await this.sequence.next(gymId, 'MEMBER_CODE');
-    return `${prefix}-${next.toString().padStart(6, '0')}`;
+    const sequence = next.toString().padStart(6, '0');
+    const candidate = `${prefix}-${sequence}`;
+    const clash = await this.prisma.member.findUnique({ where: { memberCode: candidate } });
+    return clash ? `${prefix}-${Date.now().toString().slice(-6)}` : candidate;
   }
 }

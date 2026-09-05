@@ -32,6 +32,11 @@ export class CreatePaymentDto {
   @IsEnum(PaymentMethod)
   method: PaymentMethod;
 
+  @ApiPropertyOptional({ description: 'UPI transaction reference — required when gateway is UPI' })
+  @IsOptional()
+  @IsString()
+  utr?: string;
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsUUID()

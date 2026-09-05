@@ -1,4 +1,4 @@
-import { randomUUID, createHash } from 'crypto';
+import { randomUUID } from 'crypto';
 
 import { parseUserAgent } from '@common/utils/user-agent.util';
 import { PrismaService } from '@database/prisma.service';
@@ -16,7 +16,6 @@ import { LoggerService } from '@shared/services/logger.service';
 import * as bcrypt from 'bcryptjs';
 
 import { LoginDto, RegisterDto, RefreshTokenDto, ForgotPasswordDto, ResetPasswordDto, VerifyEmailDto } from './dto';
-import { ClaimAccountDto } from './dto/claim-account.dto';
 import { TwoFactorService } from './two-factor.service';
 
 
@@ -25,13 +24,6 @@ const MAX_LOGIN_ATTEMPTS = 5;
 const LOCK_DURATION_MINUTES = 15;
 const OTP_RESEND_COOLDOWN_SECONDS = 60;
 const PENDING_2FA_TTL_SECONDS = 5 * 60;
-// OTP verification/resend hardening (spec section 10): bounded attempts so
-// an OTP can't be brute-forced, and a bounded resend count per window so
-// the cooldown alone (which only rate-limits back-to-back requests) can't
-// be worked around by simply waiting out each cooldown repeatedly.
-const MAX_OTP_VERIFY_ATTEMPTS = 5;
-const MAX_OTP_RESEND_PER_WINDOW = 5;
-const OTP_RESEND_WINDOW_SECONDS = 60 * 60;
 
 @Injectable()
 export class AuthService {
@@ -319,56 +311,6 @@ export class AuthService {
     return { user: this.sanitizeUser(user), message: 'Registered. Please verify your phone number to activate your account.' };
   }
 
-  /**
-   * Completes a staff-assisted registration recovery: the member arrives
-   * with a one-time token (relayed by staff, not typed by staff) and sets
-   * their own password here. The backend never sees or stores that
-   * password on staff's behalf. Matches the hashed token against every
-   * non-expired claimToken, creates a new User scoped to that Member's
-   * gym, links Member.userId, and clears the token so it cannot be reused.
-   */
-  async claimAccount(dto: ClaimAccountDto) {
-    const hashedToken = createHash('sha256').update(dto.token).digest('hex');
-    const member = await this.prisma.member.findFirst({
-      where: { claimToken: hashedToken, claimTokenExpiresAt: { gt: new Date() }, deletedAt: null },
-    });
-    if (!member) throw new BadRequestException('This activation link is invalid or has expired. Ask staff for a new one.');
-    if (member.userId) throw new BadRequestException('This member is already linked to an account.');
-
-    const hashedPassword = await bcrypt.hash(dto.password, this.configService.get('app.bcryptRounds', 12));
-
-    const user = await this.prisma.$transaction(async (tx) => {
-      const created = await tx.user.create({
-        data: {
-          email: member.email ?? `${member.mobile}@placeholder.muscleos`,
-          password: hashedPassword,
-          firstName: member.firstName,
-          lastName: member.lastName,
-          phone: member.mobile,
-          role: 'MEMBER',
-          gymId: member.gymId,
-          status: 'ACTIVE',
-        },
-      });
-      await tx.member.update({
-        where: { id: member.id },
-        data: { userId: created.id, claimToken: null, claimTokenExpiresAt: null },
-      });
-      return created;
-    });
-
-    await this.audit.log({
-      action: 'ACCOUNT_CLAIMED',
-      entity: 'Member',
-      entityId: member.id,
-      userId: user.id,
-      gymId: member.gymId,
-    });
-
-    this.logger.log(`Member ${member.id} claimed account ${user.id}`, 'AuthService');
-    return { user: this.sanitizeUser(user), message: 'Account activated. You can now log in.' };
-  }
-
   /** Generates a 6-digit OTP, stores it keyed by userId (not phone â€” a
    *  phone number could theoretically be reused/changed), and sends it via
    *  WhatsApp using the generic approved template. Used for both member
@@ -382,22 +324,9 @@ export class AuthService {
     if (await this.redis.get(cooldownKey)) {
       throw new ForbiddenException('Please wait before requesting another code.');
     }
-
-    // Bounded resend count per rolling window — the short cooldown above
-    // only stops back-to-back spamming, this stops "wait out the cooldown
-    // and try again" repeated indefinitely.
-    const resendCountKey = `whatsapp_otp_resend_count:${userId}`;
-    const resendCount = parseInt((await this.redis.get(resendCountKey)) ?? '0', 10);
-    if (resendCount >= MAX_OTP_RESEND_PER_WINDOW) {
-      throw new ForbiddenException('Too many verification codes requested. Please try again later.');
-    }
-    await this.redis.set(resendCountKey, String(resendCount + 1), OTP_RESEND_WINDOW_SECONDS);
-
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
     await this.redis.set(`whatsapp_otp:${userId}`, otp, 600); // 10 min
     await this.redis.set(cooldownKey, '1', OTP_RESEND_COOLDOWN_SECONDS);
-    // A fresh code means a fresh set of guesses — clear any prior failed attempts.
-    await this.redis.del(`whatsapp_otp_attempts:${userId}`);
 
     const sent = await this.whatsapp.sendTemplate(user.phone, 'muscleos_alert', 'en', [
       user.firstName,
@@ -457,21 +386,8 @@ export class AuthService {
    *  Auth) â€” kept in case WhatsApp verification is turned back on later;
    *  not called from register()/verifyEmail() anymore. */
   async verifyWhatsappOtp(userId: string, otp: string) {
-    const attemptsKey = `whatsapp_otp_attempts:${userId}`;
-    const attempts = parseInt((await this.redis.get(attemptsKey)) ?? '0', 10);
-    if (attempts >= MAX_OTP_VERIFY_ATTEMPTS) {
-      // Too many wrong guesses against this code — invalidate it outright
-      // rather than let the attempt counter alone gate an otherwise-live code.
-      await this.redis.del(`whatsapp_otp:${userId}`);
-      await this.redis.del(attemptsKey);
-      throw new BadRequestException('Too many incorrect attempts. Please request a new code.');
-    }
-
     const stored = await this.redis.get(`whatsapp_otp:${userId}`);
-    if (!stored || stored !== otp) {
-      await this.redis.set(attemptsKey, String(attempts + 1), 600);
-      throw new BadRequestException('Invalid or expired code');
-    }
+    if (!stored || stored !== otp) throw new BadRequestException('Invalid or expired code');
 
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw new BadRequestException('User not found');
@@ -489,8 +405,6 @@ export class AuthService {
     });
     await this.redis.del(`whatsapp_otp:${userId}`);
     await this.redis.del(`whatsapp_otp_cooldown:${userId}`);
-    await this.redis.del(`whatsapp_otp_attempts:${userId}`);
-    await this.redis.del(`whatsapp_otp_resend_count:${userId}`);
 
     await this.audit.log({
       action: 'WHATSAPP_VERIFIED', entity: 'User', entityId: userId, userId, gymId: user.gymId ?? undefined,
@@ -510,38 +424,16 @@ export class AuthService {
     if (await this.redis.get(cooldownKey)) {
       throw new ForbiddenException('Please wait before requesting another OTP.');
     }
-
-    const resendCountKey = `verify_otp_resend_count:${email}`;
-    const resendCount = parseInt((await this.redis.get(resendCountKey)) ?? '0', 10);
-    if (resendCount >= MAX_OTP_RESEND_PER_WINDOW) {
-      throw new ForbiddenException('Too many OTPs requested. Please try again later.');
-    }
-    await this.redis.set(resendCountKey, String(resendCount + 1), OTP_RESEND_WINDOW_SECONDS);
-
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
     await this.redis.set(`verify_otp:${email}`, otp, 600);
     await this.redis.set(cooldownKey, '1', OTP_RESEND_COOLDOWN_SECONDS);
-    await this.redis.del(`verify_otp_attempts:${email}`);
     await this.dispatchOtpEmail(email, otp, 'Verify your MuscleOS email');
     return { message: 'OTP sent' };
   }
 
   async verifyEmail(dto: VerifyEmailDto) {
-    const attemptsKey = `verify_otp_attempts:${dto.email}`;
-    const attempts = parseInt((await this.redis.get(attemptsKey)) ?? '0', 10);
-    if (attempts >= MAX_OTP_VERIFY_ATTEMPTS) {
-      await this.redis.del(`verify_otp:${dto.email}`);
-    await this.redis.del(`verify_otp_attempts:${dto.email}`);
-    await this.redis.del(`verify_otp_resend_count:${dto.email}`);
-      await this.redis.del(attemptsKey);
-      throw new BadRequestException('Too many incorrect attempts. Please request a new OTP.');
-    }
-
     const stored = await this.redis.get(`verify_otp:${dto.email}`);
-    if (!stored || stored !== dto.otp) {
-      await this.redis.set(attemptsKey, String(attempts + 1), 600);
-      throw new BadRequestException('Invalid or expired OTP');
-    }
+    if (!stored || stored !== dto.otp) throw new BadRequestException('Invalid or expired OTP');
     const user = await this.prisma.user.findFirst({ where: { email: dto.email } });
     if (!user) throw new BadRequestException('User not found');
 
@@ -559,8 +451,6 @@ export class AuthService {
       },
     });
     await this.redis.del(`verify_otp:${dto.email}`);
-    await this.redis.del(`verify_otp_attempts:${dto.email}`);
-    await this.redis.del(`verify_otp_resend_count:${dto.email}`);
     await this.audit.log({
       action: 'EMAIL_VERIFIED',
       entity: 'User',
@@ -639,21 +529,12 @@ export class AuthService {
     if (await this.redis.get(cooldownKey)) {
       throw new ForbiddenException(`Please wait before requesting another OTP.`);
     }
-
-    const resendCountKey = `otp_resend_count:${dto.email}`;
-    const resendCount = parseInt((await this.redis.get(resendCountKey)) ?? '0', 10);
-    if (resendCount >= MAX_OTP_RESEND_PER_WINDOW) {
-      throw new ForbiddenException('Too many requests. Please try again later.');
-    }
-    await this.redis.set(resendCountKey, String(resendCount + 1), OTP_RESEND_WINDOW_SECONDS);
-    await this.redis.set(cooldownKey, '1', OTP_RESEND_COOLDOWN_SECONDS);
-
     const user = await this.prisma.user.findFirst({ where: { email: dto.email } });
     if (!user) return { message: 'If email exists, reset link will be sent' };
 
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
     await this.redis.set(`otp:${dto.email}`, otp, 600); // 10 min validity
-    await this.redis.del(`otp_attempts:${dto.email}`);
+    await this.redis.set(cooldownKey, '1', OTP_RESEND_COOLDOWN_SECONDS);
     await this.audit.log({
       action: 'PASSWORD_RESET_REQUESTED',
       entity: 'User',
@@ -693,19 +574,8 @@ export class AuthService {
   }
 
   async resetPassword(dto: ResetPasswordDto) {
-    const attemptsKey = `otp_attempts:${dto.email}`;
-    const attempts = parseInt((await this.redis.get(attemptsKey)) ?? '0', 10);
-    if (attempts >= MAX_OTP_VERIFY_ATTEMPTS) {
-      await this.redis.del(`otp:${dto.email}`);
-      await this.redis.del(attemptsKey);
-      throw new BadRequestException('Too many incorrect attempts. Please request a new OTP.');
-    }
-
     const storedOtp = await this.redis.get(`otp:${dto.email}`);
-    if (!storedOtp || storedOtp !== dto.otp) {
-      await this.redis.set(attemptsKey, String(attempts + 1), 600);
-      throw new BadRequestException('Invalid or expired OTP');
-    }
+    if (!storedOtp || storedOtp !== dto.otp) throw new BadRequestException('Invalid or expired OTP');
     const user = await this.prisma.user.findFirst({ where: { email: dto.email } });
     if (!user) throw new BadRequestException('No account found for this email');
     const hashedPassword = await bcrypt.hash(dto.newPassword, 12);
@@ -720,8 +590,6 @@ export class AuthService {
     });
     await this.redis.del(`otp:${dto.email}`);
     await this.redis.del(`otp_cooldown:${dto.email}`);
-    await this.redis.del(`otp_attempts:${dto.email}`);
-    await this.redis.del(`otp_resend_count:${dto.email}`);
     if (user) {
       // Reset password invalidates all existing sessions
       await this.prisma.refreshToken.updateMany({

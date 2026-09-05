@@ -1,4 +1,4 @@
-﻿import { PrismaService } from '@database/prisma.service';
+import { PrismaService } from '@database/prisma.service';
 import { BadRequestException, Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { PaymentGateway, PaymentMethod, PaymentStatus, Prisma } from '@prisma/client';
 import { AuditService } from '@shared/services/audit.service';
@@ -28,11 +28,11 @@ export class PaymentsService {
     private readonly sequence: SequenceService,
   ) {}
 
+  /** Atomic per-gym, per-scope counter (scoped by prefix+year so receipt
+   *  and invoice numbers each get their own yearly sequence) -- immune to
+   *  the count()+1 race where two simultaneous payments could otherwise
+   *  be issued the same receipt/invoice number. */
   private async nextSequence(gymId: string, prefix: 'RCPT' | 'INV') {
-    // Atomic per-gym, per-scope counter (scoped by prefix+year so receipt
-    // and invoice numbers each get their own yearly sequence) -- immune to
-    // the count()+1 race where two simultaneous payments could otherwise
-    // be issued the same receipt/invoice number.
     const year = new Date().getFullYear();
     const next = await this.sequence.next(gymId, `${prefix}-${year}`);
     return `${prefix}-${year}-${String(next).padStart(5, '0')}`;
@@ -147,34 +147,25 @@ export class PaymentsService {
   }
 
   /** Member's own payment history — identity resolved via Member.userId, never email/mobile matching. */
-  async findMine(gymId: string, userId: string, page = 1, limit = 20) {
+  async findMine(gymId: string, userId: string) {
     const member = await this.prisma.member.findFirst({ where: { userId, gymId, deletedAt: null } });
     if (!member) {
       throw new NotFoundException('No member profile is linked to this account yet — ask staff to link your profile.');
     }
-    const safeLimit = Math.min(Math.max(limit, 1), 100);
-    const safePage = Math.max(page, 1);
-    const where = { memberId: member.id, gymId };
-    const [data, total] = await Promise.all([
-      this.prisma.payment.findMany({
-        where,
-        orderBy: { createdAt: 'desc' },
-        include: { membership: { select: { id: true, planName: true } } },
-        skip: (safePage - 1) * safeLimit,
-        take: safeLimit,
-      }),
-      this.prisma.payment.count({ where }),
-    ]);
-    return { data, total, page: safePage, limit: safeLimit };
+    return this.prisma.payment.findMany({
+      where: { memberId: member.id, gymId },
+      orderBy: { createdAt: 'desc' },
+      include: { membership: { select: { id: true, planName: true } } },
+    });
   }
 
-  /** Member's own payable/locked months for one of THEIR OWN memberships — ownership is
+  /** Member's own payable/locked months for one of THEIR OWN memberships � ownership is
    *  verified via Member.userId before any month rows are returned, so a member can never
    *  probe another member's membershipId to see what they owe. */
   async getPayableMonths(gymId: string, userId: string, membershipId: string) {
     const member = await this.prisma.member.findFirst({ where: { userId, gymId, deletedAt: null } });
     if (!member) {
-      throw new NotFoundException('No member profile is linked to this account yet — ask staff to link your profile.');
+      throw new NotFoundException('No member profile is linked to this account yet � ask staff to link your profile.');
     }
     const membership = await this.prisma.membership.findFirst({
       where: { id: membershipId, gymId, memberId: member.id },
@@ -192,23 +183,28 @@ export class PaymentsService {
       status: m.status,
     }));
   }
-  /** Staff/owner view of ALL months (any status) for a membership, gym-scoped
-   *  only (not member-owned) -- used by the "record manual payment" screen. */
-  async getMembershipMonthsForStaff(gymId: string, membershipId: string) {
-    const membership = await this.prisma.membership.findFirst({ where: { id: membershipId, gymId } });
-    if (!membership) throw new NotFoundException('Membership not found in this gym.');
-
-    const months = await this.prisma.membershipMonth.findMany({
-      where: { membershipId },
-      orderBy: { monthStart: 'asc' },
-    });
-    return months.map((m) => ({ id: m.id, monthStart: m.monthStart, amountDue: m.amountDue, status: m.status }));
-  }
 
   /** Step 1: create a pending payment record + gateway order for online payments. */
   async initiate(dto: CreatePaymentDto, gymId: string, collectedById: string) {
+    this.assertGatewayMethodCompatible(dto.gateway, dto.method);
+
+    // UTR-bearing gateways (currently only UPI here) can never be marked
+    // complete on the strength of a client-supplied UTR alone — see
+    // assertUtrNotAlreadyClaimed's docstring and the PENDING branch below.
+    if (dto.gateway === PaymentGateway.UPI && dto.utr) {
+      await this.assertUtrNotAlreadyClaimed(gymId, dto.utr);
+    }
+
     const { tax, total } = this.calculateTotals(dto.amount, dto.discount ?? 0, dto.gstPercentage ?? 0);
     const receiptNumber = await this.nextSequence(gymId, 'RCPT');
+
+    // Only CASH and BANK_TRANSFER complete immediately here: cash is
+    // physically handed to staff at the moment of entry, and a bank
+    // transfer recorded by staff implies they've already checked their
+    // bank statement. UPI must NOT auto-complete — a member/staff-typed
+    // UTR is not proof a transfer actually landed; it has to go through
+    // the same PENDING -> staff verification path as a wall-QR UPI claim.
+    const completesImmediately = dto.gateway === PaymentGateway.CASH || dto.gateway === PaymentGateway.BANK_TRANSFER;
 
     const payment = await this.prisma.payment.create({
       data: {
@@ -225,14 +221,10 @@ export class PaymentsService {
         collectedById,
         notes: dto.notes,
         receiptNumber,
-        status: dto.gateway === PaymentGateway.CASH || dto.gateway === PaymentGateway.BANK_TRANSFER || dto.gateway === PaymentGateway.UPI
-          ? PaymentStatus.COMPLETED
-          : PaymentStatus.PENDING,
+        utr: dto.utr,
+        status: completesImmediately ? PaymentStatus.COMPLETED : PaymentStatus.PENDING,
         gymId,
-        verifiedAt:
-          dto.gateway === PaymentGateway.CASH || dto.gateway === PaymentGateway.BANK_TRANSFER || dto.gateway === PaymentGateway.UPI
-            ? new Date()
-            : null,
+        verifiedAt: completesImmediately ? new Date() : null,
       },
     });
 
@@ -243,8 +235,10 @@ export class PaymentsService {
     } else if (dto.gateway === PaymentGateway.STRIPE) {
       gatewayOrder = await this.stripe.createPaymentIntent(Math.round(total * 100), 'usd', { paymentId: payment.id, gymId });
       await this.prisma.payment.update({ where: { id: payment.id }, data: { gatewayOrderId: gatewayOrder.id } });
-    } else {
-      // offline payment already marked completed — generate receipt immediately
+    } else if (completesImmediately) {
+      // Cash / bank-transfer only — generate the receipt right away since
+      // these are already marked COMPLETED above. UPI stays PENDING and is
+      // finalized later via confirmUpiClaim, same as a wall-QR UPI claim.
       await this.finalizeReceipt(payment.id, gymId);
     }
 
@@ -347,7 +341,7 @@ export class PaymentsService {
       this.logger.error(`Invoice generation failed for payment ${paymentId}: ${err}`, undefined, 'PaymentsService');
     }
 
-    // Best-effort — a failed WhatsApp send must never fail the payment
+    // Best-effort � a failed WhatsApp send must never fail the payment
     // itself, which is why this comes after the invoice generation and is
     // caught independently rather than allowed to throw.
     if (payment.member) {
@@ -445,12 +439,12 @@ export class PaymentsService {
   }
 
   /* ---------------------------------------------------------------- */
-  /* Direct-to-owner UPI payments — no payment gateway needed. The gym  */
+  /* Direct-to-owner UPI payments � no payment gateway needed. The gym  */
   /* owner sets their own UPI ID once; every member payment goes       */
   /* straight into the owner's own bank account (standard UPI person-  */
   /* to-merchant transfer, zero platform fees). Since there's no       */
   /* gateway API in the loop, there's no automatic webhook confirming  */
-  /* the transfer — the member reports the UTR reference after paying,*/
+  /* the transfer � the member reports the UTR reference after paying,*/
   /* and staff/owner confirms it against their own bank/UPI app.       */
   /* ---------------------------------------------------------------- */
 
@@ -466,11 +460,64 @@ export class PaymentsService {
   }
 
   /** Builds the standard UPI deep-link (`upi://pay?...`) for a given
-   *  amount — tapping it on a phone opens whichever UPI app the member
+   *  amount � tapping it on a phone opens whichever UPI app the member
    *  has installed (GPay, PhonePe, Paytm, etc.) with the amount and payee
    *  pre-filled, so they don't have to type anything by hand. Also
    *  returns a QR-code PNG (data URL) of the same link, for members
    *  paying from a kiosk/desktop rather than their own phone. */
+  /**
+   * After a month is marked PAID, the next still-LOCKED month (if any)
+   * must become PAYABLE, or the member has no way to ever pay it — the
+   * sequential-months design otherwise dead-ends after the first payment.
+   * Call this inside the same transaction that marks a month PAID.
+   */
+  private async unlockNextMonth(tx: Prisma.TransactionClient, membershipId: string) {
+    const nextLocked = await tx.membershipMonth.findFirst({
+      where: { membershipId, status: 'LOCKED' },
+      orderBy: { monthStart: 'asc' },
+    });
+    if (nextLocked) {
+      await tx.membershipMonth.update({ where: { id: nextLocked.id }, data: { status: 'PAYABLE' } });
+    }
+  }
+
+  /** Checks whether this UTR has already been claimed (pending or completed)
+   *  by another payment in this gym — a member (accidentally or otherwise)
+   *  resubmitting, or reusing, the same UTR across multiple claims should
+   *  be caught before staff have to notice it manually. */
+  private async assertUtrNotAlreadyClaimed(gymId: string, utr: string, excludePaymentId?: string) {
+    const existing = await this.prisma.payment.findFirst({
+      where: {
+        gymId,
+        utr,
+        status: { in: [PaymentStatus.PENDING, PaymentStatus.COMPLETED] },
+        ...(excludePaymentId ? { id: { not: excludePaymentId } } : {}),
+      },
+    });
+    if (existing) {
+      throw new BadRequestException('This UTR / reference number has already been submitted for another payment.');
+    }
+  }
+
+  /** Rejects gateway/method combinations that can never legitimately occur
+   *  together (e.g. gateway=CASH with method=ONLINE) — without this,
+   *  nothing stops a mismatched pair from being stored and confusing every
+   *  downstream report that assumes the two agree. */
+  private assertGatewayMethodCompatible(gateway: PaymentGateway, method: PaymentMethod) {
+    const compatible: Record<string, PaymentMethod[]> = {
+      CASH: [PaymentMethod.CASH],
+      UPI: [PaymentMethod.UPI],
+      BANK_TRANSFER: [PaymentMethod.BANK_TRANSFER],
+      CHEQUE: [PaymentMethod.BANK_TRANSFER],
+      RAZORPAY: [PaymentMethod.ONLINE, PaymentMethod.CARD],
+      STRIPE: [PaymentMethod.ONLINE, PaymentMethod.CARD],
+    };
+    const allowed = compatible[gateway];
+    if (allowed && !allowed.includes(method)) {
+      throw new BadRequestException(`Payment method ${method} is not valid for gateway ${gateway}.`);
+    }
+  }
+
   private async priceMonths(gymId: string, membershipId: string, monthStarts: string[]) {
     const membership = await this.prisma.membership.findFirst({
       where: { id: membershipId, gymId, deletedAt: null },
@@ -544,7 +591,7 @@ export class PaymentsService {
   }
 
   /** Member says "I've paid" and provides the UTR/reference number their
-   *  UPI app showed them — creates a PENDING payment row. Nothing is
+   *  UPI app showed them � creates a PENDING payment row. Nothing is
    *  auto-confirmed here on purpose: a member typing in a UTR is not
    *  proof of payment by itself (they could type a fake or someone
    *  else's), so this must be verified by staff/owner before it counts. */
@@ -553,6 +600,7 @@ export class PaymentsService {
     if (!utrReference || utrReference.trim().length < 4) {
       throw new BadRequestException('Enter the UTR / reference number shown in your UPI app after paying.');
     }
+    await this.assertUtrNotAlreadyClaimed(gymId, utrReference.trim());
 
     const { months, totalAmount } = await this.priceMonths(gymId, membershipId, monthStarts);
     const receiptNumber = await this.nextSequence(gymId, 'RCPT');
@@ -570,7 +618,7 @@ export class PaymentsService {
           memberId: member.id,
           membershipId,
           receiptNumber,
-          notes: 'Direct UPI payment — pending owner/staff verification',
+          notes: 'Direct UPI payment � pending owner/staff verification',
           gymId,
         },
       });
@@ -605,7 +653,7 @@ export class PaymentsService {
   }
 
   /** Staff/owner checked their own bank/UPI app, saw the matching UTR
-   *  actually landed, and confirms it here — only then does it count as
+   *  actually landed, and confirms it here � only then does it count as
    *  a real completed payment (receipt generated, WhatsApp sent). */
   async confirmUpiClaim(id: string, gymId: string, staffUserId: string) {
     const payment = await this.prisma.payment.findFirst({
@@ -624,6 +672,9 @@ export class PaymentsService {
       });
       for (const alloc of payment.monthAllocations) {
         await tx.membershipMonth.update({ where: { id: alloc.membershipMonthId }, data: { status: 'PAID', paymentId: id } });
+      }
+      if (payment.membershipId) {
+        await this.unlockNextMonth(tx, payment.membershipId);
       }
     });
 
@@ -686,6 +737,11 @@ export class PaymentsService {
     staffUserId: string,
     dto: AllocateMonthsDto,
   ) {
+    this.assertGatewayMethodCompatible(dto.gateway, dto.method);
+    if (dto.utr) {
+      await this.assertUtrNotAlreadyClaimed(gymId, dto.utr);
+    }
+
     const membership = await this.prisma.membership.findFirst({
       where: { id: dto.membershipId, gymId, deletedAt: null },
     });
@@ -767,6 +823,9 @@ export class PaymentsService {
           data: { status: isCash ? 'PAID' : 'PENDING', paymentId: payment.id },
         });
       }
+      if (isCash) {
+        await this.unlockNextMonth(tx, membership.id);
+      }
 
       return payment;
     });
@@ -800,6 +859,9 @@ export class PaymentsService {
           where: { id: alloc.membershipMonthId },
           data: { status: approve ? 'PAID' : 'PAYABLE', paymentId: approve ? paymentId : null },
         });
+      }
+      if (approve && payment.membershipId) {
+        await this.unlockNextMonth(tx, payment.membershipId);
       }
     });
 

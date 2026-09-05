@@ -1,18 +1,9 @@
 import { useParams, useNavigate } from 'react-router-dom';
-import { useState } from 'react';
-import { useQuery, useMutation } from '@tanstack/react-query';
-import { ArrowLeft, Phone, Mail, MapPin, CreditCard, Calendar, ShieldCheck, ShieldAlert, ShieldQuestion, KeyRound, Copy, Check } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
+import { ArrowLeft, Phone, Mail, MapPin, CreditCard, Calendar, ShieldCheck, ShieldAlert, ShieldQuestion } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-} from '@/components/ui/dialog';
-import { useToast } from '@/hooks/use-toast';
 import api from '@services/api';
 
 interface Member360Response {
@@ -39,7 +30,6 @@ interface Member360Response {
     trainer?: { firstName: string; lastName: string } | null;
   };
   accountState: 'NOT_LINKED' | 'ACTIVATION_PENDING' | 'LINKED';
-  canSeeFinancials: boolean;
   lastVisit: string | null;
   lastPayment: { createdAt: string; total: string } | null;
   attendance: { id: string; checkInAt: string; checkOutAt: string | null; duration: number | null; source: string }[];
@@ -79,27 +69,6 @@ const monthLabel = (iso: string) => new Date(iso).toLocaleDateString(undefined, 
 export function MemberDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { toast } = useToast();
-  const [claimResult, setClaimResult] = useState<{ token: string; expiresAt: string } | null>(null);
-  const [copied, setCopied] = useState(false);
-
-  const claimLinkMutation = useMutation({
-    mutationFn: async () => (await api.post(`/members/${id}/claim-link`)).data,
-    onSuccess: (data: { token: string; expiresAt: string }) => {
-      setClaimResult(data);
-      setCopied(false);
-    },
-    onError: () => {
-      toast({ title: 'Could not generate activation link', variant: 'destructive' });
-    },
-  });
-
-  const copyToken = () => {
-    if (!claimResult) return;
-    navigator.clipboard.writeText(claimResult.token);
-    setCopied(true);
-    toast({ title: 'Token copied' });
-  };
 
   const { data, isLoading, isError } = useQuery<Member360Response>({
     queryKey: ['members', id, '360'],
@@ -114,7 +83,7 @@ export function MemberDetailPage() {
     return <div className="p-6 text-sm text-destructive">Could not load this member's profile.</div>;
   }
 
-  const { member, accountState, canSeeFinancials, lastVisit, lastPayment, attendance, payments } = data;
+  const { member, accountState, lastVisit, lastPayment, attendance, payments } = data;
   const badge = accountBadge[accountState];
 
   return (
@@ -144,18 +113,6 @@ export function MemberDetailPage() {
               <Badge className={badge.className}>
                 <span className="flex items-center gap-1">{badge.icon} {badge.label}</span>
               </Badge>
-              {accountState === 'NOT_LINKED' && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="gap-1"
-                  disabled={claimLinkMutation.isPending}
-                  onClick={() => claimLinkMutation.mutate()}
-                >
-                  <KeyRound className="h-3.5 w-3.5" />
-                  {claimLinkMutation.isPending ? 'Generating...' : 'Generate Activation Link'}
-                </Button>
-              )}
               <Badge variant={member.status === 'ACTIVE' ? 'default' : 'secondary'}>{member.status}</Badge>
             </div>
             <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
@@ -182,7 +139,7 @@ export function MemberDetailPage() {
               <div>
                 <p className="font-medium">{member.currentMembership.plan}</p>
                 <p className="text-sm text-muted-foreground">
-                  {fmtDate(member.currentMembership.startDate)} ? {fmtDate(member.currentMembership.endDate)} · ?{member.currentMembership.totalAmount != null ? member.currentMembership.totalAmount : 'N/A'}
+                  {fmtDate(member.currentMembership.startDate)} ? {fmtDate(member.currentMembership.endDate)} · ?{member.currentMembership.totalAmount}
                 </p>
               </div>
               <Badge className={member.currentMembership.status === 'ACTIVE' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-700'}>
@@ -204,7 +161,7 @@ export function MemberDetailPage() {
             <div key={m.id} className="py-2.5 flex flex-wrap items-center justify-between gap-2">
               <div>
                 <p className="text-sm font-medium">{m.plan}</p>
-                <p className="text-xs text-muted-foreground">{fmtDate(m.startDate)} ? {fmtDate(m.endDate)} · ?{m.totalAmount != null ? m.totalAmount : 'N/A'}</p>
+                <p className="text-xs text-muted-foreground">{fmtDate(m.startDate)} ? {fmtDate(m.endDate)} · ?{m.totalAmount}</p>
               </div>
               <Badge variant="outline" className="text-xs">{m.status}</Badge>
             </div>
@@ -233,11 +190,8 @@ export function MemberDetailPage() {
       <Card>
         <CardHeader className="pb-2"><CardTitle className="text-base flex items-center gap-2"><CreditCard className="h-4 w-4" /> Payment History</CardTitle></CardHeader>
         <CardContent className="divide-y">
-          {!canSeeFinancials && (
-            <p className="text-sm text-muted-foreground py-3">Your role doesn't have access to financial details for this member.</p>
-          )}
-          {canSeeFinancials && payments.length === 0 && <p className="text-sm text-muted-foreground py-3">No payments recorded yet.</p>}
-          {canSeeFinancials && payments.map((p) => (
+          {payments.length === 0 && <p className="text-sm text-muted-foreground py-3">No payments recorded yet.</p>}
+          {payments.map((p) => (
             <div key={p.id} className="py-3 flex flex-wrap items-center justify-between gap-2">
               <div className="min-w-0">
                 <p className="text-sm font-medium">?{p.total} · {p.method} · {p.source}</p>
@@ -251,30 +205,6 @@ export function MemberDetailPage() {
           ))}
         </CardContent>
       </Card>
-
-      <Dialog open={!!claimResult} onOpenChange={(o) => !o && setClaimResult(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Activation link generated</DialogTitle>
-            <DialogDescription>
-              Share this code with the member so they can set their own password at the activation page. It expires in 48 hours and can only be used once.
-            </DialogDescription>
-          </DialogHeader>
-          {claimResult && (
-            <div className="space-y-3">
-              <div className="flex items-center gap-2">
-                <code className="flex-1 rounded bg-muted px-3 py-2 text-xs break-all">{claimResult.token}</code>
-                <Button size="icon" variant="outline" onClick={copyToken}>
-                  {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-                </Button>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Expires: {new Date(claimResult.expiresAt).toLocaleString()}
-              </p>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

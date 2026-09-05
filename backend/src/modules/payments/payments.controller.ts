@@ -1,6 +1,7 @@
-﻿import { CurrentUser, CurrentUserPayload } from '@common/decorators/current-user.decorator';
+import { CurrentUser, CurrentUserPayload } from '@common/decorators/current-user.decorator';
 import { GymId } from '@common/decorators/gym-id.decorator';
 import { AllocateMonthsDto } from './dto/allocate-months.dto';
+import { Permissions } from '@common/decorators/permissions.decorator';
 import { Public } from '@common/decorators/public.decorator';
 import { Roles } from '@common/decorators/roles.decorator';
 import { GymOwnerGuard } from '@common/guards/gym-owner.guard';
@@ -64,14 +65,9 @@ export class PaymentsController {
   @Get('me')
   @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard, GymOwnerGuard)
   @ApiBearerAuth('access-token')
-  @ApiOperation({ summary: "Get the logged-in member's own payment history (paginated)" })
-  async findMine(
-    @GymId() gymId: string,
-    @CurrentUser('userId') userId: string,
-    @Query('page') page?: string,
-    @Query('limit') limit?: string,
-  ) {
-    return this.service.findMine(gymId, userId, Number(page) || 1, Number(limit) || 20);
+  @ApiOperation({ summary: "Get the logged-in member's own payment history" })
+  async findMine(@GymId() gymId: string, @CurrentUser('userId') userId: string) {
+    return this.service.findMine(gymId, userId);
   }
 
   @Get(':id')
@@ -262,16 +258,10 @@ export class PaymentsController {
     return { received: true };
   }
 
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('GYM_OWNER', 'RECEPTIONIST')
-  @Get('membership/:membershipId/months')
   @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard, GymOwnerGuard)
   @ApiBearerAuth('access-token')
   @Roles(UserRole.GYM_OWNER, UserRole.RECEPTIONIST)
-  @ApiOperation({ summary: "Staff view of all months (any status) for a member's membership" })
-  async getMembershipMonthsForStaff(@GymId() gymId: string, @Param('membershipId') membershipId: string) {
-    return this.service.getMembershipMonthsForStaff(gymId, membershipId);
-  }
+  @Permissions('payments:create')
   @Post('manual-with-months')
   async recordManualWithMonths(
     @GymId() gymId: string,
@@ -281,8 +271,10 @@ export class PaymentsController {
     return this.service.recordManualPaymentWithMonths(gymId, user.userId, dto);
   }
 
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('GYM_OWNER', 'RECEPTIONIST')
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard, GymOwnerGuard)
+  @ApiBearerAuth('access-token')
+  @Roles(UserRole.GYM_OWNER, UserRole.RECEPTIONIST)
+  @Permissions('payments:verify')
   @Post(':id/verify-manual')
   async verifyManual(
     @GymId() gymId: string,
