@@ -1,9 +1,11 @@
 import { useParams, useNavigate } from 'react-router-dom';
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { ArrowLeft, Phone, Mail, MapPin, CreditCard, Calendar, ShieldCheck, ShieldAlert, ShieldQuestion } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { RecordManualPaymentDialog } from '@/components/payments/RecordManualPaymentDialog';
 import api from '@services/api';
 
 interface Member360Response {
@@ -62,13 +64,14 @@ const fmtTime = (iso: string) => new Date(iso).toLocaleTimeString(undefined, { h
 const monthLabel = (iso: string) => new Date(iso).toLocaleDateString(undefined, { month: 'short', year: 'numeric' });
 
 /**
- * Owner-facing Member 360 — one screen combining membership, attendance,
+ * Owner-facing Member 360 â€” one screen combining membership, attendance,
  * payment history and account/verification state, per the spec's
  * "Owner / Staff Member 360" profile requirement. Read-only.
  */
 export function MemberDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
 
   const { data, isLoading, isError } = useQuery<Member360Response>({
     queryKey: ['members', id, '360'],
@@ -77,7 +80,7 @@ export function MemberDetailPage() {
   });
 
   if (isLoading) {
-    return <div className="p-6 text-sm text-muted-foreground">Loading member profile…</div>;
+    return <div className="p-6 text-sm text-muted-foreground">Loading member profileâ€¦</div>;
   }
   if (isError || !data) {
     return <div className="p-6 text-sm text-destructive">Could not load this member's profile.</div>;
@@ -123,8 +126,8 @@ export function MemberDetailPage() {
               {member.trainer && <span>Trainer: {member.trainer.firstName} {member.trainer.lastName}</span>}
             </div>
             <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground pt-1">
-              <span>Last visit: {lastVisit ? `${fmtDate(lastVisit)} · ${fmtTime(lastVisit)}` : '—'}</span>
-              <span>Last payment: {lastPayment ? `?${lastPayment.total} · ${fmtDate(lastPayment.createdAt)}` : '—'}</span>
+              <span>Last visit: {lastVisit ? `${fmtDate(lastVisit)} Â· ${fmtTime(lastVisit)}` : 'â€”'}</span>
+              <span>Last payment: {lastPayment ? `â‚¹${lastPayment.total} Â· ${fmtDate(lastPayment.createdAt)}` : 'â€”'}</span>
             </div>
           </div>
         </CardContent>
@@ -139,12 +142,17 @@ export function MemberDetailPage() {
               <div>
                 <p className="font-medium">{member.currentMembership.plan}</p>
                 <p className="text-sm text-muted-foreground">
-                  {fmtDate(member.currentMembership.startDate)} ? {fmtDate(member.currentMembership.endDate)} · ?{member.currentMembership.totalAmount}
+                  {fmtDate(member.currentMembership.startDate)} â€“ {fmtDate(member.currentMembership.endDate)} Â· â‚¹{member.currentMembership.totalAmount}
                 </p>
               </div>
-              <Badge className={member.currentMembership.status === 'ACTIVE' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-700'}>
-                {member.currentMembership.status}
-              </Badge>
+              <div className="flex items-center gap-2">
+                <Badge className={member.currentMembership.status === 'ACTIVE' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-700'}>
+                  {member.currentMembership.status}
+                </Badge>
+                <Button size="sm" variant="outline" onClick={() => setPaymentDialogOpen(true)}>
+                  Record payment
+                </Button>
+              </div>
             </div>
           ) : (
             <p className="text-sm text-muted-foreground">No active membership.</p>
@@ -161,7 +169,7 @@ export function MemberDetailPage() {
             <div key={m.id} className="py-2.5 flex flex-wrap items-center justify-between gap-2">
               <div>
                 <p className="text-sm font-medium">{m.plan}</p>
-                <p className="text-xs text-muted-foreground">{fmtDate(m.startDate)} ? {fmtDate(m.endDate)} · ?{m.totalAmount}</p>
+                <p className="text-xs text-muted-foreground">{fmtDate(m.startDate)} â€“ {fmtDate(m.endDate)} Â· â‚¹{m.totalAmount}</p>
               </div>
               <Badge variant="outline" className="text-xs">{m.status}</Badge>
             </div>
@@ -176,7 +184,7 @@ export function MemberDetailPage() {
           {attendance.length === 0 && <p className="text-sm text-muted-foreground py-3">No attendance recorded yet.</p>}
           {attendance.map((a) => (
             <div key={a.id} className="py-2.5 flex flex-wrap items-center justify-between gap-2 text-sm">
-              <span>{fmtDate(a.checkInAt)} · {fmtTime(a.checkInAt)} ? {a.checkOutAt ? fmtTime(a.checkOutAt) : 'ongoing'}</span>
+              <span>{fmtDate(a.checkInAt)} Â· {fmtTime(a.checkInAt)} â€“ {a.checkOutAt ? fmtTime(a.checkOutAt) : 'ongoing'}</span>
               <span className="flex items-center gap-2 text-xs text-muted-foreground">
                 {a.duration ? `${a.duration} min` : ''}
                 <Badge variant="outline" className="text-xs">{a.source}</Badge>
@@ -194,10 +202,10 @@ export function MemberDetailPage() {
           {payments.map((p) => (
             <div key={p.id} className="py-3 flex flex-wrap items-center justify-between gap-2">
               <div className="min-w-0">
-                <p className="text-sm font-medium">?{p.total} · {p.method} · {p.source}</p>
+                <p className="text-sm font-medium">â‚¹{p.total} Â· {p.method} Â· {p.source}</p>
                 <p className="text-xs text-muted-foreground">
-                  {p.receiptNumber ? `Receipt: ${p.receiptNumber} · ` : ''}{fmtDate(p.createdAt)}
-                  {p.monthAllocations.length > 0 && ` · ${p.monthAllocations.map((a) => monthLabel(a.membershipMonth.monthStart)).join(', ')}`}
+                  {p.receiptNumber ? `Receipt: ${p.receiptNumber} Â· ` : ''}{fmtDate(p.createdAt)}
+                  {p.monthAllocations.length > 0 && ` Â· ${p.monthAllocations.map((a) => monthLabel(a.membershipMonth.monthStart)).join(', ')}`}
                 </p>
               </div>
               <Badge className={statusColor[p.status] ?? 'bg-gray-100 text-gray-700'}>{p.status}</Badge>
@@ -205,6 +213,15 @@ export function MemberDetailPage() {
           ))}
         </CardContent>
       </Card>
+
+      {member.currentMembership && (
+        <RecordManualPaymentDialog
+          membershipId={member.currentMembership.id}
+          memberName={`${member.firstName} ${member.lastName}`}
+          open={paymentDialogOpen}
+          onOpenChange={setPaymentDialogOpen}
+        />
+      )}
     </div>
   );
 }

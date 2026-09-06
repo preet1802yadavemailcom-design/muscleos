@@ -47,7 +47,7 @@ export function AttendancePage() {
   const [scanResult, setScanResult] = useState<ScanResult | null>(null);
   const [scanError, setScanError] = useState('');
   // A member's personal QR read on a device that isn't theirs (front desk,
-  // a friend's phone) never attends automatically — the backend sends back
+  // a friend's phone) never attends automatically â€” the backend sends back
   // a name+photo preview instead, and this holds it until staff explicitly
   // confirm the person in front of them actually matches.
   const [pendingConfirm, setPendingConfirm] = useState<{
@@ -145,7 +145,7 @@ export function AttendancePage() {
     onSuccess: (res: any, variables) => {
       const body = res.data;
       if (body?.requiresConfirmation) {
-        // Not a self-scan — hold for an explicit identity confirmation
+        // Not a self-scan â€” hold for an explicit identity confirmation
         // before anything gets recorded.
         setPendingConfirm({ qrCodeData: variables.qrCodeData, member: body.member });
         setScanResult(null);
@@ -608,10 +608,10 @@ export function AttendancePage() {
                     </div>
                     <div className="flex gap-2">
                       <Button variant="outline" size="sm" onClick={() => setPendingConfirm(null)}>
-                        Not them — cancel
+                        Not them â€” cancel
                       </Button>
                       <Button size="sm" onClick={confirmPendingScan} disabled={scanMutation.isPending}>
-                        Yes, this is {pendingConfirm.member.name.split(' ')[0]} — check in
+                        Yes, this is {pendingConfirm.member.name.split(' ')[0]} â€” check in
                       </Button>
                     </div>
                   </div>

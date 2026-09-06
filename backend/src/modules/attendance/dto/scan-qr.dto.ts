@@ -9,7 +9,7 @@ export class ScanQrDto {
   @ApiPropertyOptional({
     description:
       "For OTHER_DEVICE scans (a member's personal QR read on a device that isn't theirs): must be true to actually record " +
-      'attendance. Omitted/false returns a name+photo preview instead, so the scanning device can confirm identity first — ' +
+      'attendance. Omitted/false returns a name+photo preview instead, so the scanning device can confirm identity first â€” ' +
       'possession of the QR data alone is not treated as proof of identity.',
   })
   @IsOptional()
@@ -26,7 +26,7 @@ export class ScanQrDto {
   @IsString()
   location?: string;
 
-  @ApiPropertyOptional({ description: 'Device GPS latitude at scan time — required if the branch has a geofence configured' })
+  @ApiPropertyOptional({ description: 'Device GPS latitude at scan time â€” required if the branch has a geofence configured' })
   @IsOptional()
   @IsNumber()
   @Min(-90)

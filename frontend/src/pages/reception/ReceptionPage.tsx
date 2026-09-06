@@ -34,7 +34,7 @@ function StatCard({ label, value, icon: Icon }: StatCardProps) {
  * member search, and a live check-in feed. Registration, payment
  * collection, and renewals are reachable from here but reuse the same
  * Members / Payments / Memberships flows reception is scoped to via
- * the backend's /reception facade endpoints — deliberately no reports
+ * the backend's /reception facade endpoints â€” deliberately no reports
  * or analytics surface.
  */
 export function ReceptionPage() {
@@ -60,7 +60,7 @@ export function ReceptionPage() {
     refetchInterval: 15000,
   });
 
-  // MANUAL attendance mode (per spec): no QR or member phone needed at all —
+  // MANUAL attendance mode (per spec): no QR or member phone needed at all â€”
   // staff have already found + visually confirmed the member above, so a
   // click here records the check-in/out directly against the authorized
   // staff identity.
@@ -92,10 +92,10 @@ export function ReceptionPage() {
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard label="Check-ins Today" value={dashboardLoading ? '—' : stats?.todayCheckIns ?? 0} icon={CalendarCheck} />
-        <StatCard label="Active Members" value={dashboardLoading ? '—' : stats?.activeMembers ?? 0} icon={Users} />
-        <StatCard label="Expiring (7 days)" value={dashboardLoading ? '—' : stats?.expiringSoon ?? 0} icon={Clock3} />
-        <StatCard label="Pending Payments" value={dashboardLoading ? '—' : stats?.pendingPayments ?? 0} icon={Wallet} />
+        <StatCard label="Check-ins Today" value={dashboardLoading ? 'â€”' : stats?.todayCheckIns ?? 0} icon={CalendarCheck} />
+        <StatCard label="Active Members" value={dashboardLoading ? 'â€”' : stats?.activeMembers ?? 0} icon={Users} />
+        <StatCard label="Expiring (7 days)" value={dashboardLoading ? 'â€”' : stats?.expiringSoon ?? 0} icon={Clock3} />
+        <StatCard label="Pending Payments" value={dashboardLoading ? 'â€”' : stats?.pendingPayments ?? 0} icon={Wallet} />
       </div>
 
       <Card>
@@ -185,13 +185,13 @@ export function ReceptionPage() {
                   {feed.map((a: any) => (
                     <tr key={a.id} className="border-b last:border-0">
                       <td className="p-4">
-                        {a.member ? `${a.member.firstName} ${a.member.lastName}` : '—'}
+                        {a.member ? `${a.member.firstName} ${a.member.lastName}` : 'â€”'}
                       </td>
                       <td className="p-4 text-muted-foreground">
-                        {a.checkInAt ? new Date(a.checkInAt).toLocaleTimeString() : '—'}
+                        {a.checkInAt ? new Date(a.checkInAt).toLocaleTimeString() : 'â€”'}
                       </td>
                       <td className="p-4 text-muted-foreground">
-                        {a.checkOutAt ? new Date(a.checkOutAt).toLocaleTimeString() : '—'}
+                        {a.checkOutAt ? new Date(a.checkOutAt).toLocaleTimeString() : 'â€”'}
                       </td>
                       <td className="p-4">
                         <Badge variant={a.checkOutAt ? 'secondary' : 'default'}>
