@@ -1,4 +1,4 @@
-import { randomUUID } from 'crypto';
+import { randomInt, randomUUID } from 'crypto';
 
 import { parseUserAgent } from '@common/utils/user-agent.util';
 import { PrismaService } from '@database/prisma.service';
@@ -330,7 +330,7 @@ export class AuthService {
     if (await this.redis.get(cooldownKey)) {
       throw new ForbiddenException('Please wait before requesting another code.');
     }
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const otp = this.generateOtp();
     await this.redis.set(`whatsapp_otp:${userId}`, otp, 600); // 10 min
     await this.redis.set(cooldownKey, '1', OTP_RESEND_COOLDOWN_SECONDS);
 
@@ -430,7 +430,7 @@ export class AuthService {
     if (await this.redis.get(cooldownKey)) {
       throw new ForbiddenException('Please wait before requesting another OTP.');
     }
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const otp = this.generateOtp();
     await this.redis.set(`verify_otp:${email}`, otp, 600);
     await this.redis.set(cooldownKey, '1', OTP_RESEND_COOLDOWN_SECONDS);
     await this.dispatchOtpEmail(email, otp, 'Verify your MuscleOS email');
@@ -547,7 +547,7 @@ export class AuthService {
     const user = await this.prisma.user.findFirst({ where: { email: dto.email } });
     if (!user) return { message: 'If email exists, reset link will be sent' };
 
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const otp = this.generateOtp();
     await this.redis.set(`otp:${dto.email}`, otp, 600); // 10 min validity
     await this.redis.set(cooldownKey, '1', OTP_RESEND_COOLDOWN_SECONDS);
     await this.audit.log({
@@ -725,6 +725,10 @@ export class AuthService {
       this.logger.warn(`OTP email could not be delivered to ${email} (${result.error}) — dev fallback OTP: ${otp}`, 'AuthService');
     } else if (!result.success) {
       this.logger.error(`OTP email failed for ${email}: ${result.error}`, undefined, 'AuthService');
+    }
+
+    private generateOtp(): string {
+      return randomInt(100000, 1000000).toString();
     }
   }
 

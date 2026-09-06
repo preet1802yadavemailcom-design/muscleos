@@ -1,12 +1,12 @@
 import { useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '@store/auth.store';
+import api from '@services/api';
 
 /**
  * Native browser EventSource — no socket.io client needed. Auth: EventSource
- * can't set an Authorization header, so the access token goes as a query
- * param (see jwt.strategy.ts's fallback extractor, added specifically for
- * this).
+ * can't set an Authorization header, so we first fetch a short-lived
+ * attendance stream ticket and only put that ticket in the SSE URL.
  *
  * `onEvent` is called for pages using plain useState/useEffect fetching
  * (e.g. OwnerDashboardPage) so they can re-run their own fetch function.
@@ -21,21 +21,39 @@ export function useAttendanceStream(enabled: boolean, onEvent?: () => void) {
     if (!enabled || !accessToken) return undefined;
 
     const baseUrl = import.meta.env.VITE_API_URL ?? '/api/v1';
-    const source = new EventSource(`${baseUrl}/attendance/stream?access_token=${encodeURIComponent(accessToken)}`);
+    let source: EventSource | null = null;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let closed = false;
 
-    source.addEventListener('attendance', () => {
-      queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
-      queryClient.invalidateQueries({ queryKey: ['attendance'] });
-      onEvent?.();
-    });
+    const connect = async () => {
+      try {
+        const ticketRes: any = await api.post('/attendance/stream-ticket');
+        const ticket = ticketRes?.data?.ticket;
+        if (!ticket || closed) return;
+        source = new EventSource(`${baseUrl}/attendance/stream?sse_ticket=${encodeURIComponent(ticket)}`);
 
-    source.onerror = () => {
-      // EventSource auto-reconnects on transient errors; nothing to do here.
-      // If the token expired, reconnect attempts will keep failing quietly
-      // until the next full page load picks up a fresh token — acceptable
-      // for a live-update nicety, not something to surface as an error toast.
+        source.addEventListener('attendance', () => {
+          queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
+          queryClient.invalidateQueries({ queryKey: ['attendance'] });
+          onEvent?.();
+        });
+
+        source.onerror = () => {
+          source?.close();
+          source = null;
+          if (!closed) reconnectTimer = setTimeout(() => void connect(), 1500);
+        };
+      } catch {
+        if (!closed) reconnectTimer = setTimeout(() => void connect(), 3000);
+      }
     };
 
-    return () => source.close();
+    void connect();
+
+    return () => {
+      closed = true;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      source?.close();
+    };
   }, [enabled, accessToken, queryClient, onEvent]);
 }

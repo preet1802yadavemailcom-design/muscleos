@@ -1,4 +1,4 @@
-import { Controller, Sse, UseGuards, MessageEvent } from '@nestjs/common';
+import { Controller, Sse, UseGuards, MessageEvent, Post, BadRequestException } from '@nestjs/common';
 import { ApiBearerAuth, ApiExcludeEndpoint } from '@nestjs/swagger';
 import { Observable } from 'rxjs';
 import { JwtAuthGuard } from '@common/guards/jwt-auth.guard';
@@ -6,7 +6,10 @@ import { RolesGuard } from '@common/guards/roles.guard';
 import { GymOwnerGuard } from '@common/guards/gym-owner.guard';
 import { Roles } from '@common/decorators/roles.decorator';
 import { GymId } from '@common/decorators/gym-id.decorator';
+import { CurrentUser } from '@common/decorators/current-user.decorator';
 import { RedisService } from '@database/redis.service';
+import { JwtService } from '@nestjs/jwt';
+import { ConfigService } from '@nestjs/config';
 import { UserRole } from '@prisma/client';
 
 /**
@@ -27,11 +30,30 @@ import { UserRole } from '@prisma/client';
 @UseGuards(JwtAuthGuard, RolesGuard, GymOwnerGuard)
 @Roles(UserRole.GYM_OWNER, UserRole.SUPER_ADMIN, UserRole.RECEPTIONIST, UserRole.TRAINER)
 export class AttendanceStreamController {
-  constructor(private readonly redis: RedisService) {}
+  constructor(
+    private readonly redis: RedisService,
+    private readonly jwtService: JwtService,
+    private readonly config: ConfigService,
+  ) {}
+
+  @Post('stream-ticket')
+  @ApiBearerAuth('access-token')
+  @ApiExcludeEndpoint()
+  getStreamTicket(
+    @CurrentUser() user: { userId: string; role: UserRole },
+    @GymId() gymId: string,
+  ) {
+    if (!gymId) throw new BadRequestException('Gym context is required for attendance stream');
+    const ticket = this.jwtService.sign(
+      { sub: user.userId, gymId, role: user.role, purpose: 'sse-attendance' },
+      { secret: this.config.get('app.jwtSecret'), expiresIn: '90s' },
+    );
+    return { ticket, expiresInSeconds: 90 };
+  }
 
   @Sse('stream')
   @ApiBearerAuth('access-token')
-  @ApiExcludeEndpoint() // EventSource can't send an Authorization header from the browser — token goes via query param instead, see frontend hook
+  @ApiExcludeEndpoint()
   stream(@GymId() gymId: string): Observable<MessageEvent> {
     return new Observable((subscriber) => {
       const channel = `attendance:${gymId}`;

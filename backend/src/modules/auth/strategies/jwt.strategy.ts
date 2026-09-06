@@ -12,22 +12,19 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
     private readonly prisma: PrismaService,
   ) {
     super({
-      // SSE (attendance-stream.controller.ts) can't attach an Authorization
-      // header — browser EventSource has no API for custom headers — so it
-      // sends the access token as ?access_token=... instead. Every other
-      // route keeps using the Bearer header; this fallback only kicks in
-      // when no Bearer header is present, so it doesn't change behavior
-      // for the rest of the API.
+      // Browser EventSource can't attach Authorization headers, so it sends
+      // only a short-lived purpose-scoped `sse_ticket` query token.
       jwtFromRequest: ExtractJwt.fromExtractors([
         ExtractJwt.fromAuthHeaderAsBearerToken(),
-        (req) => req?.query?.access_token ?? null,
+        (req) => req?.query?.sse_ticket ?? null,
       ]),
+      passReqToCallback: true,
       ignoreExpiration: false,
       secretOrKey: configService.get('app.jwtSecret'),
     });
   }
 
-  async validate(payload: any) {
+  async validate(req: any, payload: any) {
     // Kiosk/session tokens (public check-in flow) are signed with the same
     // secret but carry no `sub` — never let them through as user tokens.
     if (!payload?.sub) {
@@ -41,7 +38,11 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
     // could use their short-lived setup/pending token to call ANY
     // JwtAuthGuard-protected route in the app, completely bypassing 2FA.
     if (payload.purpose) {
-      throw new UnauthorizedException('Invalid token');
+      const path = req?.path ?? req?.url ?? '';
+      const isAttendanceStream = path.includes('/attendance/stream');
+      if (!(payload.purpose === 'sse-attendance' && isAttendanceStream)) {
+        throw new UnauthorizedException('Invalid token');
+      }
     }
     const user = await this.prisma.user.findUnique({
       where: { id: payload.sub },

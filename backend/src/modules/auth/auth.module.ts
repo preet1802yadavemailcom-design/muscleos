@@ -31,6 +31,6 @@ import { GoogleStrategy } from './strategies/google.strategy';
   ],
   controllers: [AuthController],
   providers: [AuthService, TwoFactorService, StepUpService, StepUpGuard, TwoFactorSetupGuard, JwtStrategy, LocalStrategy, GoogleStrategy],
-  exports: [AuthService, TwoFactorService, StepUpService, StepUpGuard],
+  exports: [AuthService, TwoFactorService, StepUpService, StepUpGuard, JwtModule],
 })
 export class AuthModule {}
