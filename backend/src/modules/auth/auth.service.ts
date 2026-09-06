@@ -71,20 +71,26 @@ export class AuthService {
     }
   }
 
-  private async registerFailedAttempt(email: string, ipAddress?: string) {
+  private async registerFailedAttempt(email: string, ipAddress?: string, userId?: string) {
     const key = this.rateLimitKey(email, ipAddress);
     const attempts = Number((await this.redis.get(key)) || 0) + 1;
     await this.redis.set(key, String(attempts), LOCK_DURATION_MINUTES * 60);
 
+    // Scoped to the resolved user's own id, not a bare email match â€” the
+    // schema allows the same email across multiple gyms
+    // (@@unique([email, gymId])), so an updateMany({where:{email}}) here
+    // would lock out every account sharing that email, in every gym, off
+    // ONE failed login in a completely different tenant.
+    if (!userId) return;
     if (attempts >= MAX_LOGIN_ATTEMPTS) {
       const lockedUntil = new Date(Date.now() + LOCK_DURATION_MINUTES * 60 * 1000);
-      await this.prisma.user.updateMany({
-        where: { email },
+      await this.prisma.user.update({
+        where: { id: userId },
         data: { loginAttempts: attempts, lockedUntil },
       });
     } else {
-      await this.prisma.user.updateMany({
-        where: { email },
+      await this.prisma.user.update({
+        where: { id: userId },
         data: { loginAttempts: attempts },
       });
     }
@@ -111,7 +117,7 @@ export class AuthService {
       : null;
 
     if (!validated) {
-      await this.registerFailedAttempt(identifier, ipAddress);
+      await this.registerFailedAttempt(identifier, ipAddress, user?.id);
       await this.audit.log({
         action: 'LOGIN_FAILED',
         entity: 'User',
@@ -432,8 +438,17 @@ export class AuthService {
   }
 
   async verifyEmail(dto: VerifyEmailDto) {
+    const attemptsKey = `verify_otp_attempts:${dto.email}`;
+    const attempts = Number((await this.redis.get(attemptsKey)) || 0);
+    if (attempts >= 5) {
+      throw new ForbiddenException('Too many incorrect attempts. Please request a new code.');
+    }
     const stored = await this.redis.get(`verify_otp:${dto.email}`);
-    if (!stored || stored !== dto.otp) throw new BadRequestException('Invalid or expired OTP');
+    if (!stored || stored !== dto.otp) {
+      await this.redis.set(attemptsKey, String(attempts + 1), 600);
+      throw new BadRequestException('Invalid or expired OTP');
+    }
+    await this.redis.del(attemptsKey);
     const user = await this.prisma.user.findFirst({ where: { email: dto.email } });
     if (!user) throw new BadRequestException('User not found');
 

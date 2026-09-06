@@ -401,21 +401,19 @@ export class CheckinService {
   }
 
   private memberSummary(member: any) {
+    // Deliberately minimal: this is returned from a mobile-number lookup with
+    // no OTP/password proof of identity, so it must not leak email, gender,
+    // or plan/expiry details to anyone who knows (or guesses) a member's
+    // mobile number. Staff visually confirm identity via photo+name only.
     return {
       id: member.id,
       memberCode: member.memberCode,
       firstName: member.firstName,
       lastName: member.lastName,
       photo: member.photo,
-      email: member.email,
-      gender: member.gender,
-      membership: member.currentMembership
-        ? {
-            status: member.currentMembership.status,
-            planName: member.currentMembership.planName,
-            endDate: member.currentMembership.endDate,
-          }
-        : null,
+      membershipEligible: member.currentMembership
+        ? member.currentMembership.status === 'ACTIVE'
+        : false,
     };
   }
 
