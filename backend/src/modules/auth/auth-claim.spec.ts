@@ -135,7 +135,7 @@ describe('AuthService — Account Claim Hardening', () => {
       status: UserStatus.ACTIVE,
       gymId: 'gym-1',
       phoneVerified: false,
-      emailVerified: true,
+      emailVerified: false,
       twoFactorEnabled: false,
     };
     prisma.user.create.mockResolvedValue(createdUser);
@@ -146,6 +146,7 @@ describe('AuthService — Account Claim Hardening', () => {
       expect.objectContaining({
         data: expect.objectContaining({
           phoneVerified: false,
+          emailVerified: false,
           role: UserRole.MEMBER,
           status: UserStatus.ACTIVE,
         }),

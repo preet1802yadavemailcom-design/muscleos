@@ -91,11 +91,12 @@ export class AttendanceService {
       member = await this.resolveMemberForUser(scannerGymId, user);
     } else {
       // Front-desk flow: scan the member's own QR.
+      // Must match qrCodeData to ensure regenerated or revoked cards are rejected immediately.
       member = await this.prisma.member.findFirst({
-        where: { id: decodedMemberId, gymId: scannerGymId, deletedAt: null },
+        where: { id: decodedMemberId, gymId: scannerGymId, qrCodeData: dto.qrCodeData, deletedAt: null },
         include: { currentMembership: true, batch: true },
       });
-      if (!member) throw new NotFoundException('Member not found');
+      if (!member) throw new NotFoundException('Member not found or QR code has been revoked/regenerated');
     }
 
     // TS can't see both branches guarantee a member, so narrow explicitly.
@@ -146,7 +147,7 @@ export class AttendanceService {
     return this.core.recordScan({
       member,
       gymId: scannerGymId,
-      branchId: branchId ?? member.branchId,
+      branchId: branchId ?? user.branchId ?? member.branchId,
       source: (isOtherDevice ? 'OTHER_DEVICE' : 'SELF') as any,
       performedBy: isOtherDevice ? user.userId : null,
       deviceType: dto.deviceType,
@@ -179,7 +180,7 @@ export class AttendanceService {
     return this.core.recordScan({
       member,
       gymId,
-      branchId: member.branchId ?? undefined,
+      branchId: staffUser.branchId ?? member.branchId ?? undefined,
       source: 'MANUAL' as any,
       performedBy: staffUser.userId,
       deviceType: 'reception',

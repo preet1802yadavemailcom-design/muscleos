@@ -72,6 +72,7 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
         lastName: true,
         role: true,
         gymId: true,
+        branchId: true,
         status: true,
       },
     });
@@ -94,6 +95,7 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
       email: user.email,
       role: user.role,
       gymId: user.gymId,
+      branchId: user.branchId ?? undefined,
       permissions: getPermissionsForRole(user.role),
     };
   }

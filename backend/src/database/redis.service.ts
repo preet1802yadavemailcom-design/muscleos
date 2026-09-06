@@ -212,6 +212,13 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
   async setNx(key: string, value: string, ttlSeconds: number): Promise<boolean> {
     return this.run(
       () => {
+        // In multi-instance production environments, an in-memory lock is not distributed.
+        // If Redis is down in production, fail closed to prevent concurrent cluster execution.
+        const isProd = this.configService.get('app.nodeEnv') === 'production' || process.env.NODE_ENV === 'production';
+        if (isProd) {
+          this.logger.error(`Distributed lock failed: Redis unavailable in production environment for key ${key}`);
+          return false;
+        }
         if (this.memory.exists(key)) return false;
         this.memory.set(key, value, ttlSeconds);
         return true;

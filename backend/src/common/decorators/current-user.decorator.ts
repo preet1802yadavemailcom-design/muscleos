@@ -6,6 +6,7 @@ export interface CurrentUserPayload {
   email: string;
   role: string;
   gymId?: string;
+  branchId?: string;
   permissions: string[];
 }
 

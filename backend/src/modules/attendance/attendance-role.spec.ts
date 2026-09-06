@@ -97,5 +97,24 @@ describe('AttendanceService - Role Isolation', () => {
       expect(result).toHaveProperty('requiresConfirmation', true);
       expect((result as any).member.id).toBe('member-target-1');
     });
+
+    it('rejects scan if member QR has been regenerated/revoked (qrCodeData mismatch)', async () => {
+      prisma.member.findFirst.mockResolvedValue(null);
+      const staffUser = {
+        userId: 'user-staff-1',
+        role: UserRole.RECEPTIONIST,
+        gymId: 'gym-1',
+        email: 'staff@test.com',
+        permissions: [],
+      };
+
+      await expect(
+        service.scan(
+          'gym-1',
+          { qrCodeData: 'enc:old-revoked-qr', confirmed: true },
+          staffUser as any,
+        ),
+      ).rejects.toThrow(NotFoundException);
+    });
   });
 });

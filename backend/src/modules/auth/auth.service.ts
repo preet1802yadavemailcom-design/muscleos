@@ -566,7 +566,7 @@ export class AuthService {
           data: {
             password: hashedPassword,
             status: UserStatus.ACTIVE,
-            emailVerified: true,
+            emailVerified: u.emailVerified ?? false,
           },
         });
       } else {
@@ -580,7 +580,7 @@ export class AuthService {
             role: UserRole.MEMBER,
             gymId: member.gymId,
             status: UserStatus.ACTIVE,
-            emailVerified: !!member.email,
+            emailVerified: false,
             phoneVerified: false,
           },
         });
@@ -788,7 +788,13 @@ export class AuthService {
   }
 
   private async generateTokens(user: any) {
-    const payload = { sub: user.id, email: user.email, role: user.role, gymId: user.gymId };
+    const payload = {
+      sub: user.id,
+      email: user.email,
+      role: user.role,
+      gymId: user.gymId,
+      branchId: user.branchId ?? undefined,
+    };
     const accessToken = this.jwtService.sign(payload, {
       secret: this.configService.get('app.jwtSecret'),
       expiresIn: this.configService.get('app.jwtAccessExpiration', '15m'),
