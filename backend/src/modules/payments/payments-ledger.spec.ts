@@ -136,6 +136,85 @@ describe('PaymentsService — verifyRazorpay & refund ledger reconciliation', ()
       await expect(service.verifyRazorpay(validDto, gymId)).rejects.toThrow('Payment amount mismatch');
     });
 
+    it('fails if Razorpay API returns currency mismatch', async () => {
+      prisma.payment.findFirst.mockResolvedValue({
+        id: paymentId,
+        gymId,
+        gateway: 'RAZORPAY',
+        gatewayOrderId: 'order_123',
+        status: 'PENDING',
+        total: 1000,
+        member: null,
+      });
+      razorpay.verifySignature.mockReturnValue(true);
+      razorpay.fetchPayment.mockResolvedValue({
+        order_id: 'order_123',
+        amount: 100000,
+        currency: 'USD',
+        status: 'captured',
+      });
+
+      await expect(service.verifyRazorpay(validDto, gymId)).rejects.toThrow('Currency mismatch');
+    });
+
+    it('fails if DTO order ID does not match local payment order ID', async () => {
+      prisma.payment.findFirst.mockResolvedValue({
+        id: paymentId,
+        gymId,
+        gateway: 'RAZORPAY',
+        gatewayOrderId: 'order_local_expected',
+        status: 'PENDING',
+        total: 1000,
+        member: null,
+      });
+
+      await expect(
+        service.verifyRazorpay({ ...validDto, razorpayOrderId: 'order_mismatched' }, gymId),
+      ).rejects.toThrow('Order ID mismatch');
+    });
+
+    it('fails if Razorpay gateway returns order_id mismatch against local payment', async () => {
+      prisma.payment.findFirst.mockResolvedValue({
+        id: paymentId,
+        gymId,
+        gateway: 'RAZORPAY',
+        gatewayOrderId: 'order_123',
+        status: 'PENDING',
+        total: 1000,
+        member: null,
+      });
+      razorpay.verifySignature.mockReturnValue(true);
+      razorpay.fetchPayment.mockResolvedValue({
+        order_id: 'different_gateway_order',
+        amount: 100000,
+        currency: 'INR',
+        status: 'captured',
+      });
+
+      await expect(service.verifyRazorpay(validDto, gymId)).rejects.toThrow('Order ID mismatch between Razorpay and local payment');
+    });
+
+    it('fails if Razorpay gateway returns invalid status', async () => {
+      prisma.payment.findFirst.mockResolvedValue({
+        id: paymentId,
+        gymId,
+        gateway: 'RAZORPAY',
+        gatewayOrderId: 'order_123',
+        status: 'PENDING',
+        total: 1000,
+        member: null,
+      });
+      razorpay.verifySignature.mockReturnValue(true);
+      razorpay.fetchPayment.mockResolvedValue({
+        order_id: 'order_123',
+        amount: 100000,
+        currency: 'INR',
+        status: 'failed',
+      });
+
+      await expect(service.verifyRazorpay(validDto, gymId)).rejects.toThrow('Invalid Razorpay payment status');
+    });
+
     it('authoritatively completes payment, allocates months, and activates membership on success', async () => {
       prisma.payment.findFirst.mockResolvedValue({
         id: paymentId,

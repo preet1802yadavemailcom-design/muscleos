@@ -31,6 +31,29 @@ export class ApiKeyGuard implements CanActivate {
       throw new UnauthorizedException('Invalid or revoked API key');
     }
 
+    let meta: { label?: string; scopes?: string[]; expiresAt?: string } = {};
+    try {
+      meta = JSON.parse(setting.value);
+    } catch {
+      // fallback
+    }
+
+    if (meta.expiresAt && new Date(meta.expiresAt) < new Date()) {
+      throw new UnauthorizedException('API key has expired');
+    }
+
+    // Best-effort update of lastUsedAt timestamp
+    if (this.prisma.gymSetting?.update) {
+      this.prisma.gymSetting
+        .update({
+          where: { id: setting.id },
+          data: {
+            value: JSON.stringify({ ...meta, lastUsedAt: new Date().toISOString() }),
+          },
+        })
+        .catch(() => undefined);
+    }
+
     // Attach verified gymId and mock API client user payload to request
     (request as any).gymId = setting.gymId;
     (request as any).user = {
@@ -39,6 +62,7 @@ export class ApiKeyGuard implements CanActivate {
       gymId: setting.gymId,
       role: 'GYM_OWNER',
       isApiKey: true,
+      scopes: meta.scopes ?? ['*'],
     };
 
     return true;
