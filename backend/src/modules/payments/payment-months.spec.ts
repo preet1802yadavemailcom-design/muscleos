@@ -48,7 +48,13 @@ describe('PaymentsService — month allocation (payment ledger regression covera
         findFirst: jest.fn().mockResolvedValue(null),
       },
       member: { findFirst: jest.fn() },
-      payment: { create: jest.fn().mockResolvedValue({ id: 'payment-1' }), findFirst: jest.fn(), update: jest.fn() },
+      payment: {
+        create: jest.fn().mockResolvedValue({ id: 'payment-1' }),
+        findFirst: jest.fn(),
+        update: jest.fn(),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        findUniqueOrThrow: jest.fn(),
+      },
       paymentMonthAllocation: { create: jest.fn() },
       $transaction: jest.fn(async (fn: any) => fn(prisma)),
     };
@@ -300,6 +306,76 @@ describe('PaymentsService — month allocation (payment ledger regression covera
       await expect(
         service.submitUpiClaim(gymId, 'user-1', membershipId, ['2026-05-01'], '12'),
       ).rejects.toBeInstanceOf(BadRequestException);
+    });
+  });
+
+  describe('rejection and verification month restoration (sequential invariant)', () => {
+    it('rejectUpiClaim resets allocated months to LOCKED and sets only earliest unpaid month to PAYABLE', async () => {
+      const claimPayment = {
+        id: 'pay-claim-1',
+        gymId,
+        gateway: 'UPI',
+        status: 'PENDING',
+        membershipId,
+        monthAllocations: [
+          { membershipMonthId: 'm1' },
+          { membershipMonthId: 'm2' },
+        ],
+      };
+      prisma.payment.findFirst.mockResolvedValue(claimPayment);
+      prisma.payment.updateMany.mockResolvedValue({ count: 1 });
+      prisma.payment.findUniqueOrThrow.mockResolvedValue({ ...claimPayment, status: 'FAILED' });
+      prisma.membershipMonth.findFirst.mockResolvedValue({ id: 'm1', membershipId, status: 'LOCKED' });
+
+      const res = await service.rejectUpiClaim('pay-claim-1', gymId, 'staff-1', 'Fake UTR');
+      expect(res.status).toBe('FAILED');
+
+      // Both months set to LOCKED with paymentId null
+      expect(prisma.membershipMonth.update).toHaveBeenCalledWith({
+        where: { id: 'm1' },
+        data: { status: 'LOCKED', paymentId: null },
+      });
+      expect(prisma.membershipMonth.update).toHaveBeenCalledWith({
+        where: { id: 'm2' },
+        data: { status: 'LOCKED', paymentId: null },
+      });
+      // Earliest unpaid month set to PAYABLE
+      expect(prisma.membershipMonth.update).toHaveBeenCalledWith({
+        where: { id: 'm1' },
+        data: { status: 'PAYABLE' },
+      });
+    });
+
+    it('verifyManualPayment(..., approve=false) resets allocated months and restores earliest to PAYABLE', async () => {
+      const pendingPayment = {
+        id: 'pay-manual-1',
+        gymId,
+        status: 'PENDING',
+        membershipId,
+        monthAllocations: [
+          { membershipMonthId: 'm2' },
+          { membershipMonthId: 'm3' },
+        ],
+      };
+      prisma.payment.findFirst.mockResolvedValue(pendingPayment);
+      prisma.payment.updateMany.mockResolvedValue({ count: 1 });
+      prisma.membershipMonth.findFirst.mockResolvedValue({ id: 'm2', membershipId, status: 'LOCKED' });
+
+      const res = await service.verifyManualPayment(gymId, 'pay-manual-1', 'staff-1', false);
+      expect(res.status).toBe('FAILED');
+
+      expect(prisma.membershipMonth.update).toHaveBeenCalledWith({
+        where: { id: 'm2' },
+        data: { status: 'LOCKED', paymentId: null },
+      });
+      expect(prisma.membershipMonth.update).toHaveBeenCalledWith({
+        where: { id: 'm3' },
+        data: { status: 'LOCKED', paymentId: null },
+      });
+      expect(prisma.membershipMonth.update).toHaveBeenCalledWith({
+        where: { id: 'm2' },
+        data: { status: 'PAYABLE' },
+      });
     });
   });
 });

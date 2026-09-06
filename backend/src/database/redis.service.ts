@@ -209,6 +209,20 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     );
   }
 
+  async setNx(key: string, value: string, ttlSeconds: number): Promise<boolean> {
+    return this.run(
+      () => {
+        if (this.memory.exists(key)) return false;
+        this.memory.set(key, value, ttlSeconds);
+        return true;
+      },
+      async () => {
+        const res = await this.client.set(key, value, 'EX', ttlSeconds, 'NX');
+        return res === 'OK';
+      },
+    );
+  }
+
   async del(key: string): Promise<void> {
     return this.run(
       () => {

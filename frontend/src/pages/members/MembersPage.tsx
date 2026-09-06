@@ -61,9 +61,16 @@ export function MembersPage() {
     queryFn: () => api.get(`/members?search=${encodeURIComponent(search)}&page=${page}&limit=${PAGE_SIZE}`),
   });
 
-  const body = data as any;
-  const members: Member[] = body?.data ?? [];
-  const meta = body?.meta ?? { total: 0, totalPages: 1, page: 1 };
+  const rawData = data as any;
+  const payload = rawData?.data && Array.isArray(rawData?.data?.data) ? rawData.data : rawData;
+  const members: Member[] = Array.isArray(payload?.data)
+    ? payload.data
+    : Array.isArray(rawData?.data)
+    ? rawData.data
+    : Array.isArray(rawData)
+    ? rawData
+    : [];
+  const meta = payload?.meta ?? rawData?.meta ?? { total: 0, totalPages: 1, page: 1 };
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => api.delete(`/members/${id}`),

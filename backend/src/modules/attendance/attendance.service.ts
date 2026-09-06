@@ -231,6 +231,15 @@ export class AttendanceService {
     });
     if (member) return member;
 
+    // Check if gym allows trial membership self-provisioning via QR scan
+    const setting = await this.prisma.gymSetting.findUnique({
+      where: { gymId_category_key: { gymId, category: 'attendance', key: 'allow_trial_on_scan' } },
+    });
+    const allowTrial = setting ? setting.value === 'true' || setting.value === '1' : false;
+    if (!allowTrial) {
+      throw new ForbiddenException('No active membership found for this gym. Please contact reception to activate your membership.');
+    }
+
     const memberCode = await this.generateMemberCode(gymId);
     const memberId = randomUUID();
     const qrCodeData = this.encryption.generateQRCodeData(memberId, gymId);

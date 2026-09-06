@@ -7,6 +7,7 @@ import { MembershipsService } from '@modules/memberships/memberships.service';
 import { CreatePaymentDto } from '@modules/payments/dto/create-payment.dto';
 import { PaymentsService } from '@modules/payments/payments.service';
 import { Injectable } from '@nestjs/common';
+import { getGymStartOfDay, getGymEndOfDay } from '@common/utils/timezone.util';
 
 /**
  * Reception facade (Module 10).
@@ -32,10 +33,8 @@ export class ReceptionService {
 
   /** Front-desk landing snapshot: today's check-ins, expiring memberships, pending payments. */
   async dashboard(gymId: string) {
-    const startOfDay = new Date();
-    startOfDay.setHours(0, 0, 0, 0);
-    const endOfDay = new Date();
-    endOfDay.setHours(23, 59, 59, 999);
+    const startOfDay = getGymStartOfDay();
+    const endOfDay = getGymEndOfDay();
 
     const [todayCheckIns, expiringSoon, pendingPayments, activeMembers] = await Promise.all([
       this.prisma.attendance.count({

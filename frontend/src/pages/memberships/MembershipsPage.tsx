@@ -69,6 +69,22 @@ export function MembershipsPage() {
     onError: (e: any) => toast({ title: 'Unfreeze failed', description: e?.response?.data?.message, variant: 'destructive' }),
   });
 
+  const [transferTarget, setTransferTarget] = useState<{ id: string; memberName: string } | null>(null);
+  const [toMemberId, setToMemberId] = useState('');
+
+  const transferMutation = useMutation({
+    mutationFn: ({ id, toMemberId }: { id: string; toMemberId: string }) =>
+      api.post(`/memberships/${id}/transfer`, { toMemberId }),
+    onSuccess: () => {
+      toast({ title: 'Membership transferred successfully' });
+      setTransferTarget(null);
+      setToMemberId('');
+      invalidate();
+    },
+    onError: (e: any) =>
+      toast({ title: 'Transfer failed', description: e?.response?.data?.message, variant: 'destructive' }),
+  });
+
   const rows: Membership[] = data?.data ?? [];
 
   return (
@@ -79,6 +95,36 @@ export function MembershipsPage() {
           <p className="text-muted-foreground">Renewals, freezes, transfers &amp; plan changes</p>
         </div>
       </div>
+
+      {transferTarget && (
+        <Card className="border-primary/50 bg-primary/5">
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <ArrowLeftRight className="h-4 w-4 text-primary" />
+              Transfer Membership from {transferTarget.memberName}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Enter the target member ID or member code to transfer the remaining membership days to:
+            </p>
+            <div className="flex gap-2 max-w-md">
+              <Input
+                placeholder="Target Member UUID or Code..."
+                value={toMemberId}
+                onChange={(e) => setToMemberId(e.target.value)}
+              />
+              <Button
+                disabled={!toMemberId.trim() || transferMutation.isPending}
+                onClick={() => transferMutation.mutate({ id: transferTarget.id, toMemberId: toMemberId.trim() })}
+              >
+                {transferMutation.isPending ? 'Transferring...' : 'Confirm'}
+              </Button>
+              <Button variant="ghost" onClick={() => setTransferTarget(null)}>Cancel</Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>
@@ -111,77 +157,88 @@ export function MembershipsPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Memberships</CardTitle>
+          <CardTitle>All Memberships ({rows.length})</CardTitle>
         </CardHeader>
         <CardContent>
           {isLoading ? (
-            <div className="py-8 text-center">Loading...</div>
+            <div className="py-8 text-center text-sm text-muted-foreground">Loading...</div>
           ) : rows.length === 0 ? (
-            <div className="py-8 text-center text-muted-foreground">No memberships found</div>
+            <div className="py-8 text-center text-sm text-muted-foreground">No memberships found.</div>
           ) : (
             <div className="rounded-md border">
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b bg-muted/50">
-                    <th className="h-12 px-4 text-left font-medium">Member</th>
-                    <th className="h-12 px-4 text-left font-medium">Plan</th>
-                    <th className="h-12 px-4 text-left font-medium">Status</th>
-                    <th className="h-12 px-4 text-left font-medium">Ends</th>
-                    <th className="h-12 px-4 text-left font-medium">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((m) => (
-                    <tr key={m.id} className="border-b">
-                      <td className="p-4">
-                        {m.member ? `${m.member.firstName} ${m.member.lastName}` : '—'}
-                        <div className="text-xs text-muted-foreground">{m.member?.memberCode}</div>
-                      </td>
-                      <td className="p-4">{m.plan}</td>
-                      <td className="p-4">
-                        <Badge className={statusColor[m.status] ?? ''}>{m.status}</Badge>
-                      </td>
-                      <td className="p-4 text-muted-foreground">{new Date(m.endDate).toLocaleDateString()}</td>
-                      <td className="p-4">
-                        <div className="flex gap-1">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            title="Renew"
-                            onClick={() => renewMutation.mutate(m.id)}
-                          >
-                            <RefreshCcw className="h-4 w-4" />
-                          </Button>
-                          {m.status === 'FROZEN' ? (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              title="Unfreeze"
-                              onClick={() => unfreezeMutation.mutate(m.id)}
-                            >
-                              <PlayCircle className="h-4 w-4" />
-                            </Button>
-                          ) : (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              title="Freeze 7 days"
-                              onClick={() => freezeMutation.mutate(m.id)}
-                            >
-                              <Snowflake className="h-4 w-4" />
-                            </Button>
-                          )}
-                          <Button size="sm" variant="outline" title="Transfer" disabled>
-                            <ArrowLeftRight className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </td>
+                  <thead>
+                    <tr className="border-b bg-muted/50">
+                      <th className="h-12 px-4 text-left font-medium">Member</th>
+                      <th className="h-12 px-4 text-left font-medium">Plan</th>
+                      <th className="h-12 px-4 text-left font-medium">Status</th>
+                      <th className="h-12 px-4 text-left font-medium">Ends</th>
+                      <th className="h-12 px-4 text-left font-medium">Actions</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-                </div>
+                  </thead>
+                  <tbody>
+                    {rows.map((m) => (
+                      <tr key={m.id} className="border-b">
+                        <td className="p-4">
+                          {m.member ? `${m.member.firstName} ${m.member.lastName}` : '—'}
+                          <div className="text-xs text-muted-foreground">{m.member?.memberCode}</div>
+                        </td>
+                        <td className="p-4">{m.plan}</td>
+                        <td className="p-4">
+                          <Badge className={statusColor[m.status] ?? ''}>{m.status}</Badge>
+                        </td>
+                        <td className="p-4 text-muted-foreground">{new Date(m.endDate).toLocaleDateString()}</td>
+                        <td className="p-4">
+                          <div className="flex gap-1">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              title="Renew"
+                              onClick={() => renewMutation.mutate(m.id)}
+                            >
+                              <RefreshCcw className="h-4 w-4" />
+                            </Button>
+                            {m.status === 'FROZEN' ? (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                title="Unfreeze"
+                                onClick={() => unfreezeMutation.mutate(m.id)}
+                              >
+                                <PlayCircle className="h-4 w-4" />
+                              </Button>
+                            ) : (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                title="Freeze 7 days"
+                                onClick={() => freezeMutation.mutate(m.id)}
+                              >
+                                <Snowflake className="h-4 w-4" />
+                              </Button>
+                            )}
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              title="Transfer"
+                              disabled={m.status !== 'ACTIVE'}
+                              onClick={() =>
+                                setTransferTarget({
+                                  id: m.id,
+                                  memberName: m.member ? `${m.member.firstName} ${m.member.lastName}` : m.id,
+                                })
+                              }
+                            >
+                              <ArrowLeftRight className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           )}
         </CardContent>

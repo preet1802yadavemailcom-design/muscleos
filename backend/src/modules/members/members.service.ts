@@ -1,7 +1,7 @@
-import { randomUUID } from 'crypto';
+import { randomUUID, randomBytes } from 'crypto';
 
 import { PrismaService } from '@database/prisma.service';
-import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ForbiddenException, ConflictException } from '@nestjs/common';
 import { UserStatus, Prisma } from '@prisma/client';
 import { AuditService } from '@shared/services/audit.service';
 import { EncryptionService } from '@shared/services/encryption.service';
@@ -194,6 +194,12 @@ export class MembersService {
     if (dto.batchId) {
       const batch = await this.prisma.batch.findFirst({ where: { id: dto.batchId, gymId } });
       if (!batch) throw new ForbiddenException('This batch does not belong to your gym.');
+      const enrolled = await this.prisma.member.count({
+        where: { batchId: dto.batchId, gymId, deletedAt: null, status: 'ACTIVE' },
+      });
+      if (enrolled >= batch.capacity) {
+        throw new ConflictException(`Batch "${batch.name}" is already at full capacity (${batch.capacity} members).`);
+      }
     }
     if (dto.trainerId) {
       const trainer = await this.prisma.user.findFirst({ where: { id: dto.trainerId, gymId } });
@@ -215,7 +221,7 @@ export class MembersService {
         firstName: dto.firstName,
         lastName: dto.lastName,
         gender: dto.gender,
-        dateOfBirth: dto.dateOfBirth ? new Date(dto.dateOfBirth) : undefined,
+        dateOfBirth: dto.dateOfBirth ? new Date(dto.dateOfBirth) : null,
         bloodGroup: dto.bloodGroup,
         mobile: dto.mobile,
         email: dto.email,
@@ -228,8 +234,8 @@ export class MembersService {
         medicalNotes: dto.medicalNotes,
         allergies: dto.allergies ?? [],
         medications: dto.medications ?? [],
-        batchId: dto.batchId,
         trainerId: dto.trainerId,
+        batchId: dto.batchId,
         referredBy: dto.referredBy,
         referralCode,
         qrCode,
@@ -246,16 +252,21 @@ export class MembersService {
       newValue: { memberCode: member.memberCode, firstName: member.firstName, lastName: member.lastName },
       gymId,
     });
-
     return member;
   }
 
   async update(id: string, gymId: string, dto: UpdateMemberDto) {
     const existing = await this.findOne(id, gymId);
 
-    if (dto.batchId) {
+    if (dto.batchId && dto.batchId !== existing.batchId) {
       const batch = await this.prisma.batch.findFirst({ where: { id: dto.batchId, gymId } });
       if (!batch) throw new ForbiddenException('This batch does not belong to your gym.');
+      const enrolled = await this.prisma.member.count({
+        where: { batchId: dto.batchId, gymId, deletedAt: null, status: 'ACTIVE' },
+      });
+      if (enrolled >= batch.capacity) {
+        throw new ConflictException(`Batch "${batch.name}" is already at full capacity (${batch.capacity} members).`);
+      }
     }
     if (dto.trainerId) {
       const trainer = await this.prisma.user.findFirst({ where: { id: dto.trainerId, gymId } });
@@ -357,5 +368,42 @@ export class MembersService {
     const candidate = `${prefix}-${sequence}`;
     const clash = await this.prisma.member.findUnique({ where: { memberCode: candidate } });
     return clash ? `${prefix}-${Date.now().toString().slice(-6)}` : candidate;
+  }
+
+  /** Generates a one-time activation token for member self-claim onboarding. */
+  async generateClaimToken(id: string, gymId: string) {
+    const member = await this.findOne(id, gymId);
+    if (member.userId) {
+      const user = await this.prisma.user.findUnique({ where: { id: member.userId } });
+      if (user && user.status === UserStatus.ACTIVE && user.password) {
+        throw new BadRequestException('This member already has an active account linked.');
+      }
+    }
+
+    const rawToken = randomBytes(24).toString('hex');
+    const tokenHash = this.encryption.hash(rawToken);
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+
+    await this.prisma.member.update({
+      where: { id: member.id },
+      data: {
+        claimToken: tokenHash,
+        claimTokenExpiresAt: expiresAt,
+      },
+    });
+
+    await this.audit.log({
+      action: 'CLAIM_TOKEN_GENERATED',
+      entity: 'Member',
+      entityId: member.id,
+      gymId,
+    });
+
+    return {
+      memberId: member.id,
+      token: rawToken,
+      expiresAt,
+      claimUrl: `/claim?token=${rawToken}`,
+    };
   }
 }

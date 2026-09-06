@@ -39,7 +39,7 @@ export class ProfileController {
   @Permissions('profile:update')
   @ApiOperation({ summary: 'Claim an existing member profile using member code + mobile (for accounts created via Google with no gym yet)' })
   async linkMember(@CurrentUser('userId') userId: string, @Body() dto: LinkMemberDto) {
-    return this.service.linkMemberByCode(userId, dto.memberCode, dto.mobile);
+    return this.service.linkMemberByCode(userId, dto.memberCode, dto.mobile, dto.otp);
   }
 
   @Post('push-token')

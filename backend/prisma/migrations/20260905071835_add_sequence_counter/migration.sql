@@ -1,5 +1,5 @@
 -- CreateTable
-CREATE TABLE "sequence_counters" (
+CREATE TABLE IF NOT EXISTS "sequence_counters" (
     "id" TEXT NOT NULL,
     "gymId" TEXT NOT NULL,
     "scope" TEXT NOT NULL,
@@ -10,4 +10,4 @@ CREATE TABLE "sequence_counters" (
 );
 
 -- CreateIndex
-CREATE UNIQUE INDEX "sequence_counters_gymId_scope_key" ON "sequence_counters"("gymId", "scope");
+CREATE UNIQUE INDEX IF NOT EXISTS "sequence_counters_gymId_scope_key" ON "sequence_counters"("gymId", "scope");

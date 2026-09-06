@@ -77,33 +77,39 @@ async function bootstrap() {
   app.useGlobalInterceptors(new ResponseInterceptor());
   app.useGlobalFilters(new AllExceptionsFilter(logger));
 
-  const swaggerConfig = new DocumentBuilder()
-    .setTitle('MuscleOS API')
-    .setDescription('Enterprise Gym Management System API')
-    .setVersion('1.0.0')
-    .setContact('MuscleOS Support', 'https://muscleos.com', 'support@muscleos.com')
-    .setLicense('MIT', 'https://opensource.org/licenses/MIT')
-    .addBearerAuth(
-      { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' },
-      'access-token',
-    )
-    .addApiKey({ type: 'apiKey', in: 'header', name: 'X-Gym-ID' }, 'gym-id')
-    .build();
+  const enableSwagger =
+    configService.get('NODE_ENV') !== 'production' ||
+    configService.get('ENABLE_SWAGGER') === 'true';
 
-  const document = SwaggerModule.createDocument(app, swaggerConfig, {
-    deepScanRoutes: true,
-    operationIdFactory: (controllerKey: string, methodKey: string) => methodKey,
-  });
+  if (enableSwagger) {
+    const swaggerConfig = new DocumentBuilder()
+      .setTitle('MuscleOS API')
+      .setDescription('Enterprise Gym Management System API')
+      .setVersion('1.0.0')
+      .setContact('MuscleOS Support', 'https://muscleos.com', 'support@muscleos.com')
+      .setLicense('MIT', 'https://opensource.org/licenses/MIT')
+      .addBearerAuth(
+        { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' },
+        'access-token',
+      )
+      .addApiKey({ type: 'apiKey', in: 'header', name: 'X-Gym-ID' }, 'gym-id')
+      .build();
 
-  SwaggerModule.setup('api/docs', app, document, {
-    swaggerOptions: {
-      persistAuthorization: true,
-      tagsSorter: 'alpha',
-      operationsSorter: 'alpha',
-    },
-    customSiteTitle: 'MuscleOS API Documentation',
-    customCss: '.swagger-ui .topbar { display: none }',
-  });
+    const document = SwaggerModule.createDocument(app, swaggerConfig, {
+      deepScanRoutes: true,
+      operationIdFactory: (controllerKey: string, methodKey: string) => methodKey,
+    });
+
+    SwaggerModule.setup('api/docs', app, document, {
+      swaggerOptions: {
+        persistAuthorization: true,
+        tagsSorter: 'alpha',
+        operationsSorter: 'alpha',
+      },
+      customSiteTitle: 'MuscleOS API Documentation',
+      customCss: '.swagger-ui .topbar { display: none }',
+    });
+  }
 
   app.enableShutdownHooks();
 
@@ -111,7 +117,9 @@ async function bootstrap() {
   await app.listen(port);
 
   logger.log(`🚀 MuscleOS API running on port ${port}`, 'Bootstrap');
-  logger.log(`📚 Swagger docs at http://localhost:${port}/api/docs`, 'Bootstrap');
+  if (enableSwagger) {
+    logger.log(`📚 Swagger docs at http://localhost:${port}/api/docs`, 'Bootstrap');
+  }
 }
 
 bootstrap();

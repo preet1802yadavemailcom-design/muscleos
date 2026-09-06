@@ -13,11 +13,19 @@ export class SequenceService {
   constructor(private readonly prisma: PrismaService) {}
 
   async next(gymId: string, scope: string): Promise<number> {
-    const counter = await this.prisma.sequenceCounter.upsert({
-      where: { gymId_scope: { gymId, scope } },
-      create: { gymId, scope, value: 1 },
-      update: { value: { increment: 1 } },
-    });
-    return counter.value;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const counter = await this.prisma.sequenceCounter.upsert({
+          where: { gymId_scope: { gymId, scope } },
+          create: { gymId, scope, value: 1 },
+          update: { value: { increment: 1 } },
+        });
+        return counter.value;
+      } catch (err) {
+        if (attempt === 2) throw err;
+        await new Promise((res) => setTimeout(res, 25 * Math.pow(2, attempt)));
+      }
+    }
+    return 1;
   }
 }

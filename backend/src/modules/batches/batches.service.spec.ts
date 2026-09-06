@@ -21,6 +21,9 @@ describe('BatchesService', () => {
         update: jest.fn(),
         count: jest.fn(),
       },
+      user: {
+        findFirst: jest.fn().mockResolvedValue({ id: 'trainer-1', gymId }),
+      },
     };
 
     const module = await Test.createTestingModule({

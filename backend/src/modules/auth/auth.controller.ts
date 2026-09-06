@@ -11,7 +11,7 @@ import { ConfigService } from '@nestjs/config';
 import { AuthService } from './auth.service';
 import { TwoFactorService } from './two-factor.service';
 import { StepUpService } from './step-up.service';
-import { LoginDto, RegisterDto, RefreshTokenDto, ForgotPasswordDto, ResetPasswordDto, VerifyEmailDto, ChangePasswordDto } from './dto';
+import { LoginDto, RegisterDto, RefreshTokenDto, ForgotPasswordDto, ResetPasswordDto, VerifyEmailDto, ChangePasswordDto, ClaimAccountDto } from './dto';
 
 @ApiTags('Authentication')
 @Controller('auth')
@@ -55,6 +55,16 @@ export class AuthController {
   @ApiResponse({ status: 401, description: 'Invalid credentials' })
   async login(@Body() dto: LoginDto, @Ip() ip: string, @Headers('user-agent') deviceInfo: string) {
     return this.authService.login(dto, ip, deviceInfo);
+  }
+
+  @Public()
+  @Post('claim')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Claim and activate account using one-time token' })
+  @ApiResponse({ status: 200, description: 'Account activated successfully' })
+  @ApiResponse({ status: 400, description: 'Invalid or expired token' })
+  async claim(@Body() dto: ClaimAccountDto, @Ip() ip: string, @Headers('user-agent') deviceInfo: string) {
+    return this.authService.claimAccount(dto, ip, deviceInfo);
   }
 
   @Public()

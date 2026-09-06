@@ -249,7 +249,11 @@ export class PaymentsService {
       gatewayOrder = await this.razorpay.createOrder(Math.round(total * 100), 'INR', receiptNumber, { paymentId: payment.id, gymId });
       await this.prisma.payment.update({ where: { id: payment.id }, data: { gatewayOrderId: gatewayOrder.id } });
     } else if (dto.gateway === PaymentGateway.STRIPE) {
-      gatewayOrder = await this.stripe.createPaymentIntent(Math.round(total * 100), 'usd', { paymentId: payment.id, gymId });
+      const currencySetting = await this.prisma.gymSetting.findUnique({
+        where: { gymId_category_key: { gymId, category: 'business', key: 'currency' } },
+      });
+      const currency = (currencySetting?.value || 'inr').toLowerCase();
+      gatewayOrder = await this.stripe.createPaymentIntent(Math.round(total * 100), currency, { paymentId: payment.id, gymId });
       await this.prisma.payment.update({ where: { id: payment.id }, data: { gatewayOrderId: gatewayOrder.id } });
     } else if (completesImmediately) {
       // Cash / bank-transfer only — generate the receipt right away since
@@ -508,6 +512,37 @@ export class PaymentsService {
     }
   }
 
+  /**
+   * On rejection/failure of a pending payment claim covering one or more months,
+   * reset all allocated months to LOCKED (clearing paymentId), and ensure only
+   * the single earliest unpaid month for that membership is set to PAYABLE.
+   * This strictly preserves the sequential payment invariant.
+   */
+  private async resetAllocatedMonthsOnRejection(
+    tx: Prisma.TransactionClient,
+    monthAllocations: Array<{ membershipMonthId: string }>,
+    membershipId?: string | null,
+  ) {
+    for (const alloc of monthAllocations) {
+      await tx.membershipMonth.update({
+        where: { id: alloc.membershipMonthId },
+        data: { status: 'LOCKED', paymentId: null },
+      });
+    }
+    if (membershipId) {
+      const earliestUnpaid = await tx.membershipMonth.findFirst({
+        where: { membershipId, status: { not: 'PAID' } },
+        orderBy: { monthStart: 'asc' },
+      });
+      if (earliestUnpaid) {
+        await tx.membershipMonth.update({
+          where: { id: earliestUnpaid.id },
+          data: { status: 'PAYABLE' },
+        });
+      }
+    }
+  }
+
   /** Checks whether this UTR has already been claimed (pending or completed)
    *  by another payment in this gym — a member (accidentally or otherwise)
    *  resubmitting, or reusing, the same UTR across multiple claims should
@@ -760,9 +795,7 @@ export class PaymentsService {
       if (count === 0) {
         throw new ConflictException('This claim was already processed by someone else.');
       }
-      for (const alloc of payment.monthAllocations) {
-        await tx.membershipMonth.update({ where: { id: alloc.membershipMonthId }, data: { status: 'PAYABLE', paymentId: null } });
-      }
+      await this.resetAllocatedMonthsOnRejection(tx, payment.monthAllocations, payment.membershipId);
       return tx.payment.findUniqueOrThrow({ where: { id } });
     });
 
@@ -906,14 +939,18 @@ export class PaymentsService {
       if (count === 0) {
         throw new ConflictException('This payment was already verified by someone else.');
       }
-      for (const alloc of payment.monthAllocations) {
-        await tx.membershipMonth.update({
-          where: { id: alloc.membershipMonthId },
-          data: { status: approve ? 'PAID' : 'PAYABLE', paymentId: approve ? paymentId : null },
-        });
-      }
-      if (approve && payment.membershipId) {
-        await this.unlockNextMonth(tx, payment.membershipId);
+      if (approve) {
+        for (const alloc of payment.monthAllocations) {
+          await tx.membershipMonth.update({
+            where: { id: alloc.membershipMonthId },
+            data: { status: 'PAID', paymentId: paymentId },
+          });
+        }
+        if (payment.membershipId) {
+          await this.unlockNextMonth(tx, payment.membershipId);
+        }
+      } else {
+        await this.resetAllocatedMonthsOnRejection(tx, payment.monthAllocations, payment.membershipId);
       }
     });
 
@@ -924,6 +961,10 @@ export class PaymentsService {
       userId: verifierUserId,
       gymId,
     });
+
+    if (approve) {
+      await this.finalizeReceipt(paymentId, gymId);
+    }
 
     return { id: paymentId, status: newStatus };
   }

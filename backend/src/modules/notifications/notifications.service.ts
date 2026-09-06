@@ -1,4 +1,5 @@
 import { PrismaService } from '@database/prisma.service';
+import { RedisService } from '@database/redis.service';
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { NotificationChannel, NotificationStatus, NotificationType } from '@prisma/client';
@@ -15,6 +16,7 @@ import { WhatsappProvider } from './providers/whatsapp.provider';
 export class NotificationsService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly redis: RedisService,
     private readonly audit: AuditService,
     private readonly logger: LoggerService,
     private readonly email: EmailProvider,
@@ -233,8 +235,10 @@ export class NotificationsService {
    *  stages are evaluated by days-remaining rather than by a fixed clock
    *  time so a missed run (e.g. deploy downtime) still catches up correctly
    *  the next time it executes instead of permanently skipping a stage. */
-  @Cron('0 8 * * *')
+  @Cron('0 8 * * *', { timeZone: 'Asia/Kolkata' })
   async sendMembershipExpiryReminders() {
+    if (!(await this.redis.setNx('cron:membership_expiry', 'locked', 3500))) return;
+
     const STAGES: Array<{ code: string; daysFromNow: number }> = [
       { code: '7d', daysFromNow: 7 },
       { code: '3d', daysFromNow: 3 },
@@ -277,8 +281,10 @@ export class NotificationsService {
 
   /** Same multi-stage pattern for Gym Owner → MuscleOS platform billing
    *  (distinct from the member-facing reminder above). */
-  @Cron('30 8 * * *')
+  @Cron('30 8 * * *', { timeZone: 'Asia/Kolkata' })
   async sendPlatformSubscriptionExpiryReminders() {
+    if (!(await this.redis.setNx('cron:platform_expiry', 'locked', 3500))) return;
+
     const STAGES: Array<{ code: string; daysFromNow: number }> = [
       { code: '7d', daysFromNow: 7 },
       { code: '3d', daysFromNow: 3 },
@@ -315,14 +321,22 @@ export class NotificationsService {
   }
 
   /** Daily at 07:00 — birthday wishes. */
-  @Cron('0 7 * * *')
+  @Cron('0 7 * * *', { timeZone: 'Asia/Kolkata' })
   async sendBirthdayWishes() {
-    const today = new Date();
+    if (!(await this.redis.setNx('cron:birthday_wishes', 'locked', 3500))) return;
+
+    // Use India Standard Time (UTC+5:30) date boundaries for standard gym operations
+    const now = new Date();
+    const istOffsetMs = 5.5 * 60 * 60 * 1000;
+    const istDate = new Date(now.getTime() + istOffsetMs);
+    const month = istDate.getUTCMonth() + 1;
+    const day = istDate.getUTCDate();
+
     const members = await this.prisma.$queryRaw<{ id: string; firstName: string; gymId: string }[]>`
       SELECT id, "firstName", "gymId" FROM members
       WHERE "dateOfBirth" IS NOT NULL
-        AND EXTRACT(MONTH FROM "dateOfBirth") = ${today.getMonth() + 1}
-        AND EXTRACT(DAY FROM "dateOfBirth") = ${today.getDate()}
+        AND EXTRACT(MONTH FROM "dateOfBirth") = ${month}
+        AND EXTRACT(DAY FROM "dateOfBirth") = ${day}
         AND "deletedAt" IS NULL
     `;
 
@@ -342,6 +356,8 @@ export class NotificationsService {
   /** Hourly — auto-expire memberships whose endDate has passed. */
   @Cron(CronExpression.EVERY_HOUR)
   async autoExpireMemberships() {
+    if (!(await this.redis.setNx('cron:auto_expire_memberships', 'locked', 1800))) return;
+
     const result = await this.prisma.membership.updateMany({
       where: { status: 'ACTIVE', endDate: { lt: new Date() } },
       data: { status: 'EXPIRED' },
@@ -362,6 +378,8 @@ export class NotificationsService {
    *  a real checkout in reports (duration shown is a ceiling, not a fact). */
   @Cron('15 * * * *')
   async forceCloseStaleAttendanceSessions() {
+    if (!(await this.redis.setNx('cron:force_close_stale_attendance', 'locked', 1800))) return;
+
     const staleCutoff = new Date(Date.now() - 12 * 60 * 60 * 1000); // 12h — generous for even a long workout + shower + errands
     const stale = await this.prisma.attendance.findMany({
       where: { checkOutAt: null, checkInAt: { lt: staleCutoff } },
@@ -387,8 +405,10 @@ export class NotificationsService {
    *  (or missing a run) changes nothing about correctness. Recovery codes /
    *  revoked-but-recent QR tokens are kept a few extra days for audit
    *  trail purposes before being swept. */
-  @Cron('0 3 * * *')
+  @Cron('0 3 * * *', { timeZone: 'Asia/Kolkata' })
   async cleanupExpiredTokensAndSessions() {
+    if (!(await this.redis.setNx('cron:cleanup_expired_tokens', 'locked', 3500))) return;
+
     const now = new Date();
     const auditRetentionCutoff = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
 
@@ -404,12 +424,9 @@ export class NotificationsService {
       }),
     ]);
 
-    const total = refreshTokens.count + sessions.count + qrTokens.count;
-    if (total > 0) {
-      this.logger.log(
-        `Cleanup: removed ${refreshTokens.count} refresh tokens, ${sessions.count} sessions, ${qrTokens.count} revoked QR tokens`,
-        'NotificationsService',
-      );
-    }
+    this.logger.log(
+      `Cleaned up: ${refreshTokens.count} refresh tokens, ${sessions.count} sessions, ${qrTokens.count} revoked QR tokens`,
+      'NotificationsService',
+    );
   }
 }

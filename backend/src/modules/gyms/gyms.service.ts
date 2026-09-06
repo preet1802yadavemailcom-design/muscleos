@@ -6,6 +6,7 @@ import { AuditService } from '@shared/services/audit.service';
 import * as bcrypt from 'bcryptjs';
 
 import { RegisterGymDto, UpdateGymProfileDto } from './dto';
+import { getGymStartOfDay, getGymStartOfMonth } from '@common/utils/timezone.util';
 
 
 @Injectable()
@@ -104,11 +105,8 @@ export class GymsService {
   // ---------- Gym Owner Dashboard (spec Module 04) ----------
 
   async dashboardStats(gymId: string) {
-    const startOfDay = new Date();
-    startOfDay.setHours(0, 0, 0, 0);
-    const startOfMonth = new Date();
-    startOfMonth.setDate(1);
-    startOfMonth.setHours(0, 0, 0, 0);
+    const startOfDay = getGymStartOfDay();
+    const startOfMonth = getGymStartOfMonth();
     const sevenDaysOut = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
     const [

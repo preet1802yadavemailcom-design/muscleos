@@ -42,6 +42,8 @@ describe('AttendanceCoreService — race-condition handling', () => {
         findFirst: jest.fn().mockResolvedValue(null), // no "very recent" duplicate scan by default
         create: jest.fn(),
         update: jest.fn(),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        findUniqueOrThrow: jest.fn(),
       },
     };
 
@@ -76,13 +78,13 @@ describe('AttendanceCoreService — race-condition handling', () => {
     prisma.attendance.findFirst
       .mockResolvedValueOnce(null) // duplicate-scan guard check inside attemptCheckIn
       .mockResolvedValueOnce(openSession); // closeOpenSessionInternal's lookup
-    prisma.attendance.update.mockResolvedValue({
+    prisma.attendance.findUniqueOrThrow.mockResolvedValue({
       id: 'att-open', checkInAt: openSession.checkInAt, checkOutAt: new Date(), type: 'CHECK_OUT',
     });
 
     const result = await service.recordScan({ member, gymId, source: 'QR' as any });
 
-    expect(prisma.attendance.update).toHaveBeenCalledTimes(1);
+    expect(prisma.attendance.updateMany).toHaveBeenCalledTimes(1);
     expect(result.type).toBe('CHECK_OUT');
   });
 

@@ -22,12 +22,13 @@ import {
   RegisterMemberDto, CheckinActionDto,
 } from './dto';
 import { distanceMeters } from '@common/utils/geo.util';
+import { getGymStartOfDay, getGymEndOfDay } from '@common/utils/timezone.util';
 import { AttendanceCoreService } from '@modules/attendance/attendance-core.service';
 import { QrService } from '@modules/qr/qr.service';
 import { NotificationsService } from '@modules/notifications/notifications.service';
 
 const KIOSK_TOKEN_TTL = 10 * 60; // seconds
-const SESSION_TOKEN_TTL = 12 * 60 * 60; // seconds — issued once per kiosk identification
+const SESSION_TOKEN_TTL = 5 * 60; // 5 minutes — short-lived for kiosk check-in action only
 
 interface KioskPayload { purpose: 'kiosk'; gymId: string; branchId?: string }
 interface SessionPayload { purpose: 'checkin-session'; gymId: string; mobile: string; branchId?: string }
@@ -401,15 +402,23 @@ export class CheckinService {
   }
 
   private memberSummary(member: any) {
-    // Deliberately minimal: this is returned from a mobile-number lookup with
-    // no OTP/password proof of identity, so it must not leak email, gender,
-    // or plan/expiry details to anyone who knows (or guesses) a member's
-    // mobile number. Staff visually confirm identity via photo+name only.
+    // Deliberately minimal and privacy-preserving: this is returned from a
+    // mobile-number lookup with no OTP/password proof of identity.
+    // Masks member code and last name so public kiosk viewers cannot harvest credentials.
+    const maskedLastName = member.lastName
+      ? member.lastName.length > 2
+        ? member.lastName[0] + '*'.repeat(member.lastName.length - 2) + member.lastName.slice(-1)
+        : member.lastName[0] + '*'
+      : '';
+    const maskedCode = member.memberCode
+      ? member.memberCode.slice(0, 4) + '***'
+      : '';
+
     return {
       id: member.id,
-      memberCode: member.memberCode,
+      memberCode: maskedCode,
       firstName: member.firstName,
-      lastName: member.lastName,
+      lastName: maskedLastName,
       photo: member.photo,
       membershipEligible: member.currentMembership
         ? member.currentMembership.status === 'ACTIVE'
@@ -420,13 +429,11 @@ export class CheckinService {
   /** Today's check-in state for a member: whether they've checked in today,
    *  the open record id, and the check-out time (if already completed). */
   private async todayState(gymId: string, memberId: string) {
-    const start = new Date();
-    start.setHours(0, 0, 0, 0);
-    const end = new Date(start);
-    end.setDate(end.getDate() + 1);
+    const start = getGymStartOfDay();
+    const end = getGymEndOfDay();
 
     const record = await this.prisma.attendance.findFirst({
-      where: { gymId, memberId, checkInAt: { gte: start, lt: end } },
+      where: { gymId, memberId, checkInAt: { gte: start, lte: end } },
       orderBy: { checkInAt: 'desc' },
     });
     return {

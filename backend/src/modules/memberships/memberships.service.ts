@@ -179,6 +179,23 @@ export class MembershipsService {
     const totalAmount = Math.max(dto.baseAmount - discountAmount, 0) + taxAmount;
 
     const membership = await this.prisma.$transaction(async (tx) => {
+      // If member already has active memberships, cancel them and purge unbilled months to prevent ghost debt
+      const existingActive = await tx.membership.findMany({
+        where: { memberId: member.id, gymId, status: 'ACTIVE', deletedAt: null },
+      });
+      for (const activeM of existingActive) {
+        await tx.membership.update({
+          where: { id: activeM.id },
+          data: { status: 'CANCELLED' },
+        });
+        await tx.membershipMonth.deleteMany({
+          where: {
+            membershipId: activeM.id,
+            status: { in: ['LOCKED', 'PAYABLE', 'PENDING'] },
+          },
+        });
+      }
+
       const created = await tx.membership.create({
         data: {
           memberId: member.id,
@@ -332,6 +349,24 @@ export class MembershipsService {
         endDate: newEndDate,
       },
     });
+
+    // Shift future unpaid ledger months so they don't lapse into overdue while frozen
+    const futureMonths = await this.prisma.membershipMonth.findMany({
+      where: {
+        membershipId: id,
+        status: { in: ['LOCKED', 'PAYABLE', 'PENDING'] },
+        monthStart: { gte: freezeStart },
+      },
+    });
+    for (const m of futureMonths) {
+      await this.prisma.membershipMonth.update({
+        where: { id: m.id },
+        data: {
+          monthStart: new Date(m.monthStart.getTime() + freezeDays * 86400000),
+        },
+      });
+    }
+
     await this.audit.log({ action: 'FREEZE', entity: 'Membership', entityId: id, oldValue: existing, newValue: item, gymId });
     return withComputed(item);
   }
@@ -343,7 +378,10 @@ export class MembershipsService {
     }
     const item = await this.prisma.membership.update({
       where: { id },
-      data: { status: existing.endDate < new Date() ? 'EXPIRED' : 'ACTIVE' },
+      data: {
+        status: existing.endDate < new Date() ? 'EXPIRED' : 'ACTIVE',
+        freezeEnd: new Date(),
+      },
     });
     await this.audit.log({ action: 'UNFREEZE', entity: 'Membership', entityId: id, oldValue: existing, newValue: item, gymId });
     return withComputed(item);
@@ -368,13 +406,15 @@ export class MembershipsService {
     const target = await this.prisma.member.findFirst({ where: { id: dto.toMemberId, gymId, deletedAt: null } });
     if (!target) throw new NotFoundException('Target member not found');
 
+    const remainingDays = Math.max(1, Math.ceil((existing.endDate.getTime() - Date.now()) / 86400000));
+
     const transferred = await this.prisma.$transaction(async (tx) => {
       const created = await tx.membership.create({
         data: {
           memberId: target.id,
           plan: existing.plan,
           planName: existing.planName,
-          duration: existing.duration,
+          duration: remainingDays,
           startDate: new Date(),
           endDate: existing.endDate,
           baseAmount: existing.baseAmount,
@@ -385,14 +425,34 @@ export class MembershipsService {
           gymId,
         },
       });
+
+      // Cancel remaining unpaid months on the source membership
+      await tx.membershipMonth.deleteMany({
+        where: {
+          membershipId: existing.id,
+          status: { in: ['LOCKED', 'PAYABLE', 'PENDING'] },
+        },
+      });
+
       await tx.membership.update({
         where: { id: existing.id },
         data: { status: 'CANCELLED', transferredTo: target.id, transferDate: new Date() },
       });
+
       await tx.member.update({ where: { id: target.id }, data: { currentMembershipId: created.id, status: 'ACTIVE' } });
       if (existing.member.currentMembershipId === existing.id) {
         await tx.member.update({ where: { id: existing.memberId }, data: { currentMembershipId: null } });
       }
+
+      // Generate ledger months for the recipient membership
+      await generateMembershipMonths(tx, {
+        id: created.id,
+        startDate: created.startDate,
+        durationDays: remainingDays,
+        totalAmount: Number(created.totalAmount),
+        gymId,
+      });
+
       return created;
     });
 
@@ -496,7 +556,37 @@ export class MembershipsService {
 
   async remove(id: string, gymId: string) {
     const existing = await this.findOne(id, gymId);
-    await this.prisma.membership.update({ where: { id }, data: { status: 'CANCELLED', deletedAt: new Date() } });
+    await this.prisma.$transaction(async (tx) => {
+      await tx.membership.update({
+        where: { id },
+        data: { status: 'CANCELLED', deletedAt: new Date() },
+      });
+      // Delete unbilled/unpaid ledger months so cancelled memberships leave no ghost debt
+      await tx.membershipMonth.deleteMany({
+        where: {
+          membershipId: id,
+          status: { in: ['LOCKED', 'PAYABLE', 'PENDING'] },
+        },
+      });
+      // If the member's currentMembershipId pointed to this cancelled membership, update it
+      const member = await tx.member.findUnique({
+        where: { id: existing.memberId },
+        select: { currentMembershipId: true },
+      });
+      if (member?.currentMembershipId === id) {
+        const latestActive = await tx.membership.findFirst({
+          where: { memberId: existing.memberId, gymId, status: 'ACTIVE', deletedAt: null, id: { not: id } },
+          orderBy: { endDate: 'desc' },
+        });
+        await tx.member.update({
+          where: { id: existing.memberId },
+          data: {
+            currentMembershipId: latestActive?.id ?? null,
+            status: latestActive ? 'ACTIVE' : 'INACTIVE',
+          },
+        });
+      }
+    });
     await this.audit.log({ action: 'DELETE', entity: 'Membership', entityId: id, oldValue: existing, gymId });
     return { message: 'Membership cancelled successfully' };
   }

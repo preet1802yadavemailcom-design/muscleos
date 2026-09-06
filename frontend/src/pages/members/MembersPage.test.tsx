@@ -2,6 +2,7 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { MemoryRouter } from 'react-router-dom';
 import { MembersPage } from './MembersPage';
 
 const mockGet = vi.fn();
@@ -15,11 +16,17 @@ vi.mock('@services/api', () => ({
   },
 }));
 
+vi.mock('@store/auth.store', () => ({
+  useAuthStore: () => ({ user: { role: 'GYM_OWNER' } }),
+}));
+
 function renderPage() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
-      <MembersPage />
+      <MemoryRouter>
+        <MembersPage />
+      </MemoryRouter>
     </QueryClientProvider>,
   );
 }

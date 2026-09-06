@@ -3,6 +3,13 @@ import { Injectable, BadRequestException, NotFoundException } from '@nestjs/comm
 import { ReportType, ReportPeriod } from '@prisma/client';
 import { AuditService } from '@shared/services/audit.service';
 import { ExportService, ExportColumn } from '@shared/services/export.service';
+import {
+  getGymStartOfDay,
+  getGymEndOfDay,
+  getGymStartOfWeek,
+  getGymStartOfMonth,
+  getGymStartOfYear,
+} from '@common/utils/timezone.util';
 
 interface DateRange {
   startDate: Date;
@@ -67,22 +74,24 @@ export class ReportsService {
     }
 
     const now = new Date();
-    const end = new Date(now);
-    end.setHours(23, 59, 59, 999);
-    const start = new Date(now);
-    start.setHours(0, 0, 0, 0);
+    const end = getGymEndOfDay(now);
+    let start: Date;
 
     switch (period) {
       case ReportPeriod.DAILY:
+        start = getGymStartOfDay(now);
         break;
       case ReportPeriod.WEEKLY:
-        start.setDate(start.getDate() - start.getDay());
+        start = getGymStartOfWeek(now);
         break;
       case ReportPeriod.MONTHLY:
-        start.setDate(1);
+        start = getGymStartOfMonth(now);
         break;
       case ReportPeriod.YEARLY:
-        start.setMonth(0, 1);
+        start = getGymStartOfYear(now);
+        break;
+      default:
+        start = getGymStartOfDay(now);
         break;
     }
     return { startDate: start, endDate: end };

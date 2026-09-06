@@ -19,7 +19,7 @@ export class StripeGateway {
     return { Authorization: `Bearer ${secret}`, 'Content-Type': 'application/x-www-form-urlencoded' };
   }
 
-  async createPaymentIntent(amountInCents: number, currency = 'usd', metadata?: Record<string, string>) {
+  async createPaymentIntent(amountInCents: number, currency = 'inr', metadata?: Record<string, string>) {
     const params = new URLSearchParams();
     params.append('amount', String(amountInCents));
     params.append('currency', currency);

@@ -1,5 +1,6 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '@database/prisma.service';
+import { RedisService } from '@database/redis.service';
 import { AuditService } from '@shared/services/audit.service';
 import { PushProvider } from '@modules/notifications/providers/push.provider';
 
@@ -9,6 +10,7 @@ import { UpdateMyProfileDto } from './dto/update-my-profile.dto';
 export class ProfileService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly redis: RedisService,
     private readonly audit: AuditService,
     private readonly push: PushProvider,
   ) {}
@@ -77,7 +79,7 @@ export class ProfileService {
    *  claim their existing Member profile using their member code + mobile,
    *  the same two facts staff/reception already share with every member.
    *  Once linked, this account behaves exactly like any other member login. */
-  async linkMemberByCode(userId: string, memberCode: string, mobile: string) {
+  async linkMemberByCode(userId: string, memberCode: string, mobile: string, otp?: string) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw new NotFoundException('User not found');
     if (user.gymId) {
@@ -94,14 +96,37 @@ export class ProfileService {
       throw new BadRequestException('This member profile is already linked to another account.');
     }
 
+    // Security check: If member email matches verified OAuth user email, allow instant link.
+    // Otherwise require OTP to verify physical ownership of the member's registered mobile number.
+    const emailMatches = Boolean(
+      member.email && user.email && member.email.toLowerCase() === user.email.toLowerCase(),
+    );
+
+    if (!emailMatches) {
+      if (!otp) {
+        throw new BadRequestException(
+          'A verification code is required to link this member profile because your Google email does not match the member email on file.',
+        );
+      }
+      const storedOtp = await this.redis.get(`link_otp:${mobile.trim()}`);
+      if (!storedOtp || storedOtp !== otp.trim()) {
+        throw new BadRequestException('Invalid or expired verification code.');
+      }
+      await this.redis.del(`link_otp:${mobile.trim()}`);
+    }
+
     await this.prisma.$transaction([
       this.prisma.member.update({ where: { id: member.id }, data: { userId } }),
       this.prisma.user.update({ where: { id: userId }, data: { gymId: member.gymId } }),
     ]);
 
     await this.audit.log({
-      action: 'MEMBER_ACCOUNT_LINKED', entity: 'Member', entityId: member.id, userId, gymId: member.gymId,
-      newValue: { method: 'member-code' },
+      action: 'MEMBER_ACCOUNT_LINKED',
+      entity: 'Member',
+      entityId: member.id,
+      userId,
+      gymId: member.gymId,
+      newValue: { method: emailMatches ? 'email-match' : 'phone-otp' },
     });
 
     return this.getMine(userId);

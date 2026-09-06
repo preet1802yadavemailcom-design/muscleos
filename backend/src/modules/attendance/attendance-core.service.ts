@@ -3,6 +3,7 @@ import { AttendanceType, AttendanceStatus, AttendanceSource, MembershipStatus, P
 import { PrismaService } from '@database/prisma.service';
 import { RedisService } from '@database/redis.service';
 import { AuditService } from '@shared/services/audit.service';
+import { getZonedDateParts, parseGymTimeToDate } from '@common/utils/timezone.util';
 
 /** Grace window (minutes) before a batch start counts as "late". */
 const LATE_GRACE_MINUTES = 10;
@@ -234,13 +235,14 @@ export class AttendanceCoreService {
   private assertBatchRunsToday(member: any, now: Date): void {
     if (!member.batch?.days?.length) return;
     // Days are stored as 3-letter codes (MON, WED, ...) per CreateBatchDto, but
-    // toLocaleDateString('weekday') returns long names — normalize both sides.
+    // getZonedDateParts returns full weekday names (e.g. 'SUNDAY') — normalize both sides.
     const DAY_CODES: Record<string, string> = {
       SUNDAY: 'SUN', MONDAY: 'MON', TUESDAY: 'TUE', WEDNESDAY: 'WED',
       THURSDAY: 'THU', FRIDAY: 'FRI', SATURDAY: 'SAT',
     };
-    const todayName = now.toLocaleDateString('en-US', { weekday: 'long' });
-    const todayCode = DAY_CODES[todayName.toUpperCase()];
+    const parts = getZonedDateParts(now);
+    const todayName = parts.weekday;
+    const todayCode = DAY_CODES[todayName] || todayName;
     const normalizedDays = (member.batch.days as string[]).map((d) => d.trim().toUpperCase());
     const runsToday = normalizedDays.some((d) => d === todayCode || DAY_CODES[d] === todayCode);
     if (!runsToday) {
@@ -250,9 +252,7 @@ export class AttendanceCoreService {
 
   private computeLateness(member: any, now: Date): { isLate: boolean; lateMinutes: number } {
     if (!member.batch?.startTime) return { isLate: false, lateMinutes: 0 };
-    const [h, m] = member.batch.startTime.split(':').map(Number);
-    const batchStart = new Date(now);
-    batchStart.setHours(h, m, 0, 0);
+    const batchStart = parseGymTimeToDate(member.batch.startTime, now);
     const diffMinutes = (now.getTime() - batchStart.getTime()) / 60000;
     return diffMinutes > LATE_GRACE_MINUTES
       ? { isLate: true, lateMinutes: Math.round(diffMinutes) }
@@ -261,9 +261,7 @@ export class AttendanceCoreService {
 
   private computeEarlyLeave(member: any, checkInAt: Date, now: Date): boolean {
     if (!member.batch?.endTime) return false;
-    const [h, m] = member.batch.endTime.split(':').map(Number);
-    const batchEnd = new Date(checkInAt);
-    batchEnd.setHours(h, m, 0, 0);
+    const batchEnd = parseGymTimeToDate(member.batch.endTime, checkInAt);
     return now < batchEnd;
   }
 

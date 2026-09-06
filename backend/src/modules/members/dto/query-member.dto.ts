@@ -1,7 +1,7 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { UserStatus } from '@prisma/client';
 import { Type } from 'class-transformer';
-import { IsOptional, IsString, IsEnum, IsUUID, IsInt, Min } from 'class-validator';
+import { IsOptional, IsString, IsEnum, IsUUID, IsInt, Min, Max } from 'class-validator';
 
 export class QueryMemberDto {
   @ApiPropertyOptional({ default: 1 })
@@ -16,6 +16,7 @@ export class QueryMemberDto {
   @Type(() => Number)
   @IsInt()
   @Min(1)
+  @Max(100)
   limit?: number = 20;
 
   @ApiPropertyOptional({ description: 'Search by name, mobile, email, or member code' })

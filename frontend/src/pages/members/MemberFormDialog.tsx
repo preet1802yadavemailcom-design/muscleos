@@ -105,8 +105,23 @@ export function MemberFormDialog({ open, onOpenChange, member }: MemberFormDialo
     },
   });
 
-  const batches = batchesData?.data ?? [];
-  const trainers = trainersData?.data ?? [];
+  const rawBatches = batchesData as any;
+  const batches: any[] = Array.isArray(rawBatches?.data)
+    ? rawBatches.data
+    : Array.isArray(rawBatches?.data?.data)
+    ? rawBatches.data.data
+    : Array.isArray(rawBatches)
+    ? rawBatches
+    : [];
+
+  const rawTrainers = trainersData as any;
+  const trainers: any[] = Array.isArray(rawTrainers?.data)
+    ? rawTrainers.data
+    : Array.isArray(rawTrainers?.data?.data)
+    ? rawTrainers.data.data
+    : Array.isArray(rawTrainers)
+    ? rawTrainers
+    : [];
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

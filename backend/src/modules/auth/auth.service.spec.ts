@@ -1,4 +1,4 @@
-﻿import { PrismaService } from '@database/prisma.service';
+import { PrismaService } from '@database/prisma.service';
 import { RedisService } from '@database/redis.service';
 import { ForbiddenException, UnauthorizedException, BadRequestException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -104,14 +104,14 @@ describe('AuthService', () => {
       await expect(
         service.login({ email: baseUser.email, password: 'wrongpass' } as any),
       ).rejects.toBeInstanceOf(UnauthorizedException);
-      expect(prisma.user.updateMany).toHaveBeenCalled();
+      expect(prisma.user.update).toHaveBeenCalled();
     });
 
     it('returns tokens + creates refresh token and device session on success', async () => {
       redis.get.mockResolvedValue(null);
       prisma.user.findFirst.mockResolvedValue(baseUser);
       // login() now returns a union (full session | 2FA-setup-required |
-      // 2FA-pending) since the mandatory-Super-Admin-2FA change â€” baseUser
+      // 2FA-pending) since the mandatory-Super-Admin-2FA change — baseUser
       // here has 2FA disabled so this branch is always the full-session
       // shape at runtime; narrow explicitly so the assertions below
       // type-check against that shape rather than the union.
@@ -169,14 +169,22 @@ describe('AuthService', () => {
 
   describe('verifyEmail', () => {
     it('rejects an invalid OTP', async () => {
-      redis.get.mockResolvedValue('111111');
+      redis.get.mockImplementation(async (key: string) => {
+        if (key.startsWith('verify_otp_attempts:')) return '0';
+        if (key.startsWith('verify_otp:')) return '111111';
+        return null;
+      });
       await expect(
         service.verifyEmail({ email: baseUser.email, otp: '000000' }),
       ).rejects.toBeInstanceOf(BadRequestException);
     });
 
     it('activates the user on a matching OTP', async () => {
-      redis.get.mockResolvedValue('123456');
+      redis.get.mockImplementation(async (key: string) => {
+        if (key.startsWith('verify_otp_attempts:')) return '0';
+        if (key.startsWith('verify_otp:')) return '123456';
+        return null;
+      });
       prisma.user.findFirst.mockResolvedValue({ ...baseUser, status: UserStatus.PENDING });
       const result = await service.verifyEmail({ email: baseUser.email, otp: '123456' });
       expect(prisma.user.update).toHaveBeenCalledWith(

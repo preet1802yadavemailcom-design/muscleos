@@ -1,5 +1,5 @@
-import { ApiProperty } from '@nestjs/swagger';
-import { IsString, MinLength } from 'class-validator';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { IsString, MinLength, IsOptional } from 'class-validator';
 
 export class LinkMemberDto {
   @ApiProperty({ example: 'MEM-0001' })
@@ -11,4 +11,9 @@ export class LinkMemberDto {
   @IsString()
   @MinLength(6)
   mobile: string;
+
+  @ApiPropertyOptional({ description: 'OTP code sent to member mobile if email does not match' })
+  @IsOptional()
+  @IsString()
+  otp?: string;
 }

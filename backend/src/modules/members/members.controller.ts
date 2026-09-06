@@ -81,6 +81,13 @@ export class MembersController {
     return this.service.regenerateQr(id, gymId);
   }
 
+  @Post(':id/claim-token')
+  @Permissions('members:update')
+  @ApiOperation({ summary: 'Generate a one-time activation token for member self-claim' })
+  async generateClaimToken(@Param('id') id: string, @GymId() gymId: string) {
+    return this.service.generateClaimToken(id, gymId);
+  }
+
   @Delete(':id')
   @Permissions('members:delete')
   @ApiOperation({ summary: 'Soft-delete a member' })

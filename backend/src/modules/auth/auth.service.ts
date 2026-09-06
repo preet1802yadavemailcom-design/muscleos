@@ -15,7 +15,7 @@ import { EncryptionService } from '@shared/services/encryption.service';
 import { LoggerService } from '@shared/services/logger.service';
 import * as bcrypt from 'bcryptjs';
 
-import { LoginDto, RegisterDto, RefreshTokenDto, ForgotPasswordDto, ResetPasswordDto, VerifyEmailDto } from './dto';
+import { LoginDto, RegisterDto, RefreshTokenDto, ForgotPasswordDto, ResetPasswordDto, VerifyEmailDto, ClaimAccountDto } from './dto';
 import { TwoFactorService } from './two-factor.service';
 
 
@@ -499,12 +499,101 @@ export class AuthService {
     return { message: 'Email verified successfully' };
   }
 
+  async claimAccount(dto: ClaimAccountDto, ipAddress?: string, userAgent?: string) {
+    const tokenHash = this.encryption.hash(dto.token);
+    const member = await this.prisma.member.findFirst({
+      where: {
+        OR: [{ claimToken: dto.token }, { claimToken: tokenHash }],
+        claimTokenExpiresAt: { gt: new Date() },
+        deletedAt: null,
+      },
+      include: { gym: true, user: true },
+    });
+
+    if (!member) {
+      throw new BadRequestException('Invalid or expired activation token. Please request a new activation link from your gym.');
+    }
+
+    const hashedPassword = await bcrypt.hash(dto.password, this.configService.get('app.bcryptRounds', 12));
+
+    let user = member.user;
+    if (user) {
+      user = await this.prisma.user.update({
+        where: { id: user.id },
+        data: {
+          password: hashedPassword,
+          status: UserStatus.ACTIVE,
+          emailVerified: true,
+        },
+      });
+    } else {
+      user = await this.prisma.user.create({
+        data: {
+          email: member.email || `${member.memberCode.toLowerCase()}@${member.gym.slug}.muscleos.local`,
+          password: hashedPassword,
+          firstName: member.firstName,
+          lastName: member.lastName,
+          phone: member.mobile,
+          role: UserRole.MEMBER,
+          gymId: member.gymId,
+          status: UserStatus.ACTIVE,
+          emailVerified: !!member.email,
+          phoneVerified: true,
+        },
+      });
+      await this.prisma.member.update({
+        where: { id: member.id },
+        data: { userId: user.id },
+      });
+    }
+
+    await this.prisma.member.update({
+      where: { id: member.id },
+      data: { claimToken: null, claimTokenExpiresAt: null },
+    });
+
+    const tokens = await this.generateTokens(user);
+    const session = await this.createSession(user.id, tokens.accessToken, userAgent, ipAddress);
+    await this.createRefreshToken(user.id, tokens.refreshToken, userAgent, ipAddress);
+
+    await this.audit.log({
+      action: 'ACCOUNT_CLAIMED',
+      entity: 'Member',
+      entityId: member.id,
+      userId: user.id,
+      gymId: member.gymId,
+      ipAddress,
+      userAgent,
+    });
+
+    return { user: this.sanitizeUser(user), ...tokens, sessionId: session.id };
+  }
+
   async refreshToken(dto: RefreshTokenDto) {
+    const rawToken = dto.refreshToken;
+    // Check if token was rotated in the last 20 seconds (concurrent tab race condition grace period)
+    const cachedRotation = await this.redis.get(`token_grace:${rawToken}`);
+    if (cachedRotation) {
+      try {
+        return JSON.parse(cachedRotation);
+      } catch {
+        // Fall through to standard verification
+      }
+    }
+
     const stored = await this.prisma.refreshToken.findUnique({
-      where: { token: dto.refreshToken },
+      where: { token: rawToken },
       include: { user: true },
     });
     if (!stored || stored.revokedAt || stored.expiresAt < new Date()) {
+      if (stored?.revokedAt) {
+        // Reuse detected outside grace period: revoke all active refresh tokens for this user
+        await this.prisma.refreshToken.updateMany({
+          where: { userId: stored.userId, revokedAt: null },
+          data: { revokedAt: new Date() },
+        });
+        this.logger.warn(`Refresh token reuse detected for user ${stored.userId} - revoked all sessions`, 'AuthService');
+      }
       throw new UnauthorizedException('Invalid or expired refresh token');
     }
     const tokens = await this.generateTokens(stored.user);
@@ -513,6 +602,10 @@ export class AuthService {
       data: { revokedAt: new Date() },
     });
     await this.createRefreshToken(stored.userId, tokens.refreshToken);
+
+    // Cache the newly generated tokens under the old token for 20 seconds grace period
+    await this.redis.set(`token_grace:${rawToken}`, JSON.stringify(tokens), 20);
+
     return tokens;
   }
 
@@ -574,10 +667,7 @@ export class AuthService {
     const hashedPassword = await bcrypt.hash(newPassword, 12);
     await this.prisma.user.update({ where: { id: userId }, data: { password: hashedPassword } });
 
-    await this.prisma.refreshToken.updateMany({
-      where: { userId: user.id, revokedAt: null },
-      data: { revokedAt: new Date() },
-    });
+    await this.revokeAllUserTokensAndSessions(user.id);
     await this.audit.log({
       action: 'PASSWORD_CHANGED',
       entity: 'User',
@@ -606,11 +696,8 @@ export class AuthService {
     await this.redis.del(`otp:${dto.email}`);
     await this.redis.del(`otp_cooldown:${dto.email}`);
     if (user) {
-      // Reset password invalidates all existing sessions
-      await this.prisma.refreshToken.updateMany({
-        where: { userId: user.id, revokedAt: null },
-        data: { revokedAt: new Date() },
-      });
+      // Reset password invalidates all existing sessions and access tokens
+      await this.revokeAllUserTokensAndSessions(user.id);
       await this.audit.log({
         action: 'PASSWORD_RESET_COMPLETED',
         entity: 'User',
@@ -620,6 +707,22 @@ export class AuthService {
       });
     }
     return { message: 'Password reset successfully' };
+  }
+
+  private async revokeAllUserTokensAndSessions(userId: string) {
+    const now = new Date();
+    await Promise.all([
+      this.prisma.refreshToken.updateMany({
+        where: { userId, revokedAt: null },
+        data: { revokedAt: now },
+      }),
+      this.prisma.userSession.updateMany({
+        where: { userId, isActive: true },
+        data: { isActive: false },
+      }),
+      this.redis.set(`user_revoked_at:${userId}`, Date.now().toString(), 86400),
+      this.redis.del(`session:${userId}`),
+    ]);
   }
 
   private async generateTokens(user: any) {

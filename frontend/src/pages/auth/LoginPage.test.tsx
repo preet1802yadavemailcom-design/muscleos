@@ -24,20 +24,19 @@ describe('LoginPage', () => {
   it('renders the MuscleOS branding and login fields', () => {
     renderLoginPage();
     expect(screen.getByText('MuscleOS')).toBeInTheDocument();
-    expect(screen.getByPlaceholderText('admin@gym.com')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText(/admin@gym\.com/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /sign in/i })).toBeInTheDocument();
   });
 
-  it('shows validation errors for an invalid email and short password', async () => {
+  it('shows validation errors for empty identifier and short password', async () => {
     const user = userEvent.setup();
     renderLoginPage();
 
-    await user.type(screen.getByPlaceholderText('admin@gym.com'), 'not-an-email');
     await user.type(screen.getByPlaceholderText('••••••••'), '123');
     await user.click(screen.getByRole('button', { name: /sign in/i }));
 
     await waitFor(() => {
-      expect(screen.getByText('Invalid email address')).toBeInTheDocument();
+      expect(screen.getByText('Enter your email or phone number')).toBeInTheDocument();
       expect(screen.getByText('Password must be at least 6 characters')).toBeInTheDocument();
     });
   });
@@ -46,7 +45,7 @@ describe('LoginPage', () => {
     const user = userEvent.setup();
     renderLoginPage();
 
-    await user.type(screen.getByPlaceholderText('admin@gym.com'), 'owner@gym.com');
+    await user.type(screen.getByPlaceholderText(/admin@gym\.com/i), 'owner@gym.com');
     await user.type(screen.getByPlaceholderText('••••••••'), 'Password123');
     await user.click(screen.getByRole('button', { name: /sign in/i }));
 
