@@ -15,8 +15,8 @@ module.exports = {
       { allowConstantExport: true },
     ],
     // API responses (axios) and error handlers are commonly typed loosely across
-    // this codebase (e.g. `catch (err: any)`); downgraded to a warning so CI lint
-    // reflects the project's actual style instead of failing the build on it.
-    '@typescript-eslint/no-explicit-any': 'warn',
+    // this codebase (e.g. `catch (err: any)`); keep this rule off until the codebase
+    // is fully migrated away from explicit `any`.
+    '@typescript-eslint/no-explicit-any': 'off',
   },
 };
