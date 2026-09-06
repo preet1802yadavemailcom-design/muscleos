@@ -66,7 +66,7 @@ async function generateMembershipMonths(
   const rows: { monthStart: Date; amountDue: number }[] = [];
   let allocated = 0;
   for (let i = 0; i < numMonths; i++) {
-    const monthStart = new Date(membership.startDate.getFullYear(), membership.startDate.getMonth() + i, 1);
+    const monthStart = new Date(Date.UTC(membership.startDate.getUTCFullYear(), membership.startDate.getUTCMonth() + i, 1));
     const isLast = i === numMonths - 1;
     const amountDue = isLast ? Number((membership.totalAmount - allocated).toFixed(2)) : perMonth;
     allocated += amountDue;

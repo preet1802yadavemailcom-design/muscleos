@@ -1,47 +1,51 @@
+import { Suspense, lazy } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuthStore } from '@store/auth.store';
 import { Layout } from '@components/layout/Layout';
 import { RoleRoute } from '@components/auth/RoleRoute';
-import { LoginPage } from '@pages/auth/LoginPage';
-import { ClaimAccountPage } from '@pages/auth/ClaimAccountPage';
-import { WelcomePage } from '@pages/auth/WelcomePage';
-import { AuthCallbackPage } from '@pages/auth/AuthCallbackPage';
-import { CompleteProfilePage } from '@pages/auth/CompleteProfilePage';
-import { TwoFactorSetupPage } from '@pages/auth/TwoFactorSetupPage';
-import { TwoFactorVerifyPage } from '@pages/auth/TwoFactorVerifyPage';
-import { RegisterPage } from '@pages/auth/RegisterPage';
-import { ForgotPasswordPage } from '@pages/auth/ForgotPasswordPage';
-import { ResetPasswordPage } from '@pages/auth/ResetPasswordPage';
-import { VerifyOtpPage } from '@pages/auth/VerifyOtpPage';
-import { VerifyPhonePage } from '@pages/auth/VerifyPhonePage';
-import { DashboardPage } from '@pages/dashboard/DashboardPage';
-import { SuperAdminDashboardPage } from '@pages/dashboard/SuperAdminDashboardPage';
-import { OwnerDashboardPage } from '@pages/dashboard/OwnerDashboardPage';
-import { MembersPage } from '@pages/members/MembersPage';
-import { MemberDetailPage } from '@pages/members/MemberDetailPage';
-import { BatchesPage } from '@pages/batches/BatchesPage';
-import { AttendancePage } from '@pages/attendance/AttendancePage';
-import { MembershipsPage } from '@pages/memberships/MembershipsPage';
-import { PaymentsPage } from '@pages/payments/PaymentsPage';
-import { PendingUpiPaymentsPage } from '@pages/payments/PendingUpiPaymentsPage';
-import { ReceptionPage } from '@pages/reception/ReceptionPage';
-import { ReportsPage } from '@pages/reports/ReportsPage';
-import { NotificationsPage } from '@pages/notifications/NotificationsPage';
-import { SettingsPage } from '@pages/settings/SettingsPage';
-import { PublicProfilePage } from '@pages/public/PublicProfilePage';
-import { CheckInPage } from '@pages/checkin/CheckInPage';
 import { PwaUpdatePrompt } from '@components/layout/PwaUpdatePrompt';
-import { MyProfilePage } from '@pages/profile/MyProfilePage';
-import { MyMembershipPage } from '@pages/profile/MyMembershipPage';
-import { MyPaymentsPage } from '@pages/profile/MyPaymentsPage';
-import { MyAttendancePage } from '@pages/profile/MyAttendancePage';
-import { OrganizationsPage } from '@pages/super-admin/OrganizationsPage';
-import { PlansPage } from '@pages/super-admin/PlansPage';
-import { AuditLogsPage } from '@pages/super-admin/AuditLogsPage';
-import { SupportTicketsPage } from '@pages/super-admin/SupportTicketsPage';
-import { SupportTicketsPage as MySupportTicketsPage } from '@pages/support/SupportTicketsPage';
-import { MyFitnessPage } from '@pages/fitness/MyFitnessPage';
-import { AssignFitnessPlanPage } from '@pages/fitness/AssignFitnessPlanPage';
+
+// Route-level code splitting: each page is its own chunk, fetched only when
+// the user navigates to it, instead of one ~760KB bundle loaded up front.
+const LoginPage = lazy(() => import('@pages/auth/LoginPage').then((m) => ({ default: m.LoginPage })));
+const ClaimAccountPage = lazy(() => import('@pages/auth/ClaimAccountPage').then((m) => ({ default: m.ClaimAccountPage })));
+const WelcomePage = lazy(() => import('@pages/auth/WelcomePage').then((m) => ({ default: m.WelcomePage })));
+const AuthCallbackPage = lazy(() => import('@pages/auth/AuthCallbackPage').then((m) => ({ default: m.AuthCallbackPage })));
+const CompleteProfilePage = lazy(() => import('@pages/auth/CompleteProfilePage').then((m) => ({ default: m.CompleteProfilePage })));
+const TwoFactorSetupPage = lazy(() => import('@pages/auth/TwoFactorSetupPage').then((m) => ({ default: m.TwoFactorSetupPage })));
+const TwoFactorVerifyPage = lazy(() => import('@pages/auth/TwoFactorVerifyPage').then((m) => ({ default: m.TwoFactorVerifyPage })));
+const RegisterPage = lazy(() => import('@pages/auth/RegisterPage').then((m) => ({ default: m.RegisterPage })));
+const ForgotPasswordPage = lazy(() => import('@pages/auth/ForgotPasswordPage').then((m) => ({ default: m.ForgotPasswordPage })));
+const ResetPasswordPage = lazy(() => import('@pages/auth/ResetPasswordPage').then((m) => ({ default: m.ResetPasswordPage })));
+const VerifyOtpPage = lazy(() => import('@pages/auth/VerifyOtpPage').then((m) => ({ default: m.VerifyOtpPage })));
+const VerifyPhonePage = lazy(() => import('@pages/auth/VerifyPhonePage').then((m) => ({ default: m.VerifyPhonePage })));
+const DashboardPage = lazy(() => import('@pages/dashboard/DashboardPage').then((m) => ({ default: m.DashboardPage })));
+const SuperAdminDashboardPage = lazy(() => import('@pages/dashboard/SuperAdminDashboardPage').then((m) => ({ default: m.SuperAdminDashboardPage })));
+const OwnerDashboardPage = lazy(() => import('@pages/dashboard/OwnerDashboardPage').then((m) => ({ default: m.OwnerDashboardPage })));
+const MembersPage = lazy(() => import('@pages/members/MembersPage').then((m) => ({ default: m.MembersPage })));
+const MemberDetailPage = lazy(() => import('@pages/members/MemberDetailPage').then((m) => ({ default: m.MemberDetailPage })));
+const BatchesPage = lazy(() => import('@pages/batches/BatchesPage').then((m) => ({ default: m.BatchesPage })));
+const AttendancePage = lazy(() => import('@pages/attendance/AttendancePage').then((m) => ({ default: m.AttendancePage })));
+const MembershipsPage = lazy(() => import('@pages/memberships/MembershipsPage').then((m) => ({ default: m.MembershipsPage })));
+const PaymentsPage = lazy(() => import('@pages/payments/PaymentsPage').then((m) => ({ default: m.PaymentsPage })));
+const PendingUpiPaymentsPage = lazy(() => import('@pages/payments/PendingUpiPaymentsPage').then((m) => ({ default: m.PendingUpiPaymentsPage })));
+const ReceptionPage = lazy(() => import('@pages/reception/ReceptionPage').then((m) => ({ default: m.ReceptionPage })));
+const ReportsPage = lazy(() => import('@pages/reports/ReportsPage').then((m) => ({ default: m.ReportsPage })));
+const NotificationsPage = lazy(() => import('@pages/notifications/NotificationsPage').then((m) => ({ default: m.NotificationsPage })));
+const SettingsPage = lazy(() => import('@pages/settings/SettingsPage').then((m) => ({ default: m.SettingsPage })));
+const PublicProfilePage = lazy(() => import('@pages/public/PublicProfilePage').then((m) => ({ default: m.PublicProfilePage })));
+const CheckInPage = lazy(() => import('@pages/checkin/CheckInPage').then((m) => ({ default: m.CheckInPage })));
+const MyProfilePage = lazy(() => import('@pages/profile/MyProfilePage').then((m) => ({ default: m.MyProfilePage })));
+const MyMembershipPage = lazy(() => import('@pages/profile/MyMembershipPage').then((m) => ({ default: m.MyMembershipPage })));
+const MyPaymentsPage = lazy(() => import('@pages/profile/MyPaymentsPage').then((m) => ({ default: m.MyPaymentsPage })));
+const MyAttendancePage = lazy(() => import('@pages/profile/MyAttendancePage').then((m) => ({ default: m.MyAttendancePage })));
+const OrganizationsPage = lazy(() => import('@pages/super-admin/OrganizationsPage').then((m) => ({ default: m.OrganizationsPage })));
+const PlansPage = lazy(() => import('@pages/super-admin/PlansPage').then((m) => ({ default: m.PlansPage })));
+const AuditLogsPage = lazy(() => import('@pages/super-admin/AuditLogsPage').then((m) => ({ default: m.AuditLogsPage })));
+const SupportTicketsPage = lazy(() => import('@pages/super-admin/SupportTicketsPage').then((m) => ({ default: m.SupportTicketsPage })));
+const MySupportTicketsPage = lazy(() => import('@pages/support/SupportTicketsPage').then((m) => ({ default: m.SupportTicketsPage })));
+const MyFitnessPage = lazy(() => import('@pages/fitness/MyFitnessPage').then((m) => ({ default: m.MyFitnessPage })));
+const AssignFitnessPlanPage = lazy(() => import('@pages/fitness/AssignFitnessPlanPage').then((m) => ({ default: m.AssignFitnessPlanPage })));
 
 const ROLES = {
   SUPER_ADMIN: 'SUPER_ADMIN',
@@ -75,6 +79,13 @@ function App() {
   return (
     <>
       <PwaUpdatePrompt />
+      <Suspense
+        fallback={
+          <div className="flex h-screen w-full items-center justify-center">
+            <div className="h-8 w-8 animate-spin rounded-full border-2 border-muted-foreground border-t-transparent" />
+          </div>
+        }
+      >
       <Routes>
       {/* Public / unauthenticated routes */}
       <Route path="/welcome" element={<WelcomePage />} />
@@ -250,7 +261,8 @@ function App() {
           }
         />
         <Route
-          path="reception"          element={
+          path="reception"
+          element={
             <RoleRoute allowedRoles={[ROLES.GYM_OWNER, ROLES.RECEPTION]}>
               <ReceptionPage />
             </RoleRoute>
@@ -284,6 +296,7 @@ function App() {
 
       <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
+      </Suspense>
     </>
   );
 }

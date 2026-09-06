@@ -560,7 +560,7 @@ export class PaymentsService {
 
     for (let i = 1; i < months.length; i++) {
       const prev = new Date(months[i - 1].monthStart);
-      const expectedNext = new Date(prev.getFullYear(), prev.getMonth() + 1, 1);
+      const expectedNext = new Date(Date.UTC(prev.getUTCFullYear(), prev.getUTCMonth() + 1, 1));
       if (new Date(months[i].monthStart).getTime() !== expectedNext.getTime()) {
         throw new BadRequestException('Selected months must be consecutive.');
       }
@@ -643,7 +643,7 @@ export class PaymentsService {
           data: { status: 'PENDING', paymentId: created.id },
         });
         if (count !== 1) {
-          throw new ConflictException('One or more selected months were just claimed by another payment â€” please refresh and try again.');
+          throw new ConflictException('One or more selected months were just claimed by another payment — please refresh and try again.');
         }
         await tx.paymentMonthAllocation.create({
           data: { paymentId: created.id, membershipMonthId: month.id, amount: month.amountDue },
@@ -810,7 +810,7 @@ export class PaymentsService {
 
     for (let i = 1; i < months.length; i++) {
       const prev = new Date(months[i - 1].monthStart);
-      const expectedNext = new Date(prev.getFullYear(), prev.getMonth() + 1, 1);
+      const expectedNext = new Date(Date.UTC(prev.getUTCFullYear(), prev.getUTCMonth() + 1, 1));
       if (new Date(months[i].monthStart).getTime() !== expectedNext.getTime()) {
         throw new BadRequestException('Selected months must be consecutive.');
       }
@@ -850,7 +850,7 @@ export class PaymentsService {
           data: { status: isCash ? 'PAID' : 'PENDING', paymentId: payment.id },
         });
         if (count !== 1) {
-          throw new ConflictException('One or more selected months were just claimed by another payment â€” please refresh and try again.');
+          throw new ConflictException('One or more selected months were just claimed by another payment — please refresh and try again.');
         }
         await tx.paymentMonthAllocation.create({
           data: { paymentId: payment.id, membershipMonthId: month.id, amount: month.amountDue },
