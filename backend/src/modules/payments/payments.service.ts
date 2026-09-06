@@ -389,15 +389,14 @@ export class PaymentsService {
 
   async refund(id: string, gymId: string, dto: RefundPaymentDto, userId: string) {
     const payment = await this.findOne(id, gymId);
-    if (payment.status !== PaymentStatus.COMPLETED) {
-      // Also blocks a second refund attempt outright — once PARTIALLY_REFUNDED
-      // or REFUNDED, status is no longer COMPLETED, so a duplicate/retried
-      // refund request can't silently double-refund on the gateway side.
-      throw new BadRequestException('Only completed payments can be refunded');
+    if (payment.status !== PaymentStatus.COMPLETED && payment.status !== PaymentStatus.PARTIALLY_REFUNDED) {
+      throw new BadRequestException('Only completed or partially-refunded payments can be refunded');
     }
-    const refundAmount = dto.amount ?? Number(payment.total);
-    if (refundAmount > Number(payment.total)) {
-      throw new BadRequestException('Refund amount cannot exceed the paid amount');
+    const alreadyRefunded = Number(payment.refundedAmount ?? 0);
+    const remaining = Number(payment.total) - alreadyRefunded;
+    const refundAmount = dto.amount ?? remaining;
+    if (refundAmount <= 0 || refundAmount > remaining) {
+      throw new BadRequestException(`Refund amount cannot exceed the remaining refundable balance (Rs.${remaining.toFixed(2)})`);
     }
 
     if (payment.gateway === PaymentGateway.RAZORPAY && payment.gatewayPaymentId) {
@@ -405,13 +404,22 @@ export class PaymentsService {
     } else if (payment.gateway === PaymentGateway.STRIPE && payment.gatewayPaymentId) {
       await this.stripe.refund(payment.gatewayPaymentId, Math.round(refundAmount * 100));
     }
-    // Cash/UPI/bank-transfer refunds are recorded but must be settled manually.
 
-    const isFullRefund = refundAmount >= Number(payment.total);
-    const updated = await this.prisma.payment.update({
-      where: { id },
-      data: { status: isFullRefund ? PaymentStatus.REFUNDED : PaymentStatus.PARTIALLY_REFUNDED, notes: `${payment.notes ?? ''}\nRefund: ${dto.reason}`.trim() },
+    const newRefundedTotal = alreadyRefunded + refundAmount;
+    const isFullRefund = newRefundedTotal >= Number(payment.total);
+
+    const { count } = await this.prisma.payment.updateMany({
+      where: { id, status: payment.status },
+      data: {
+        status: isFullRefund ? PaymentStatus.REFUNDED : PaymentStatus.PARTIALLY_REFUNDED,
+        refundedAmount: newRefundedTotal,
+        notes: `${payment.notes ?? ''}\nRefund: ${dto.reason} (Rs.${refundAmount.toFixed(2)})`.trim(),
+      },
     });
+    if (count === 0) {
+      throw new ConflictException('This payment was just modified by another request - please refresh and try again.');
+    }
+    const updated = await this.prisma.payment.findUniqueOrThrow({ where: { id } });
 
     await this.audit.log({ action: 'REFUND', entity: 'Payment', entityId: id, oldValue: payment, newValue: updated, gymId, userId });
     return updated;
