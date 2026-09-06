@@ -400,11 +400,18 @@ export class MembershipsService {
     if (existing.status !== 'ACTIVE') {
       throw new BadRequestException(`Cannot transfer a membership with status ${existing.status}`);
     }
-    if (dto.toMemberId === existing.memberId) {
+    const targetIdentifier = dto.toMemberId.trim();
+    const target = await this.prisma.member.findFirst({
+      where: {
+        gymId,
+        deletedAt: null,
+        OR: [{ id: targetIdentifier }, { memberCode: targetIdentifier }],
+      },
+    });
+    if (!target) throw new NotFoundException('Target member not found');
+    if (target.id === existing.memberId) {
       throw new BadRequestException('Cannot transfer a membership to the same member');
     }
-    const target = await this.prisma.member.findFirst({ where: { id: dto.toMemberId, gymId, deletedAt: null } });
-    if (!target) throw new NotFoundException('Target member not found');
 
     const remainingDays = Math.max(1, Math.ceil((existing.endDate.getTime() - Date.now()) / 86400000));
 

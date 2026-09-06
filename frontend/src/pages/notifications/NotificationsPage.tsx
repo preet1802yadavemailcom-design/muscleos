@@ -1,9 +1,12 @@
 import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
-import { Bell, Mail, MessageSquare, Send, Megaphone, CheckCircle2, XCircle, Clock } from 'lucide-react';
+import { Bell, Mail, MessageSquare, Send, Megaphone, CheckCircle2, XCircle, Clock, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { useToast } from '@/hooks/use-toast';
 import api from '@services/api';
 
 interface NotificationLog {
@@ -232,54 +235,207 @@ export function NotificationsPage() {
   );
 }
 
+interface TemplateItem {
+  id?: string;
+  name: string;
+  type: string;
+  channel: string;
+  subject?: string;
+  body: string;
+  variables?: string[];
+}
+
 function TemplatesPanel() {
-  const [templates, setTemplates] = useState<{ id: string; name: string; channel: string }[]>([]);
+  const [templates, setTemplates] = useState<TemplateItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [editingTemplate, setEditingTemplate] = useState<TemplateItem | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const { toast } = useToast();
+
+  const loadTemplates = async () => {
+    try {
+      const res: any = await api.get('/notifications/templates/list');
+      setTemplates(res.data ?? []);
+    } catch {
+      setTemplates([]);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    (async () => {
-      try {
-        const res: any = await api.get('/notifications/templates/list');
-        setTemplates(res.data ?? []);
-      } catch {
-        setTemplates([]);
-      } finally {
-        setLoading(false);
-      }
-    })();
+    loadTemplates();
   }, []);
 
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingTemplate || !editingTemplate.name.trim() || !editingTemplate.body.trim()) return;
+    setIsSaving(true);
+    try {
+      await api.post('/notifications/templates', {
+        name: editingTemplate.name.trim(),
+        type: editingTemplate.type || 'ANNOUNCEMENT',
+        channel: editingTemplate.channel || 'EMAIL',
+        subject: editingTemplate.subject?.trim() || undefined,
+        body: editingTemplate.body.trim(),
+        variables: editingTemplate.variables ?? [],
+      });
+      toast({ title: 'Template saved successfully' });
+      setEditingTemplate(null);
+      await loadTemplates();
+    } catch (err: any) {
+      toast({
+        title: 'Failed to save template',
+        description: err?.response?.data?.message || err.message,
+        variant: 'destructive',
+      });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Notification Templates</CardTitle>
-      </CardHeader>
-      <CardContent>
-        {loading ? (
-          <p className="text-sm text-muted-foreground">Loading...</p>
-        ) : templates.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            No templates yet — expiry, birthday, payment success, and batch-change
-            templates can be configured here.
-          </p>
-        ) : (
-          <div className="grid gap-3 md:grid-cols-2">
-            {templates.map((tpl) => (
-              <div
-                key={tpl.id}
-                className="rounded-md border p-3 text-sm flex items-center justify-between"
-              >
-                <span>
-                  {tpl.name} <span className="text-muted-foreground">({tpl.channel})</span>
-                </span>
-                <Button variant="ghost" size="sm">
-                  Edit
+    <div className="space-y-6">
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <CardTitle>Notification Templates</CardTitle>
+          <Button
+            size="sm"
+            onClick={() =>
+              setEditingTemplate({
+                name: '',
+                type: 'ANNOUNCEMENT',
+                channel: 'EMAIL',
+                subject: '',
+                body: '',
+              })
+            }
+          >
+            <Plus className="h-4 w-4 mr-1" />
+            New Template
+          </Button>
+        </CardHeader>
+        <CardContent>
+          {loading ? (
+            <p className="text-sm text-muted-foreground">Loading...</p>
+          ) : templates.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              No templates yet — expiry, birthday, payment success, and batch-change
+              templates can be configured here.
+            </p>
+          ) : (
+            <div className="grid gap-3 md:grid-cols-2">
+              {templates.map((tpl) => (
+                <div
+                  key={tpl.id || tpl.name}
+                  className="rounded-md border p-3 text-sm flex items-center justify-between"
+                >
+                  <div>
+                    <div className="font-medium">{tpl.name}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {tpl.channel} · {tpl.type}
+                    </div>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setEditingTemplate({ ...tpl })}
+                  >
+                    Edit
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {editingTemplate && (
+        <Card className="border-primary/50 bg-primary/5">
+          <CardHeader>
+            <CardTitle className="text-base">
+              {editingTemplate.id ? `Edit Template: ${editingTemplate.name}` : 'Create Notification Template'}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={handleSave} className="space-y-4 max-w-xl">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground">Template Name</label>
+                  <Input
+                    placeholder="e.g. PAYMENT_REMINDER"
+                    value={editingTemplate.name}
+                    onChange={(e) => setEditingTemplate({ ...editingTemplate, name: e.target.value })}
+                    disabled={!!editingTemplate.id}
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground">Channel</label>
+                  <select
+                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
+                    value={editingTemplate.channel}
+                    onChange={(e) => setEditingTemplate({ ...editingTemplate, channel: e.target.value })}
+                  >
+                    <option value="EMAIL">EMAIL</option>
+                    <option value="SMS">SMS</option>
+                    <option value="PUSH">PUSH</option>
+                    <option value="WHATSAPP">WHATSAPP</option>
+                    <option value="IN_APP">IN_APP</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs font-medium text-muted-foreground">Notification Type</label>
+                <select
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
+                  value={editingTemplate.type}
+                  onChange={(e) => setEditingTemplate({ ...editingTemplate, type: e.target.value })}
+                >
+                  <option value="ANNOUNCEMENT">ANNOUNCEMENT</option>
+                  <option value="MEMBERSHIP_EXPIRY">MEMBERSHIP_EXPIRY</option>
+                  <option value="PAYMENT_SUCCESS">PAYMENT_SUCCESS</option>
+                  <option value="PAYMENT_FAILED">PAYMENT_FAILED</option>
+                  <option value="BATCH_CHANGE">BATCH_CHANGE</option>
+                  <option value="BIRTHDAY">BIRTHDAY</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="text-xs font-medium text-muted-foreground">Subject (Optional for SMS/Push)</label>
+                <Input
+                  placeholder="e.g. Your membership is expiring soon"
+                  value={editingTemplate.subject ?? ''}
+                  onChange={(e) => setEditingTemplate({ ...editingTemplate, subject: e.target.value })}
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-medium text-muted-foreground">
+                  Body (Use &#123;&#123;variable&#125;&#125; placeholders)
+                </label>
+                <Textarea
+                  rows={4}
+                  placeholder="e.g. Hello {{memberName}}, your membership at {{gymName}} will expire on {{expiryDate}}."
+                  value={editingTemplate.body}
+                  onChange={(e) => setEditingTemplate({ ...editingTemplate, body: e.target.value })}
+                  required
+                />
+              </div>
+
+              <div className="flex gap-2 pt-2">
+                <Button type="submit" disabled={isSaving}>
+                  {isSaving ? 'Saving...' : 'Save Template'}
+                </Button>
+                <Button type="button" variant="ghost" onClick={() => setEditingTemplate(null)}>
+                  Cancel
                 </Button>
               </div>
-            ))}
-          </div>
-        )}
-      </CardContent>
-    </Card>
+            </form>
+          </CardContent>
+        </Card>
+      )}
+    </div>
   );
 }

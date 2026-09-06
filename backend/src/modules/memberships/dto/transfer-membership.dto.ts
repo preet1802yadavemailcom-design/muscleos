@@ -1,8 +1,10 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsUUID } from 'class-validator';
+import { IsNotEmpty, IsString } from 'class-validator';
 
 export class TransferMembershipDto {
-  @ApiProperty({ description: 'Member id to transfer this membership to' })
-  @IsUUID()
+  @ApiProperty({ description: 'Target Member UUID or Member Code to transfer this membership to' })
+  @IsString()
+  @IsNotEmpty()
   toMemberId: string;
 }
+

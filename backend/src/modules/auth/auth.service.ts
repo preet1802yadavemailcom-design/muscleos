@@ -3,7 +3,15 @@ import { randomUUID } from 'crypto';
 import { parseUserAgent } from '@common/utils/user-agent.util';
 import { PrismaService } from '@database/prisma.service';
 import { RedisService } from '@database/redis.service';
-import { Injectable, UnauthorizedException, BadRequestException, ForbiddenException } from '@nestjs/common';
+import {
+  Injectable,
+  UnauthorizedException,
+  BadRequestException,
+  ForbiddenException,
+  ConflictException,
+  HttpException,
+  HttpStatus,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { UserRole, UserStatus } from '@prisma/client';
@@ -500,6 +508,19 @@ export class AuthService {
   }
 
   async claimAccount(dto: ClaimAccountDto, ipAddress?: string, userAgent?: string) {
+    const ip = ipAddress || 'unknown';
+    const rateLimitKey = `claim_attempts:${ip}`;
+    const attempts = await this.redis.increment(rateLimitKey);
+    if (attempts === 1) {
+      await this.redis.expire(rateLimitKey, 900); // 15 minutes window
+    }
+    if (attempts > 10) {
+      throw new HttpException(
+        'Too many account activation attempts. Please try again in 15 minutes.',
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+
     const tokenHash = this.encryption.hash(dto.token);
     const member = await this.prisma.member.findFirst({
       where: {
@@ -514,42 +535,62 @@ export class AuthService {
       throw new BadRequestException('Invalid or expired activation token. Please request a new activation link from your gym.');
     }
 
-    const hashedPassword = await bcrypt.hash(dto.password, this.configService.get('app.bcryptRounds', 12));
-
-    let user = member.user;
-    if (user) {
-      user = await this.prisma.user.update({
-        where: { id: user.id },
-        data: {
-          password: hashedPassword,
-          status: UserStatus.ACTIVE,
-          emailVerified: true,
-        },
-      });
-    } else {
-      user = await this.prisma.user.create({
-        data: {
-          email: member.email || `${member.memberCode.toLowerCase()}@${member.gym.slug}.muscleos.local`,
-          password: hashedPassword,
-          firstName: member.firstName,
-          lastName: member.lastName,
-          phone: member.mobile,
-          role: UserRole.MEMBER,
-          gymId: member.gymId,
-          status: UserStatus.ACTIVE,
-          emailVerified: !!member.email,
-          phoneVerified: true,
-        },
-      });
-      await this.prisma.member.update({
-        where: { id: member.id },
-        data: { userId: user.id },
-      });
+    if (member.gym.status !== 'ACTIVE') {
+      throw new ForbiddenException('This gym is currently not active.');
     }
 
-    await this.prisma.member.update({
-      where: { id: member.id },
-      data: { claimToken: null, claimTokenExpiresAt: null },
+    const hashedPassword = await bcrypt.hash(dto.password, this.configService.get('app.bcryptRounds', 12));
+
+    const user = await this.prisma.$transaction(async (tx) => {
+      // Concurrency guard: atomically consume the token.
+      // If a concurrent request already consumed the token, updateMany count will be 0.
+      const { count } = await tx.member.updateMany({
+        where: {
+          id: member.id,
+          claimToken: member.claimToken,
+        },
+        data: {
+          claimToken: null,
+          claimTokenExpiresAt: null,
+        },
+      });
+
+      if (count !== 1) {
+        throw new ConflictException('This activation token has already been claimed.');
+      }
+
+      let u = member.user;
+      if (u) {
+        u = await tx.user.update({
+          where: { id: u.id },
+          data: {
+            password: hashedPassword,
+            status: UserStatus.ACTIVE,
+            emailVerified: true,
+          },
+        });
+      } else {
+        u = await tx.user.create({
+          data: {
+            email: member.email || `${member.memberCode.toLowerCase()}@${member.gym.slug}.muscleos.local`,
+            password: hashedPassword,
+            firstName: member.firstName,
+            lastName: member.lastName,
+            phone: member.mobile,
+            role: UserRole.MEMBER,
+            gymId: member.gymId,
+            status: UserStatus.ACTIVE,
+            emailVerified: !!member.email,
+            phoneVerified: false,
+          },
+        });
+        await tx.member.update({
+          where: { id: member.id },
+          data: { userId: u.id },
+        });
+      }
+
+      return u;
     });
 
     const tokens = await this.generateTokens(user);

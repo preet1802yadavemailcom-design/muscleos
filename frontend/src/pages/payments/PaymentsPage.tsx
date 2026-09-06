@@ -13,6 +13,7 @@ export function PaymentsPage() {
   const [amount, setAmount] = useState('');
   const [gateway, setGateway] = useState('CASH');
   const [notes, setNotes] = useState('');
+  const [utr, setUtr] = useState('');
 
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -22,13 +23,22 @@ export function PaymentsPage() {
     queryFn: () => api.get('/payments'),
   });
 
+  const getMethodForGateway = (gw: string) => {
+    if (gw === 'CASH') return 'CASH';
+    if (gw === 'UPI') return 'UPI';
+    if (gw === 'BANK_TRANSFER') return 'BANK_TRANSFER';
+    return 'ONLINE';
+  };
+
   const createPaymentMutation = useMutation({
     mutationFn: () =>
       api.post('/payments', {
-        memberId: memberId.trim(),
-        total: Number(amount),
+        memberId: memberId.trim() || undefined,
+        amount: Number(amount),
         gateway,
-        notes: notes || undefined,
+        method: getMethodForGateway(gateway),
+        utr: gateway === 'UPI' && utr.trim() ? utr.trim() : undefined,
+        notes: notes.trim() || undefined,
       }),
     onSuccess: () => {
       toast({ title: 'Payment created successfully' });
@@ -36,6 +46,7 @@ export function PaymentsPage() {
       setMemberId('');
       setAmount('');
       setNotes('');
+      setUtr('');
       queryClient.invalidateQueries({ queryKey: ['payments'] });
     },
     onError: (err: any) => {
@@ -112,6 +123,16 @@ export function PaymentsPage() {
                   </select>
                 </div>
               </div>
+              {gateway === 'UPI' && (
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground">UPI Reference / UTR Number (Optional)</label>
+                  <Input
+                    placeholder="e.g. 12-digit UTR reference"
+                    value={utr}
+                    onChange={(e) => setUtr(e.target.value)}
+                  />
+                </div>
+              )}
               <div>
                 <label className="text-xs font-medium text-muted-foreground">Notes (Optional)</label>
                 <Input

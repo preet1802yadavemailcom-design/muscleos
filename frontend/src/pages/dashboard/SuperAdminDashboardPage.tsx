@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Building2, Users, DollarSign, UserCog, Bell, LifeBuoy } from 'lucide-react';
+import { Building2, Users, DollarSign, UserCog, Bell, LifeBuoy, Download } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import {
@@ -55,6 +55,33 @@ export function SuperAdminDashboardPage() {
     })();
   }, []);
 
+  const handleExport = () => {
+    if (!stats) return;
+    const rows = [
+      ['Metric', 'Value'],
+      ['Total Gyms', String(stats.gyms.total)],
+      ['Active Gyms', String(stats.gyms.active)],
+      ['Pending Gyms', String(stats.gyms.pending)],
+      ['Suspended Gyms', String(stats.gyms.suspended)],
+      ['New Gyms (Last 30 Days)', String(stats.gyms.newLast30Days)],
+      ['Total Members', String(stats.members.total)],
+      ['New Members (Last 30 Days)', String(stats.members.newLast30Days)],
+      ['Total Trainers', String(stats.trainers.total)],
+      ['Platform Revenue Total (INR)', String(stats.revenue.total)],
+      ['Platform Revenue Last 30 Days (INR)', String(stats.revenue.last30Days)],
+      ['Open Tickets', String(openTickets ?? 0)],
+      ['Exported At', new Date().toISOString()],
+    ];
+    const csvContent = 'data:text/csv;charset=utf-8,' + rows.map((r) => r.map((c) => `"${c.replace(/"/g, '""')}"`).join(',')).join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', `platform-overview-${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   const cards = [
     { name: 'Total Gyms', value: stats?.gyms.total ?? '—', icon: Building2 },
     { name: 'Total Members', value: stats?.members.total ?? '—', icon: Users },
@@ -76,7 +103,8 @@ export function SuperAdminDashboardPage() {
           <p className="text-muted-foreground">Super Admin — all gyms at a glance</p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm">
+          <Button variant="outline" size="sm" onClick={handleExport} disabled={!stats || loading}>
+            <Download className="h-4 w-4 mr-1" />
             Export
           </Button>
         </div>
