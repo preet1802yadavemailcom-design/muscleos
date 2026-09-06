@@ -184,6 +184,22 @@ export class PaymentsService {
     }));
   }
 
+  /** Staff/owner view of ALL months (any status) for a membership, gym-scoped
+   *  only (not member-owned) -- used by the "record manual payment" screen.
+   *  Regression note: this method was accidentally dropped in a later
+   *  refactor of this file even though the frontend RecordManualPaymentDialog
+   *  still calls it -- re-added here, keep it if this file is regenerated. */
+  async getMembershipMonthsForStaff(gymId: string, membershipId: string) {
+    const membership = await this.prisma.membership.findFirst({ where: { id: membershipId, gymId } });
+    if (!membership) throw new NotFoundException('Membership not found in this gym.');
+
+    const months = await this.prisma.membershipMonth.findMany({
+      where: { membershipId },
+      orderBy: { monthStart: 'asc' },
+    });
+    return months.map((m) => ({ id: m.id, monthStart: m.monthStart, amountDue: m.amountDue, status: m.status }));
+  }
+
   /** Step 1: create a pending payment record + gateway order for online payments. */
   async initiate(dto: CreatePaymentDto, gymId: string, collectedById: string) {
     this.assertGatewayMethodCompatible(dto.gateway, dto.method);
@@ -882,7 +898,7 @@ export class PaymentsService {
 
     const newStatus: PaymentStatus = approve ? 'COMPLETED' : 'FAILED';
 
-    await this.prisma.$transaction(async (tx) => {
+    await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       const { count } = await tx.payment.updateMany({
         where: { id: paymentId, status: 'PENDING' },
         data: { status: newStatus, verifiedById: verifierUserId, verifiedAt: new Date() },

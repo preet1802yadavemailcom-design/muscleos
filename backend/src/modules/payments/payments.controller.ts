@@ -261,6 +261,15 @@ export class PaymentsController {
   @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard, GymOwnerGuard)
   @ApiBearerAuth('access-token')
   @Roles(UserRole.GYM_OWNER, UserRole.RECEPTIONIST)
+  @Get('membership/:membershipId/months')
+  @ApiOperation({ summary: "Staff view of all months (any status) for a member's membership" })
+  async getMembershipMonthsForStaff(@GymId() gymId: string, @Param('membershipId') membershipId: string) {
+    return this.service.getMembershipMonthsForStaff(gymId, membershipId);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard, GymOwnerGuard)
+  @ApiBearerAuth('access-token')
+  @Roles(UserRole.GYM_OWNER, UserRole.RECEPTIONIST)
   @Permissions('payments:create')
   @Post('manual-with-months')
   async recordManualWithMonths(
