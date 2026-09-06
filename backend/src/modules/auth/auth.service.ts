@@ -726,10 +726,10 @@ export class AuthService {
     } else if (!result.success) {
       this.logger.error(`OTP email failed for ${email}: ${result.error}`, undefined, 'AuthService');
     }
+  }
 
-    private generateOtp(): string {
-      return randomInt(100000, 1000000).toString();
-    }
+  private generateOtp(): string {
+    return randomInt(100000, 1000000).toString();
   }
 
   private async updateLastLogin(userId: string) {
