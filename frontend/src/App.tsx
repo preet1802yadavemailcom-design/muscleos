@@ -1,9 +1,11 @@
-import { Suspense, lazy } from 'react';
+import { Suspense, lazy, useEffect } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuthStore } from '@store/auth.store';
 import { Layout } from '@components/layout/Layout';
 import { RoleRoute } from '@components/auth/RoleRoute';
 import { PwaUpdatePrompt } from '@components/layout/PwaUpdatePrompt';
+import { requestPushToken } from '@/lib/firebase';
+import api from '@services/api';
 
 // Route-level code splitting: each page is its own chunk, fetched only when
 // the user navigates to it, instead of one ~760KB bundle loaded up front.
@@ -76,6 +78,26 @@ function RoleAwareDashboard() {
 }
 
 function App() {
+  const { isAuthenticated } = useAuthStore();
+
+  useEffect(() => {
+    if (
+      isAuthenticated &&
+      typeof window !== 'undefined' &&
+      'Notification' in window &&
+      Notification.permission === 'granted'
+    ) {
+      requestPushToken()
+        .then((token) => {
+          if (token) {
+            localStorage.setItem('fcm_token', token);
+            api.post('/profile/push-token', { token, platform: 'web' }).catch(() => undefined);
+          }
+        })
+        .catch(() => undefined);
+    }
+  }, [isAuthenticated]);
+
   return (
     <>
       <PwaUpdatePrompt />

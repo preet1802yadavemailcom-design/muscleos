@@ -4,14 +4,16 @@ import { GymOwnerGuard } from '@common/guards/gym-owner.guard';
 import { JwtAuthGuard } from '@common/guards/jwt-auth.guard';
 import { PermissionsGuard } from '@common/guards/permissions.guard';
 import { RolesGuard } from '@common/guards/roles.guard';
-import { Controller, Get, Post, Body, Param, Query, UseGuards, ParseIntPipe, DefaultValuePipe } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, Query, UseGuards, UseInterceptors, ParseIntPipe, DefaultValuePipe } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiQuery } from '@nestjs/swagger';
 import { UserRole, NotificationStatus, NotificationType } from '@prisma/client';
+import { IdempotencyInterceptor } from '@common/interceptors/idempotency.interceptor';
 
 import { SendNotificationDto, CreateAnnouncementDto, UpsertTemplateDto } from './dto/send-notification.dto';
 import { NotificationsService } from './notifications.service';
 
 @ApiTags('Notifications')
+@UseInterceptors(IdempotencyInterceptor)
 @Controller('notifications')
 @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard, GymOwnerGuard)
 @ApiBearerAuth('access-token')

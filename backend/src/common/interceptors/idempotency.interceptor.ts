@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   CallHandler,
   ConflictException,
   ExecutionContext,
@@ -6,6 +7,7 @@ import {
   NestInterceptor,
 } from '@nestjs/common';
 import { RedisService } from '@database/redis.service';
+import { createHash } from 'crypto';
 import { Request, Response } from 'express';
 import { Observable, of, throwError } from 'rxjs';
 import { catchError, tap } from 'rxjs/operators';
@@ -37,9 +39,13 @@ export class IdempotencyInterceptor implements NestInterceptor {
 
     const redisKey = `idempotency:${tenantOrUser}:${rawKey.trim()}`;
 
+    const requestHash = createHash('sha256')
+      .update(`${request.method}:${request.originalUrl || request.url}:${JSON.stringify(request.body || {})}`)
+      .digest('hex');
+
     const acquired = await this.redis.setNx(
       redisKey,
-      JSON.stringify({ status: 'PENDING', createdAt: Date.now() }),
+      JSON.stringify({ status: 'PENDING', requestHash, createdAt: Date.now() }),
       IDEMPOTENCY_TTL_SECONDS,
     );
 
@@ -48,6 +54,11 @@ export class IdempotencyInterceptor implements NestInterceptor {
       if (existing) {
         try {
           const parsed = JSON.parse(existing);
+          if (parsed.requestHash && parsed.requestHash !== requestHash) {
+            throw new BadRequestException(
+              'Idempotency key was previously used with a different request payload or endpoint.',
+            );
+          }
           if (parsed.status === 'PENDING') {
             throw new ConflictException(
               'A request with this Idempotency-Key is currently processing. Please try again shortly.',
@@ -60,7 +71,7 @@ export class IdempotencyInterceptor implements NestInterceptor {
             return of(parsed.body);
           }
         } catch (e) {
-          if (e instanceof ConflictException) throw e;
+          if (e instanceof ConflictException || e instanceof BadRequestException) throw e;
         }
       }
       throw new ConflictException('Concurrent mutation with duplicate Idempotency-Key.');
@@ -74,6 +85,7 @@ export class IdempotencyInterceptor implements NestInterceptor {
               redisKey,
               JSON.stringify({
                 status: 'COMPLETED',
+                requestHash,
                 statusCode: response.statusCode,
                 body: resData,
                 completedAt: Date.now(),

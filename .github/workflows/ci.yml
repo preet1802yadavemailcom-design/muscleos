@@ -160,9 +160,9 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-      - name: Audit backend
+      - name: Audit backend (production dependencies)
         working-directory: backend
-        run: npm audit --audit-level=high || true
-      - name: Audit frontend
+        run: npm audit --omit=dev --audit-level=critical
+      - name: Audit frontend (production dependencies)
         working-directory: frontend
-        run: npm audit --audit-level=high || true
+        run: npm audit --omit=dev --audit-level=high

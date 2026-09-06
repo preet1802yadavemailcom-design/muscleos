@@ -286,6 +286,65 @@ describe('AuthService', () => {
       ).rejects.toBeInstanceOf(UnauthorizedException);
     });
   });
+
+  describe('Session Management & Revocation', () => {
+    it('revokes single session in DB and Redis when requested by owner', async () => {
+      prisma.userSession.findFirst.mockResolvedValue({ id: 'sess-target', userId: 'user-1' });
+
+      const res = await service.revokeSession('user-1', 'sess-target');
+
+      expect(prisma.userSession.update).toHaveBeenCalledWith({
+        where: { id: 'sess-target' },
+        data: { isActive: false },
+      });
+      expect(redis.set).toHaveBeenCalledWith('session_revoked:sess-target', '1', 86400);
+      expect(res).toEqual({ message: 'Session revoked' });
+    });
+
+    it('revokeAllOtherSessions preserves caller current session and revokes all others', async () => {
+      const otherSessions = [{ id: 'sess-other-1' }, { id: 'sess-other-2' }];
+      prisma.userSession.findMany.mockResolvedValue(otherSessions);
+
+      const res = await service.revokeAllOtherSessions('user-1', 'current-sess-id');
+
+      // Verifies findMany excluded current session
+      expect(prisma.userSession.findMany).toHaveBeenCalledWith({
+        where: {
+          userId: 'user-1',
+          isActive: true,
+          id: { not: 'current-sess-id' },
+        },
+        select: { id: true },
+      });
+
+      // Verifies Redis blacklisted only the other sessions
+      expect(redis.set).toHaveBeenCalledWith('session_revoked:sess-other-1', '1', 86400);
+      expect(redis.set).toHaveBeenCalledWith('session_revoked:sess-other-2', '1', 86400);
+      expect(redis.set).not.toHaveBeenCalledWith('session_revoked:current-sess-id', expect.anything(), expect.anything());
+
+      // Verifies DB updated only other sessions
+      expect(prisma.userSession.updateMany).toHaveBeenCalledWith({
+        where: {
+          userId: 'user-1',
+          isActive: true,
+          id: { not: 'current-sess-id' },
+        },
+        data: { isActive: false },
+      });
+
+      // Verifies refresh tokens for other sessions were revoked
+      expect(prisma.refreshToken.updateMany).toHaveBeenCalledWith({
+        where: {
+          userId: 'user-1',
+          revokedAt: null,
+          NOT: { deviceInfo: { startsWith: 'session:current-sess-id|' } },
+        },
+        data: { revokedAt: expect.any(Date) },
+      });
+
+      expect(res).toEqual({ message: 'All other sessions revoked' });
+    });
+  });
 });
 
 

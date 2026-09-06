@@ -1,7 +1,7 @@
-﻿import { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { User, Mail, MapPin, Calendar, ShieldCheck, ShieldAlert, Save, Flame, CreditCard, Clock, ChevronRight } from 'lucide-react';
+import { User, Mail, MapPin, Calendar, ShieldCheck, ShieldAlert, Save, Flame, CreditCard, Clock, ChevronRight, Bell, BellOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
 import { apiErrorMessage } from '@/lib/api-error';
+import { requestPushToken } from '@/lib/firebase';
 import api from '@services/api';
 
 interface MyProfile {
@@ -65,6 +66,70 @@ export function MyProfilePage() {
       emergencyContactPhone: data.memberProfile?.emergencyContactPhone ?? '',
     });
   }, [data]);
+
+  const [pushStatus, setPushStatus] = useState<string>('default');
+  const [isPushLoading, setIsPushLoading] = useState(false);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+      setPushStatus(Notification.permission);
+    } else {
+      setPushStatus('unsupported');
+    }
+  }, []);
+
+  const handleEnablePush = async () => {
+    setIsPushLoading(true);
+    try {
+      const token = await requestPushToken();
+      if (token) {
+        localStorage.setItem('fcm_token', token);
+        await api.post('/profile/push-token', { token, platform: 'web' });
+        setPushStatus('granted');
+        toast({ title: 'Push notifications enabled' });
+      } else {
+        if (typeof window !== 'undefined' && 'Notification' in window) {
+          setPushStatus(Notification.permission);
+        }
+        if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'denied') {
+          toast({
+            title: 'Permission denied',
+            description: 'Notifications were blocked in your browser settings.',
+            variant: 'destructive',
+          });
+        }
+      }
+    } catch (err) {
+      toast({
+        title: 'Error enabling push notifications',
+        description: apiErrorMessage(err),
+        variant: 'destructive',
+      });
+    } finally {
+      setIsPushLoading(false);
+    }
+  };
+
+  const handleDisablePush = async () => {
+    setIsPushLoading(true);
+    try {
+      const token = localStorage.getItem('fcm_token');
+      if (token) {
+        await api.delete('/profile/push-token', { data: { token } });
+        localStorage.removeItem('fcm_token');
+      }
+      toast({ title: 'Push notifications disabled on this device' });
+      setPushStatus('default');
+    } catch (err) {
+      toast({
+        title: 'Error disabling push notifications',
+        description: apiErrorMessage(err),
+        variant: 'destructive',
+      });
+    } finally {
+      setIsPushLoading(false);
+    }
+  };
 
   const saveMutation = useMutation({
     mutationFn: () => api.patch('/profile', form),
@@ -171,6 +236,48 @@ export function MyProfilePage() {
           <Button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending} className="gap-2">
             <Save className="h-4 w-4" /> {saveMutation.isPending ? 'Saving...' : 'Save changes'}
           </Button>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center justify-between">
+            <span className="flex items-center gap-2">
+              <Bell className="h-4 w-4" /> Push Notifications
+            </span>
+            <Badge variant={pushStatus === 'granted' ? 'success' : pushStatus === 'denied' ? 'destructive' : 'secondary'}>
+              {pushStatus === 'granted' ? 'Enabled' : pushStatus === 'denied' ? 'Blocked' : 'Disabled'}
+            </Badge>
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-sm text-muted-foreground">
+            Get instant alerts on this device for membership expiries, payment receipts, announcements, and check-ins.
+          </p>
+          <div className="flex items-center gap-3 pt-1">
+            {pushStatus === 'granted' ? (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleDisablePush}
+                disabled={isPushLoading}
+                className="gap-2 text-destructive hover:text-destructive"
+              >
+                <BellOff className="h-4 w-4" />
+                {isPushLoading ? 'Updating...' : 'Disable on this device'}
+              </Button>
+            ) : (
+              <Button
+                size="sm"
+                onClick={handleEnablePush}
+                disabled={isPushLoading || pushStatus === 'unsupported'}
+                className="gap-2"
+              >
+                <Bell className="h-4 w-4" />
+                {isPushLoading ? 'Enabling...' : pushStatus === 'denied' ? 'Blocked in Browser' : 'Enable Notifications'}
+              </Button>
+            )}
+          </div>
         </CardContent>
       </Card>
 

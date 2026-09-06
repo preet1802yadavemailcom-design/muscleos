@@ -148,6 +148,8 @@ export class NotificationsService {
 
     let recipient: string | null = null;
     let recipientName = 'there';
+    let targetUserId: string | null = notification.userId ?? null;
+
     if (notification.userId) {
       const user = await this.prisma.user.findFirst({ where: { id: notification.userId, gymId: notification.gymId } });
       recipient = notification.channel === 'SMS' || notification.channel === 'WHATSAPP' ? user?.phone ?? null : user?.email ?? null;
@@ -156,19 +158,26 @@ export class NotificationsService {
       const member = await this.prisma.member.findFirst({ where: { id: notification.memberId, gymId: notification.gymId } });
       recipient = notification.channel === 'SMS' || notification.channel === 'WHATSAPP' ? member?.mobile ?? null : member?.email ?? null;
       if (member?.firstName) recipientName = member.firstName;
+      if (member?.userId) {
+        targetUserId = member.userId;
+      }
     }
 
     let result: { success: boolean; error?: string } = { success: false, error: 'No recipient' };
 
-    if (recipient) {
-      switch (notification.channel) {
-        case NotificationChannel.EMAIL:
+    switch (notification.channel) {
+      case NotificationChannel.EMAIL:
+        if (recipient) {
           result = await this.email.send(recipient, notification.title, notification.content);
-          break;
-        case NotificationChannel.SMS:
+        }
+        break;
+      case NotificationChannel.SMS:
+        if (recipient) {
           result = await this.sms.send(recipient, notification.content);
-          break;
-        case NotificationChannel.WHATSAPP:
+        }
+        break;
+      case NotificationChannel.WHATSAPP:
+        if (recipient) {
           // WhatsApp policy requires an approved template for any
           // business-initiated message outside a 24h customer session —
           // which every one of these (check-in confirmation, payment
@@ -176,14 +185,18 @@ export class NotificationsService {
           // two-variable template approved in Meta Business Manager:
           // {{1}} = recipient's name, {{2}} = the already-resolved message.
           result = await this.whatsapp.sendTemplate(recipient, 'muscleos_alert', 'en', [recipientName, notification.content]);
-          break;
-        case NotificationChannel.PUSH:
-          result = await this.push.send(notification.userId ?? notification.memberId ?? '', notification.title, notification.content);
-          break;
-        case NotificationChannel.IN_APP:
-          result = { success: true };
-          break;
-      }
+        }
+        break;
+      case NotificationChannel.PUSH:
+        if (!targetUserId) {
+          result = { success: false, error: 'No user account linked to recipient for push notification' };
+        } else {
+          result = await this.push.send(targetUserId, notification.title, notification.content);
+        }
+        break;
+      case NotificationChannel.IN_APP:
+        result = { success: true };
+        break;
     }
 
     await this.prisma.notification.update({

@@ -103,6 +103,53 @@ describe('IdempotencyInterceptor', () => {
     expect(next.handle).not.toHaveBeenCalled();
   });
 
+  it('throws BadRequestException (400) if same idempotency key is reused with different payload', async () => {
+    request.headers['idempotency-key'] = 'key-mismatch';
+    request.method = 'POST';
+    request.originalUrl = '/api/payments';
+    request.body = { amount: 2000 };
+
+    redis.setNx.mockResolvedValue(false);
+    // Cached record has a different request hash (e.g. amount was 1000)
+    redis.get.mockResolvedValue(
+      JSON.stringify({
+        status: 'COMPLETED',
+        requestHash: 'different-sha256-hash',
+        statusCode: 200,
+        body: { id: 'old-payment' },
+      }),
+    );
+
+    await expect(interceptor.intercept(context, next)).rejects.toThrow(
+      'Idempotency key was previously used with a different request payload or endpoint.',
+    );
+    expect(next.handle).not.toHaveBeenCalled();
+  });
+
+  it('handles concurrent identical requests via Promise.all where one succeeds and second receives 409', async () => {
+    request.headers['idempotency-key'] = 'key-concurrent';
+    next.handle.mockReturnValue(of({ success: true }));
+
+    // First call to setNx returns true (acquired), second returns false (conflict)
+    let callCount = 0;
+    redis.setNx.mockImplementation(() => {
+      callCount++;
+      return Promise.resolve(callCount === 1);
+    });
+    redis.get.mockResolvedValue(JSON.stringify({ status: 'PENDING', createdAt: Date.now() }));
+
+    const call1 = interceptor.intercept(context, next).then((obs) => lastValueFrom(obs));
+    const call2 = interceptor.intercept(context, next).then((obs) => lastValueFrom(obs));
+
+    const results = await Promise.allSettled([call1, call2]);
+
+    expect(results[0].status).toBe('fulfilled');
+    expect(results[1].status).toBe('rejected');
+    if (results[1].status === 'rejected') {
+      expect(results[1].reason).toBeInstanceOf(ConflictException);
+    }
+  });
+
   it('releases idempotency lock when handler throws an error', async () => {
     request.headers['idempotency-key'] = 'key-err';
     redis.setNx.mockResolvedValue(true);
