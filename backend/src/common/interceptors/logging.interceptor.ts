@@ -4,6 +4,25 @@ import { Request } from 'express';
 import { Observable } from 'rxjs';
 import { tap } from 'rxjs/operators';
 
+const SENSITIVE_QUERY_PARAMS = ['access_token', 'token', 'otp', 'secret', 'password', 'key', 'refresh_token', 'apikey', 'authorization'];
+
+function sanitizeUrl(rawUrl: string): string {
+  try {
+    const [path, query] = rawUrl.split('?');
+    if (!query) return rawUrl;
+    const params = new URLSearchParams(query);
+    for (const key of Array.from(params.keys())) {
+      if (SENSITIVE_QUERY_PARAMS.some((p) => key.toLowerCase().includes(p.toLowerCase()))) {
+        params.set(key, '[REDACTED]');
+      }
+    }
+    const sanitizedQuery = params.toString();
+    return sanitizedQuery ? `${path}?${sanitizedQuery}` : path;
+  } catch {
+    return rawUrl;
+  }
+}
+
 @Injectable()
 export class LoggingInterceptor implements NestInterceptor {
   constructor(private readonly logger: LoggerService) {}
@@ -11,7 +30,7 @@ export class LoggingInterceptor implements NestInterceptor {
   intercept(context: ExecutionContext, next: CallHandler): Observable<any> {
     const request = context.switchToHttp().getRequest<Request>();
     const method = request.method;
-    const url = request.url;
+    const url = sanitizeUrl(request.url);
     const requestId = request.headers['x-request-id'] as string || 'unknown';
     const userAgent = request.get('user-agent') || 'unknown';
     const ip = request.ip;

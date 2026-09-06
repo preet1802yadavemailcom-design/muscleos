@@ -168,9 +168,12 @@ export class AuthController {
   @ApiBearerAuth('access-token')
   @Post('sessions/revoke-others')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Revoke all other devices/sessions (keep current one)' })
-  async revokeOthers(@CurrentUser('userId') userId: string, @Body('currentSessionId') currentSessionId?: string) {
-    return this.authService.revokeAllOtherSessions(userId, currentSessionId);
+  async revokeOthers(
+    @CurrentUser('userId') userId: string,
+    @Body('currentSessionId') currentSessionId?: string,
+    @CurrentUser('sessionId') tokenSessionId?: string,
+  ) {
+    return this.authService.revokeAllOtherSessions(userId, currentSessionId || tokenSessionId);
   }
 
   @Public()
@@ -256,7 +259,8 @@ export class AuthController {
     @CurrentUser('userId') userId: string,
     @Body('password') password: string,
     @Body('code') code?: string,
+    @Body('action') action?: string,
   ) {
-    return this.stepUp.verify(userId, password, code);
+    return this.stepUp.verify(userId, password, code, action);
   }
 }

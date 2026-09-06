@@ -138,7 +138,7 @@ export class ProfileService {
     return this.push.registerToken(userId, token, platform);
   }
 
-  async unregisterPushToken(token: string) {
-    return this.push.unregisterToken(token);
+  async unregisterPushToken(userId: string, token: string) {
+    return this.push.unregisterToken(userId, token);
   }
 }

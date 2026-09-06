@@ -230,6 +230,26 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     );
   }
 
+  async getDel(key: string): Promise<string | null> {
+    return this.run(
+      () => {
+        const val = this.memory.get(key);
+        if (val !== null) {
+          this.memory.del(key);
+        }
+        return val;
+      },
+      async () => {
+        try {
+          return await (this.client as any).getdel(key);
+        } catch {
+          const lua = `local val = redis.call('get', KEYS[1]) if val then redis.call('del', KEYS[1]) end return val`;
+          return (await this.client.eval(lua, 1, key)) as string | null;
+        }
+      },
+    );
+  }
+
   async del(key: string): Promise<void> {
     return this.run(
       () => {

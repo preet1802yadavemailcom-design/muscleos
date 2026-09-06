@@ -50,7 +50,17 @@ async function bootstrap() {
     origin: configService.get('FRONTEND_URL', 'http://localhost:5173'),
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Gym-ID', 'X-Request-ID', 'X-Checkin-Session'],
+    allowedHeaders: [
+      'Content-Type',
+      'Authorization',
+      'X-Gym-ID',
+      'X-Request-ID',
+      'X-Checkin-Session',
+      'X-Step-Up-Token',
+      'Idempotency-Key',
+      'X-Idempotency-Key',
+      'X-Api-Key',
+    ],
   });
 
   app.use(morgan('combined', {

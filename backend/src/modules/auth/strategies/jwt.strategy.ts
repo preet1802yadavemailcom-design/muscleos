@@ -63,6 +63,14 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
     if (payload.purpose) {
       throw new UnauthorizedException('Invalid token');
     }
+    // Check if specific device session has been revoked
+    if (payload.sessionId) {
+      const sessionRevoked = await this.redis.get(`session_revoked:${payload.sessionId}`);
+      if (sessionRevoked) {
+        throw new UnauthorizedException('Session has been revoked');
+      }
+    }
+
     const user = await this.prisma.user.findUnique({
       where: { id: payload.sub },
       select: {
@@ -96,6 +104,7 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
       role: user.role,
       gymId: user.gymId,
       branchId: user.branchId ?? undefined,
+      sessionId: payload.sessionId ?? undefined,
       permissions: getPermissionsForRole(user.role),
     };
   }

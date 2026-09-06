@@ -1,4 +1,4 @@
-import { randomUUID } from 'crypto';
+import { randomUUID, randomInt } from 'crypto';
 
 import { parseUserAgent } from '@common/utils/user-agent.util';
 import { PrismaService } from '@database/prisma.service';
@@ -198,10 +198,12 @@ export class AuthService {
     return this.issueSessionAfterAuth(user, ipAddress, deviceInfo, false);
   }
 
-  private async issueSessionAfterAuth(validated: any, ipAddress?: string, deviceInfo?: string, rememberMe?: boolean) {    const tokens = await this.generateTokens(validated);
+  private async issueSessionAfterAuth(validated: any, ipAddress?: string, deviceInfo?: string, rememberMe?: boolean) {
+    const sessionId = randomUUID();
+    const tokens = await this.generateTokens(validated, sessionId);
     const refreshDays = rememberMe ? 30 : 7;
-    await this.createRefreshToken(validated.id, tokens.refreshToken, deviceInfo, ipAddress, refreshDays);
-    const session = await this.createSession(validated.id, tokens.accessToken, deviceInfo, ipAddress, refreshDays);
+    const session = await this.createSession(validated.id, tokens.accessToken, deviceInfo, ipAddress, refreshDays, sessionId);
+    await this.createRefreshToken(validated.id, tokens.refreshToken, deviceInfo, ipAddress, refreshDays, session.id);
     await this.updateLastLogin(validated.id);
     await this.redis.del(this.rateLimitKey(validated.email, ipAddress));
     await this.redis.del(this.rateLimitKey(validated.phone, ipAddress));
@@ -236,26 +238,26 @@ export class AuthService {
     // it instead of creating a duplicate. Not scoped to gymId:null anymore —
     // that was a bug that meant this branch never matched staff accounts
     // (which always have a gymId set), so only fresh Google-only signups
-    // ever "worked", and only for whichever account happened to sign up first.
-    const existingByEmail = await this.prisma.user.findFirst({ where: { email: profile.email } });
-    if (existingByEmail) {
+    // Multi-tenant safe Google identity resolution:
+    // If this email exists in multiple gyms, never arbitrarily pick one.
+    const matchingUsers = await this.prisma.user.findMany({ where: { email: profile.email } });
+    if (matchingUsers.length === 1) {
       user = await this.prisma.user.update({
-        where: { id: existingByEmail.id },
+        where: { id: matchingUsers[0].id },
         data: { googleId: profile.googleId, emailVerified: true },
         include: { gym: true },
       });
       return user;
+    } else if (matchingUsers.length > 1) {
+      throw new ConflictException('Multiple gym accounts found for this email. Please log in with your email and password to link your Google account.');
     }
 
-    // No User account yet — but a Member profile might already exist for
-    // this email (created by staff, or via kiosk self-registration) without
-    // ever having logged into the website. Link Google sign-in to that
-    // member instead of creating an orphan account with no gym/membership
-    // data, which is what silently broke Google login for members before.
-    const existingMember = await this.prisma.member.findFirst({
-      where: { email: profile.email, userId: null },
+    // No User account yet — check if exactly one unlinked Member profile exists
+    const matchingMembers = await this.prisma.member.findMany({
+      where: { email: profile.email, userId: null, deletedAt: null },
     });
-    if (existingMember) {
+    if (matchingMembers.length === 1) {
+      const existingMember = matchingMembers[0];
       user = await this.prisma.user.create({
         data: {
           email: profile.email,
@@ -338,7 +340,7 @@ export class AuthService {
     if (await this.redis.get(cooldownKey)) {
       throw new ForbiddenException('Please wait before requesting another code.');
     }
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const otp = randomInt(100000, 1000000).toString();
     await this.redis.set(`whatsapp_otp:${userId}`, otp, 600); // 10 min
     await this.redis.set(cooldownKey, '1', OTP_RESEND_COOLDOWN_SECONDS);
 
@@ -438,7 +440,7 @@ export class AuthService {
     if (await this.redis.get(cooldownKey)) {
       throw new ForbiddenException('Please wait before requesting another OTP.');
     }
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const otp = randomInt(100000, 1000000).toString();
     await this.redis.set(`verify_otp:${email}`, otp, 600);
     await this.redis.set(cooldownKey, '1', OTP_RESEND_COOLDOWN_SECONDS);
     await this.dispatchOtpEmail(email, otp, 'Verify your MuscleOS email');
@@ -593,9 +595,10 @@ export class AuthService {
       return u;
     });
 
-    const tokens = await this.generateTokens(user);
-    const session = await this.createSession(user.id, tokens.accessToken, userAgent, ipAddress);
-    await this.createRefreshToken(user.id, tokens.refreshToken, userAgent, ipAddress);
+    const sessionId = randomUUID();
+    const tokens = await this.generateTokens(user, sessionId);
+    const session = await this.createSession(user.id, tokens.accessToken, userAgent, ipAddress, 7, sessionId);
+    await this.createRefreshToken(user.id, tokens.refreshToken, userAgent, ipAddress, 7, session.id);
 
     await this.audit.log({
       action: 'ACCOUNT_CLAIMED',
@@ -702,7 +705,7 @@ export class AuthService {
     const user = await this.prisma.user.findFirst({ where: { email: dto.email } });
     if (!user) return { message: 'If email exists, reset link will be sent' };
 
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const otp = randomInt(100000, 1000000).toString();
     await this.redis.set(`otp:${dto.email}`, otp, 600); // 10 min validity
     await this.redis.set(cooldownKey, '1', OTP_RESEND_COOLDOWN_SECONDS);
     await this.audit.log({
@@ -787,13 +790,14 @@ export class AuthService {
     ]);
   }
 
-  private async generateTokens(user: any) {
+  private async generateTokens(user: any, sessionId?: string) {
     const payload = {
       sub: user.id,
       email: user.email,
       role: user.role,
       gymId: user.gymId,
       branchId: user.branchId ?? undefined,
+      sessionId: sessionId ?? user.currentSessionId ?? undefined,
     };
     const accessToken = this.jwtService.sign(payload, {
       secret: this.configService.get('app.jwtSecret'),
@@ -812,11 +816,13 @@ export class AuthService {
     deviceInfo?: string,
     ipAddress?: string,
     days = 7,
+    sessionId?: string,
   ) {
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + days);
+    const taggedDeviceInfo = sessionId ? `session:${sessionId}|${deviceInfo || ''}` : deviceInfo;
     await this.prisma.refreshToken.create({
-      data: { token, userId, expiresAt, deviceInfo, ipAddress },
+      data: { token, userId, expiresAt, deviceInfo: taggedDeviceInfo, ipAddress },
     });
   }
 
@@ -827,12 +833,14 @@ export class AuthService {
     deviceInfo?: string,
     ipAddress?: string,
     days = 7,
+    sessionId?: string,
   ) {
     const { deviceType, deviceName, os, browser } = parseUserAgent(deviceInfo);
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + days);
     return this.prisma.userSession.create({
       data: {
+        ...(sessionId ? { id: sessionId } : {}),
         userId,
         token: `${accessToken.slice(-32)}.${randomUUID()}`,
         deviceType,
@@ -863,17 +871,30 @@ export class AuthService {
     const session = await this.prisma.userSession.findFirst({ where: { id: sessionId, userId } });
     if (!session) throw new BadRequestException('Session not found');
     await this.prisma.userSession.update({ where: { id: sessionId }, data: { isActive: false } });
+    await this.redis.set(`session_revoked:${sessionId}`, '1', 86400);
     return { message: 'Session revoked' };
   }
 
   /** Revokes every session/refresh-token except the current one — "log out of all other devices". */
   async revokeAllOtherSessions(userId: string, currentSessionId?: string) {
+    const otherSessions = await this.prisma.userSession.findMany({
+      where: { userId, isActive: true, ...(currentSessionId ? { id: { not: currentSessionId } } : {}) },
+      select: { id: true },
+    });
+    for (const s of otherSessions) {
+      await this.redis.set(`session_revoked:${s.id}`, '1', 86400);
+    }
     await this.prisma.userSession.updateMany({
       where: { userId, isActive: true, ...(currentSessionId ? { id: { not: currentSessionId } } : {}) },
       data: { isActive: false },
     });
+    // Invalidate refresh tokens for other sessions while keeping current session's refresh token active
     await this.prisma.refreshToken.updateMany({
-      where: { userId, revokedAt: null },
+      where: {
+        userId,
+        revokedAt: null,
+        ...(currentSessionId ? { NOT: { deviceInfo: { startsWith: `session:${currentSessionId}|` } } } : {}),
+      },
       data: { revokedAt: new Date() },
     });
     return { message: 'All other sessions revoked' };

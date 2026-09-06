@@ -26,7 +26,7 @@ export class StepUpService {
     private readonly audit: AuditService,
   ) {}
 
-  async verify(userId: string, password: string, twoFactorCode?: string) {
+  async verify(userId: string, password: string, twoFactorCode?: string, action?: string) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw new UnauthorizedException('Account not found');
     if (!user.password) throw new UnauthorizedException('This account has no password set (signed up with Google)');
@@ -47,17 +47,26 @@ export class StepUpService {
     }
 
     const token = randomUUID();
-    await this.redis.set(`step_up:${userId}:${token}`, '1', STEP_UP_TTL_SECONDS);
+    const payload = JSON.stringify({ action: action || 'GENERAL', createdAt: Date.now() });
+    await this.redis.set(`step_up:${userId}:${token}`, payload, STEP_UP_TTL_SECONDS);
     await this.audit.log({ action: 'STEP_UP_AUTH_GRANTED', entity: 'User', entityId: userId, userId, gymId: user.gymId ?? undefined });
     return { stepUpToken: token, expiresInSeconds: STEP_UP_TTL_SECONDS };
   }
 
-  /** Single-use: consumed on first check so a leaked token can't be replayed for a second sensitive action. */
-  async consume(userId: string, token: string): Promise<boolean> {
+  /** Single-use: consumed atomically via getDel so a leaked token can't be replayed for a second sensitive action. */
+  async consume(userId: string, token: string, expectedAction?: string): Promise<boolean> {
     const key = `step_up:${userId}:${token}`;
-    const exists = await this.redis.get(key);
-    if (!exists) return false;
-    await this.redis.del(key);
-    return true;
+    const value = await this.redis.getDel(key);
+    if (!value) return false;
+    if (value === '1') return true;
+    try {
+      const parsed = JSON.parse(value);
+      if (expectedAction && parsed.action && parsed.action !== 'GENERAL' && parsed.action !== expectedAction) {
+        return false;
+      }
+      return true;
+    } catch {
+      return true;
+    }
   }
 }

@@ -114,6 +114,15 @@ export class NotificationsService {
 
     if (!content) throw new BadRequestException('Either templateName or content must be provided');
 
+    if (dto.userId) {
+      const user = await this.prisma.user.findFirst({ where: { id: dto.userId, gymId } });
+      if (!user) throw new NotFoundException(`User not found in this gym`);
+    }
+    if (dto.memberId) {
+      const member = await this.prisma.member.findFirst({ where: { id: dto.memberId, gymId } });
+      if (!member) throw new NotFoundException(`Member not found in this gym`);
+    }
+
     const notification = await this.prisma.notification.create({
       data: {
         type: dto.type,
@@ -140,11 +149,11 @@ export class NotificationsService {
     let recipient: string | null = null;
     let recipientName = 'there';
     if (notification.userId) {
-      const user = await this.prisma.user.findUnique({ where: { id: notification.userId } });
+      const user = await this.prisma.user.findFirst({ where: { id: notification.userId, gymId: notification.gymId } });
       recipient = notification.channel === 'SMS' || notification.channel === 'WHATSAPP' ? user?.phone ?? null : user?.email ?? null;
       if (user?.firstName) recipientName = user.firstName;
     } else if (notification.memberId) {
-      const member = await this.prisma.member.findUnique({ where: { id: notification.memberId } });
+      const member = await this.prisma.member.findFirst({ where: { id: notification.memberId, gymId: notification.gymId } });
       recipient = notification.channel === 'SMS' || notification.channel === 'WHATSAPP' ? member?.mobile ?? null : member?.email ?? null;
       if (member?.firstName) recipientName = member.firstName;
     }

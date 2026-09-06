@@ -145,8 +145,8 @@ export class PushProvider {
     return { message: 'Device registered for push notifications' };
   }
 
-  async unregisterToken(token: string) {
-    await this.prisma.pushToken.deleteMany({ where: { token } });
+  async unregisterToken(userId: string, token: string) {
+    await this.prisma.pushToken.deleteMany({ where: { token, userId } });
     return { message: 'Device unregistered' };
   }
 }

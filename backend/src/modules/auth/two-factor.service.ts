@@ -79,11 +79,33 @@ export class TwoFactorService {
 
     // Fall back to a recovery code — single use, consumed on success.
     for (let i = 0; i < user.twoFactorRecoveryCodes.length; i += 1) {
+      const matchedHash = user.twoFactorRecoveryCodes[i];
       // eslint-disable-next-line no-await-in-loop
-      if (await bcrypt.compare(code, user.twoFactorRecoveryCodes[i])) {
-        const remaining = [...user.twoFactorRecoveryCodes];
-        remaining.splice(i, 1);
-        await this.prisma.user.update({ where: { id: userId }, data: { twoFactorRecoveryCodes: remaining } });
+      if (await bcrypt.compare(code, matchedHash)) {
+        // Atomic consumption: use transaction and conditional update to prevent concurrent replay
+        const consumed = await this.prisma.$transaction(async (tx) => {
+          const freshUser = await tx.user.findUnique({
+            where: { id: userId },
+            select: { twoFactorRecoveryCodes: true },
+          });
+          if (!freshUser || !freshUser.twoFactorRecoveryCodes.includes(matchedHash)) {
+            return false;
+          }
+          const freshRemaining = freshUser.twoFactorRecoveryCodes.filter((h) => h !== matchedHash);
+          const { count } = await tx.user.updateMany({
+            where: {
+              id: userId,
+              twoFactorRecoveryCodes: { has: matchedHash },
+            },
+            data: {
+              twoFactorRecoveryCodes: freshRemaining,
+            },
+          });
+          return count === 1;
+        });
+
+        if (!consumed) return false;
+
         await this.audit.log({ action: 'ADMIN_2FA_RECOVERY_CODE_USED', entity: 'User', entityId: userId, userId, gymId: user.gymId ?? undefined });
         return true;
       }

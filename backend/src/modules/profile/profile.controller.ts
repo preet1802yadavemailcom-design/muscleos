@@ -52,7 +52,7 @@ export class ProfileController {
   @Delete('push-token')
   @Permissions('profile:update')
   @ApiOperation({ summary: 'Unregister a device from push notifications' })
-  async unregisterPushToken(@Body() dto: RegisterPushTokenDto) {
-    return this.service.unregisterPushToken(dto.token);
+  async unregisterPushToken(@CurrentUser('userId') userId: string, @Body() dto: RegisterPushTokenDto) {
+    return this.service.unregisterPushToken(userId, dto.token);
   }
 }
