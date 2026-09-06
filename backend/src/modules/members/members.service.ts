@@ -111,7 +111,7 @@ export class MembersService {
     }));
   }
 
-  async findOne(id: string, gymId: string) {
+  async findOne(id: string, gymId: string, requester?: { role?: string; permissions?: string[] }) {
     const member = await this.prisma.member.findFirst({
       where: { id, gymId, deletedAt: null },
       include: {
@@ -122,16 +122,42 @@ export class MembersService {
       },
     });
     if (!member) throw new NotFoundException('Member not found');
-    return member;
+    return this.sanitizeMemberSensitiveData(member, requester);
+  }
+
+  /**
+   * Field-level privacy projection: strips or redacts medical notes,
+   * allergies, medications, private contact numbers, and personal details
+   * unless the caller is an owner/super-admin or has explicit 'members:sensitive:read' permission.
+   */
+  sanitizeMemberSensitiveData(member: any, requester?: { role?: string; permissions?: string[] }) {
+    if (!member) return member;
+    const isOwnerOrSuper = requester?.role === 'GYM_OWNER' || requester?.role === 'SUPER_ADMIN';
+    const hasSensitivePerm = requester?.permissions?.includes('members:sensitive:read');
+
+    if (isOwnerOrSuper || hasSensitivePerm) {
+      return member;
+    }
+
+    return {
+      ...member,
+      medicalNotes: null,
+      allergies: [],
+      medications: [],
+      emergencyContactName: member.emergencyContactName ? '[CONFIDENTIAL]' : null,
+      emergencyContactPhone: member.emergencyContactPhone ? '[CONFIDENTIAL]' : null,
+      address: member.address ? '[CONFIDENTIAL]' : null,
+      dateOfBirth: null,
+    };
   }
 
   /**
    * Owner-facing Member 360: one combined view of membership history,
-   * recent attendance, recent payments and account/verification state �
+   * recent attendance, recent payments and account/verification state
    * per the spec's "Owner/Staff Member 360" profile requirement. Read-only
    * aggregation; does not create or mutate anything.
    */
-  async getMember360(id: string, gymId: string) {
+  async getMember360(id: string, gymId: string, requester?: { role?: string; permissions?: string[] }) {
     const member = await this.prisma.member.findFirst({
       where: { id, gymId, deletedAt: null },
       include: {
@@ -172,7 +198,7 @@ export class MembersService {
         : 'LINKED';
 
     return {
-      member,
+      member: this.sanitizeMemberSensitiveData(member, requester),
       accountState,
       lastVisit: attendance[0]?.checkInAt ?? null,
       lastPayment: lastPayment ?? null,

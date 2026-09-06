@@ -1,7 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import api from '@services/api';
-import { requestPushToken } from '@/lib/firebase';
 
 interface User {
   id: string;
@@ -33,16 +32,13 @@ export const useAuthStore = create<AuthState>()(
         set({ user, token, refreshToken, isAuthenticated: true }),
       logout: async () => {
         // Best-effort: revoke the refresh token server-side and stop this
-        // device's push notifications. Previously this only cleared local
-        // state — the refresh token was never actually revoked in the DB,
-        // so a stolen/leaked refresh token would keep working after
-        // "logout". Local state is cleared regardless of whether this
+        // device's push notifications. Local state is cleared regardless of whether this
         // network call succeeds, so a slow/offline backend never traps the
         // user on a page that thinks they're still logged in.
         const { refreshToken } = get();
         try {
-          const pushToken = await requestPushToken().catch(() => null);
-          await api.post('/auth/logout', { refreshToken, pushToken: pushToken ?? undefined });
+          const pushToken = typeof window !== 'undefined' ? localStorage.getItem('fcm_token') || undefined : undefined;
+          await api.post('/auth/logout', { refreshToken, pushToken });
         } catch {
           // ignore — logging out locally still proceeds
         }

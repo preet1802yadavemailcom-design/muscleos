@@ -413,7 +413,11 @@ export class MembershipsService {
       throw new BadRequestException('Cannot transfer a membership to the same member');
     }
 
-    const remainingDays = Math.max(1, Math.ceil((existing.endDate.getTime() - Date.now()) / 86400000));
+    const endMs = existing.endDate ? new Date(existing.endDate).getTime() : Date.now();
+    const startMs = existing.startDate ? new Date(existing.startDate).getTime() : endMs - 30 * 86400000;
+    const remainingDays = Math.max(1, Math.ceil((endMs - Date.now()) / 86400000));
+    const totalDays = Math.max(1, Math.ceil((endMs - startMs) / 86400000));
+    const proportionalTotal = Number(((Number(existing.totalAmount) * remainingDays) / totalDays).toFixed(2));
 
     const transferred = await this.prisma.$transaction(async (tx) => {
       const created = await tx.membership.create({
@@ -424,10 +428,10 @@ export class MembershipsService {
           duration: remainingDays,
           startDate: new Date(),
           endDate: existing.endDate,
-          baseAmount: existing.baseAmount,
-          discountAmount: existing.discountAmount,
-          taxAmount: existing.taxAmount,
-          totalAmount: existing.totalAmount,
+          baseAmount: proportionalTotal,
+          discountAmount: 0,
+          taxAmount: 0,
+          totalAmount: proportionalTotal,
           transferredFrom: existing.memberId,
           gymId,
         },
@@ -451,12 +455,12 @@ export class MembershipsService {
         await tx.member.update({ where: { id: existing.memberId }, data: { currentMembershipId: null } });
       }
 
-      // Generate ledger months for the recipient membership
+      // Generate ledger months for the recipient membership with proportional amount
       await generateMembershipMonths(tx, {
         id: created.id,
         startDate: created.startDate,
         durationDays: remainingDays,
-        totalAmount: Number(created.totalAmount),
+        totalAmount: proportionalTotal,
         gymId,
       });
 
@@ -485,10 +489,33 @@ export class MembershipsService {
     }
     const totalAmount = Math.max(dto.baseAmount - Number(existing.discountAmount), 0) + Number(existing.taxAmount);
 
-    const item = await this.prisma.membership.update({
-      where: { id },
-      data: { plan: dto.plan, planName: dto.plan, baseAmount: dto.baseAmount, totalAmount },
+    const item = await this.prisma.$transaction(async (tx) => {
+      const updated = await tx.membership.update({
+        where: { id },
+        data: { plan: dto.plan, planName: dto.plan, baseAmount: dto.baseAmount, totalAmount },
+      });
+
+      // Reprice future unpaid months (PAYABLE and LOCKED). PAID months remain immutable!
+      const unpaidMonths = await tx.membershipMonth.findMany({
+        where: { membershipId: id, status: { in: ['LOCKED', 'PAYABLE'] } },
+        orderBy: { monthStart: 'asc' },
+      });
+
+      if (unpaidMonths.length > 0) {
+        const durationMonths = Math.max(1, Math.round((existing.endDate.getTime() - existing.startDate.getTime()) / (30 * 86400000)));
+        const newMonthlyRate = Number((dto.baseAmount / durationMonths).toFixed(2));
+
+        for (const m of unpaidMonths) {
+          await tx.membershipMonth.update({
+            where: { id: m.id },
+            data: { amountDue: newMonthlyRate },
+          });
+        }
+      }
+
+      return updated;
     });
+
     await this.audit.log({ action: 'CHANGE_PLAN', entity: 'Membership', entityId: id, oldValue: existing, newValue: item, gymId });
     return withComputed(item);
   }

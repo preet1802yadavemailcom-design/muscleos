@@ -23,7 +23,12 @@ describe('AttendanceCoreService — race-condition handling', () => {
 
   const member = {
     id: 'member-1', firstName: 'Rohit', lastName: 'Sharma', memberCode: 'MUS-1',
-    batchId: null, batch: null, currentMembership: null,
+    batchId: null, batch: null,
+    currentMembership: {
+      id: 'mem-1',
+      status: 'ACTIVE',
+      endDate: new Date(Date.now() + 30 * 86400000),
+    },
   };
   const gymId = 'gym-1';
 
@@ -113,5 +118,34 @@ describe('AttendanceCoreService — race-condition handling', () => {
 
     await expect(svc.recordScan({ member, gymId, source: 'QR' as any })).resolves.toBeDefined();
     expect(redis.publish).toHaveBeenCalledWith(`attendance:${gymId}`, expect.any(String));
+  });
+
+  describe('membership status enforcement', () => {
+    it('rejects scan when member has no current membership', async () => {
+      const memberWithoutMem = { ...member, currentMembership: null };
+      await expect(
+        service.recordScan({ member: memberWithoutMem as any, gymId, source: 'QR' as any }),
+      ).rejects.toThrow('No active membership found for this member.');
+    });
+
+    it('rejects scan when membership is FROZEN', async () => {
+      const frozenMember = {
+        ...member,
+        currentMembership: { ...member.currentMembership, status: 'FROZEN' },
+      };
+      await expect(
+        service.recordScan({ member: frozenMember as any, gymId, source: 'QR' as any }),
+      ).rejects.toThrow('Membership is currently frozen.');
+    });
+
+    it('rejects scan when membership is EXPIRED', async () => {
+      const expiredMember = {
+        ...member,
+        currentMembership: { ...member.currentMembership, status: 'EXPIRED' },
+      };
+      await expect(
+        service.recordScan({ member: expiredMember as any, gymId, source: 'QR' as any }),
+      ).rejects.toThrow('Membership has expired — please renew to check in.');
+    });
   });
 });

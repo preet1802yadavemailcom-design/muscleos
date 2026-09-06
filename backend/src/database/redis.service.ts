@@ -190,8 +190,35 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     return this.subscriber;
   }
 
+  private isSecurityKey(key: string): boolean {
+    return (
+      key.startsWith('otp:') ||
+      key.startsWith('verify_otp:') ||
+      key.startsWith('whatsapp_otp:') ||
+      key.startsWith('rate_limit:') ||
+      key.startsWith('session_revoked:') ||
+      key.startsWith('user_revoked:') ||
+      key.startsWith('step_up:') ||
+      key.startsWith('idempotency:') ||
+      key.startsWith('lock:')
+    );
+  }
+
+  private isProduction(): boolean {
+    return this.configService.get('app.nodeEnv') === 'production' || process.env.NODE_ENV === 'production';
+  }
+
   async get(key: string): Promise<string | null> {
-    return this.run(() => this.memory.get(key), () => this.client.get(key));
+    return this.run(
+      () => {
+        if (this.isProduction() && (key.startsWith('session_revoked:') || key.startsWith('user_revoked:'))) {
+          this.logger.error(`Token revocation check failed: Redis unreachable in production for key ${key}`);
+          return 'REVOKED_FAIL_CLOSED';
+        }
+        return this.memory.get(key);
+      },
+      () => this.client.get(key),
+    );
   }
 
   async set(key: string, value: string, ttl?: number): Promise<void> {
@@ -212,11 +239,10 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
   async setNx(key: string, value: string, ttlSeconds: number): Promise<boolean> {
     return this.run(
       () => {
-        // In multi-instance production environments, an in-memory lock is not distributed.
+        // In multi-instance production environments, an in-memory lock or idempotency check is not distributed.
         // If Redis is down in production, fail closed to prevent concurrent cluster execution.
-        const isProd = this.configService.get('app.nodeEnv') === 'production' || process.env.NODE_ENV === 'production';
-        if (isProd) {
-          this.logger.error(`Distributed lock failed: Redis unavailable in production environment for key ${key}`);
+        if (this.isProduction() && (this.isSecurityKey(key) || key.includes('lock'))) {
+          this.logger.error(`Distributed operation failed: Redis unavailable in production for key ${key}`);
           return false;
         }
         if (this.memory.exists(key)) return false;
@@ -233,6 +259,10 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
   async getDel(key: string): Promise<string | null> {
     return this.run(
       () => {
+        if (this.isProduction() && this.isSecurityKey(key)) {
+          this.logger.error(`Security getDel failed: Redis unavailable in production for key ${key}`);
+          return null;
+        }
         const val = this.memory.get(key);
         if (val !== null) {
           this.memory.del(key);

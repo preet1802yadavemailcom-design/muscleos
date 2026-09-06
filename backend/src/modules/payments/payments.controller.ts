@@ -18,12 +18,14 @@ import {
   Req,
   Res,
   UseGuards,
+  UseInterceptors,
   Headers,
   HttpCode,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiExcludeEndpoint } from '@nestjs/swagger';
 import { UserRole, PaymentGateway, PaymentMethod } from '@prisma/client';
 import { Request, Response } from 'express';
+import { IdempotencyInterceptor } from '@common/interceptors/idempotency.interceptor';
 
 import { CreatePaymentDto } from './dto/create-payment.dto';
 import { QueryPaymentDto } from './dto/query-payment.dto';
@@ -35,6 +37,7 @@ import { PaymentsService } from './payments.service';
 import { LoggerService } from '@shared/services/logger.service';
 
 @ApiTags('Payments')
+@UseInterceptors(IdempotencyInterceptor)
 @Controller('payments')
 export class PaymentsController {
   constructor(
@@ -96,9 +99,9 @@ export class PaymentsController {
   async payForMyMembership(
     @GymId() gymId: string,
     @CurrentUser('userId') userId: string,
-    @Body() dto: { membershipId: string; gateway: PaymentGateway; method: PaymentMethod },
+    @Body() dto: { membershipId: string; gateway: PaymentGateway; method: PaymentMethod; monthStarts?: string[] },
   ) {
-    return this.service.initiateSelfPay(gymId, userId, dto.membershipId, dto.gateway, dto.method);
+    return this.service.initiateSelfPay(gymId, userId, dto.membershipId, dto.gateway, dto.method, dto.monthStarts);
   }
 
   @Get('me/payable-months')
@@ -224,7 +227,13 @@ export class PaymentsController {
     if (!isNew) return { received: true }; // already processed — ack without reprocessing
 
     if (event.event === 'payment.captured' && entity) {
-      await this.service.markCompletedFromWebhook(entity.order_id, entity.id, event);
+      await this.service.markCompletedFromWebhook(
+        entity.order_id,
+        entity.id,
+        event,
+        entity.amount ? Number(entity.amount) : undefined,
+        entity.currency ? String(entity.currency) : undefined,
+      );
     } else if (event.event === 'payment.failed' && entity) {
       await this.service.markFailedFromWebhook(entity.order_id, event);
     }
@@ -251,7 +260,13 @@ export class PaymentsController {
 
     const intent = event?.data?.object;
     if (event.type === 'payment_intent.succeeded' && intent) {
-      await this.service.markCompletedFromWebhook(intent.id, intent.id, event);
+      await this.service.markCompletedFromWebhook(
+        intent.id,
+        intent.id,
+        event,
+        (intent.amount_received ?? intent.amount) ? Number(intent.amount_received ?? intent.amount) : undefined,
+        intent.currency ? String(intent.currency) : undefined,
+      );
     } else if (event.type === 'payment_intent.payment_failed' && intent) {
       await this.service.markFailedFromWebhook(intent.id, event);
     }

@@ -90,7 +90,14 @@ export class PaymentsService {
    * membership row itself, and ownership is checked via the same
    * Member.userId identity chain used everywhere else this session.
    */
-  async initiateSelfPay(gymId: string, userId: string, membershipId: string, gateway: PaymentGateway, method: PaymentMethod) {
+  async initiateSelfPay(
+    gymId: string,
+    userId: string,
+    membershipId: string,
+    gateway: PaymentGateway,
+    method: PaymentMethod,
+    monthStarts?: string[],
+  ) {
     const member = await this.prisma.member.findFirst({ where: { userId, gymId, deletedAt: null } });
     if (!member) {
       throw new NotFoundException('No member profile is linked to this account yet — ask staff to link your profile.');
@@ -101,17 +108,65 @@ export class PaymentsService {
     if (!membership) {
       throw new NotFoundException('Membership not found, or it does not belong to your account.');
     }
-    const alreadyPaid = await this.prisma.payment.findFirst({
-      where: { membershipId: membership.id, status: PaymentStatus.COMPLETED },
+
+    const allMonths = await this.prisma.membershipMonth.findMany({
+      where: { membershipId: membership.id },
+      orderBy: { monthStart: 'asc' },
     });
-    if (alreadyPaid) {
-      throw new BadRequestException('This membership is already paid.');
+
+    let targetMonths: typeof allMonths = [];
+    let payAmount = 0;
+
+    if (allMonths.length > 0) {
+      if (monthStarts && monthStarts.length > 0) {
+        const requestedDates = monthStarts.map((d) => new Date(d)).sort((a, b) => a.getTime() - b.getTime());
+        targetMonths = allMonths.filter((m) => requestedDates.some((rd) => rd.getTime() === m.monthStart.getTime()));
+
+        if (targetMonths.length !== requestedDates.length) {
+          throw new BadRequestException('One or more selected months do not exist.');
+        }
+        if (targetMonths.some((m) => m.status === 'PAID')) {
+          throw new BadRequestException('One or more selected months are already paid.');
+        }
+        if (targetMonths.some((m) => m.status === 'PENDING')) {
+          throw new BadRequestException('One or more selected months already have a pending payment.');
+        }
+
+        const earliest = requestedDates[0];
+        const earlierUnpaid = allMonths.some((m) => m.monthStart < earliest && m.status !== 'PAID');
+        if (earlierUnpaid) {
+          throw new BadRequestException('Cannot pay this month while an earlier month is still unpaid.');
+        }
+
+        for (let i = 1; i < targetMonths.length; i++) {
+          const prev = new Date(targetMonths[i - 1].monthStart);
+          const next = new Date(Date.UTC(prev.getUTCFullYear(), prev.getUTCMonth() + 1, 1));
+          if (targetMonths[i].monthStart.getTime() !== next.getTime()) {
+            throw new BadRequestException('Selected months must be consecutive.');
+          }
+        }
+      } else {
+        targetMonths = allMonths.filter((m) => m.status !== 'PAID' && m.status !== 'PENDING');
+        if (targetMonths.length === 0) {
+          throw new BadRequestException('All months for this membership are already paid or pending.');
+        }
+      }
+
+      payAmount = targetMonths.reduce((sum, m) => sum + Number(m.amountDue), 0);
+    } else {
+      const alreadyPaid = await this.prisma.payment.findFirst({
+        where: { membershipId: membership.id, status: PaymentStatus.COMPLETED },
+      });
+      if (alreadyPaid) {
+        throw new BadRequestException('This membership is already paid.');
+      }
+      payAmount = Number(membership.baseAmount);
     }
 
-    return this.initiate(
+    const created = await this.initiate(
       {
-        amount: Number(membership.baseAmount),
-        discount: Number(membership.discountAmount ?? 0),
+        amount: payAmount,
+        discount: allMonths.length > 0 ? 0 : Number(membership.discountAmount ?? 0),
         gstPercentage: undefined,
         gateway,
         method,
@@ -122,6 +177,26 @@ export class PaymentsService {
       gymId,
       userId,
     );
+
+    if (targetMonths.length > 0 && created.payment) {
+      await this.prisma.$transaction(async (tx) => {
+        for (const month of targetMonths) {
+          await tx.membershipMonth.update({
+            where: { id: month.id },
+            data: { status: 'PENDING', paymentId: created.payment.id },
+          });
+          await tx.paymentMonthAllocation.create({
+            data: {
+              paymentId: created.payment.id,
+              membershipMonthId: month.id,
+              amount: month.amountDue,
+            },
+          });
+        }
+      });
+    }
+
+    return created;
   }
 
   async findOne(id: string, gymId: string, requester?: { userId: string; role: string }) {
@@ -272,6 +347,9 @@ export class PaymentsService {
     if (payment.gateway !== PaymentGateway.RAZORPAY) {
       throw new BadRequestException('Payment was not initiated via Razorpay');
     }
+    if (payment.status === PaymentStatus.COMPLETED) {
+      return this.prisma.payment.findFirst({ where: { id: payment.id } });
+    }
     if (payment.gatewayOrderId && dto.razorpayOrderId !== payment.gatewayOrderId) {
       throw new BadRequestException('Order ID mismatch — this signature does not belong to this payment.');
     }
@@ -280,10 +358,62 @@ export class PaymentsService {
       await this.prisma.payment.update({ where: { id: payment.id }, data: { status: PaymentStatus.FAILED } });
       throw new BadRequestException('Payment signature verification failed');
     }
-    await this.prisma.payment.update({
-      where: { id: payment.id },
-      data: { status: PaymentStatus.COMPLETED, gatewayPaymentId: dto.razorpayPaymentId, verifiedAt: new Date() },
+
+    let paymentDetails: any;
+    try {
+      paymentDetails = await this.razorpay.fetchPayment(dto.razorpayPaymentId);
+    } catch (err: any) {
+      this.logger.error(`Failed to fetch payment details from Razorpay: ${err?.message || err}`, undefined, 'PaymentsService');
+      throw new BadRequestException('Failed to verify payment with Razorpay gateway');
+    }
+
+    if (paymentDetails.order_id && payment.gatewayOrderId && paymentDetails.order_id !== payment.gatewayOrderId) {
+      throw new BadRequestException('Order ID mismatch between Razorpay and local payment');
+    }
+    const expectedPaise = Math.round(Number(payment.total) * 100);
+    if (paymentDetails.amount && Number(paymentDetails.amount) !== expectedPaise) {
+      throw new BadRequestException(`Payment amount mismatch (expected ${expectedPaise} paise, got ${paymentDetails.amount} paise)`);
+    }
+    if (paymentDetails.currency && paymentDetails.currency.toUpperCase() !== 'INR') {
+      throw new BadRequestException(`Currency mismatch (expected INR, got ${paymentDetails.currency})`);
+    }
+    if (paymentDetails.status !== 'captured' && paymentDetails.status !== 'authorized') {
+      throw new BadRequestException(`Invalid Razorpay payment status: ${paymentDetails.status}`);
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      const { count } = await tx.payment.updateMany({
+        where: { id: payment.id, status: PaymentStatus.PENDING },
+        data: { status: PaymentStatus.COMPLETED, gatewayPaymentId: dto.razorpayPaymentId, verifiedAt: new Date() },
+      });
+      if (count === 0) return;
+
+      const allocations = await tx.paymentMonthAllocation.findMany({
+        where: { paymentId: payment.id },
+      });
+      for (const alloc of allocations) {
+        await tx.membershipMonth.update({
+          where: { id: alloc.membershipMonthId },
+          data: { status: 'PAID', paymentId: payment.id },
+        });
+      }
+      if (payment.membershipId) {
+        await this.unlockNextMonth(tx, payment.membershipId);
+        await tx.membership.updateMany({
+          where: { id: payment.membershipId, status: 'PENDING' },
+          data: { status: 'ACTIVE' },
+        });
+      }
+      await this.audit.logTx(tx, {
+        action: 'UPDATE',
+        entity: 'Payment',
+        entityId: payment.id,
+        oldValue: { status: payment.status },
+        newValue: { status: PaymentStatus.COMPLETED, gatewayPaymentId: dto.razorpayPaymentId },
+        gymId,
+      });
     });
+
     return this.finalizeReceipt(payment.id, gymId);
   }
 
@@ -309,24 +439,95 @@ export class PaymentsService {
   }
 
   /** Called by webhook handlers once a gateway confirms payment async. */
-  async markCompletedFromWebhook(gatewayOrderId: string, gatewayPaymentId: string, webhookData: any) {
+  async markCompletedFromWebhook(
+    gatewayOrderId: string,
+    gatewayPaymentId: string,
+    webhookData: any,
+    expectedAmountPaise?: number,
+    expectedCurrency?: string,
+  ) {
     const payment = await this.prisma.payment.findFirst({ where: { gatewayOrderId } });
     if (!payment) {
       this.logger.warn(`Webhook received for unknown gatewayOrderId=${gatewayOrderId}`, 'PaymentsService');
       return null;
     }
     if (payment.status === PaymentStatus.COMPLETED) return payment;
-    await this.prisma.payment.update({
-      where: { id: payment.id },
-      data: { status: PaymentStatus.COMPLETED, gatewayPaymentId, webhookData, verifiedAt: new Date() },
+
+    if (expectedAmountPaise !== undefined) {
+      const localPaise = Math.round(Number(payment.total) * 100);
+      if (expectedAmountPaise !== localPaise) {
+        this.logger.error(
+          `Webhook amount mismatch for payment ${payment.id}: expected ${localPaise} paise, received ${expectedAmountPaise} paise`,
+          undefined,
+          'PaymentsService',
+        );
+        throw new BadRequestException('Webhook amount mismatch');
+      }
+    }
+
+    if (expectedCurrency !== undefined && payment.gateway === PaymentGateway.RAZORPAY) {
+      if (expectedCurrency.toUpperCase() !== 'INR') {
+        throw new BadRequestException('Razorpay webhook currency mismatch');
+      }
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      const { count } = await tx.payment.updateMany({
+        where: { id: payment.id, status: PaymentStatus.PENDING },
+        data: { status: PaymentStatus.COMPLETED, gatewayPaymentId, webhookData, verifiedAt: new Date() },
+      });
+      if (count === 0) return;
+
+      const allocations = await tx.paymentMonthAllocation.findMany({
+        where: { paymentId: payment.id },
+      });
+      for (const alloc of allocations) {
+        await tx.membershipMonth.update({
+          where: { id: alloc.membershipMonthId },
+          data: { status: 'PAID', paymentId: payment.id },
+        });
+      }
+      if (payment.membershipId) {
+        await this.unlockNextMonth(tx, payment.membershipId);
+        await tx.membership.updateMany({
+          where: { id: payment.membershipId, status: 'PENDING' },
+          data: { status: 'ACTIVE' },
+        });
+      }
+      await this.audit.logTx(tx, {
+        action: 'UPDATE',
+        entity: 'Payment',
+        entityId: payment.id,
+        oldValue: { status: payment.status },
+        newValue: { status: PaymentStatus.COMPLETED, gatewayPaymentId },
+        gymId: payment.gymId,
+      });
     });
+
     return this.finalizeReceipt(payment.id, payment.gymId);
   }
 
   async markFailedFromWebhook(gatewayOrderId: string, webhookData: any) {
-    const payment = await this.prisma.payment.findFirst({ where: { gatewayOrderId } });
+    const payment = await this.prisma.payment.findFirst({
+      where: { gatewayOrderId },
+      include: { monthAllocations: true },
+    });
     if (!payment) return null;
-    return this.prisma.payment.update({ where: { id: payment.id }, data: { status: PaymentStatus.FAILED, webhookData } });
+    if (payment.status !== PaymentStatus.PENDING) return payment;
+
+    return this.prisma.$transaction(async (tx) => {
+      await tx.payment.update({ where: { id: payment.id }, data: { status: PaymentStatus.FAILED, webhookData } });
+      await this.resetAllocatedMonthsOnRejection(tx, payment.monthAllocations, payment.membershipId);
+      await this.audit.logTx(tx, {
+        action: 'UPDATE',
+        entity: 'Payment',
+        entityId: payment.id,
+        oldValue: { status: payment.status },
+        newValue: { status: PaymentStatus.FAILED },
+        gymId: payment.gymId,
+      });
+      return tx.payment.findUniqueOrThrow({ where: { id: payment.id } });
+    });
   }
 
   /** Generates the invoice number + PDF once a payment is confirmed COMPLETED. */
@@ -364,7 +565,7 @@ export class PaymentsService {
       this.logger.error(`Invoice generation failed for payment ${paymentId}: ${err}`, undefined, 'PaymentsService');
     }
 
-    // Best-effort � a failed WhatsApp send must never fail the payment
+    // Best-effort  a failed WhatsApp send must never fail the payment
     // itself, which is why this comes after the invoice generation and is
     // caught independently rather than allowed to throw.
     if (payment.member) {
@@ -408,7 +609,15 @@ export class PaymentsService {
   }
 
   async refund(id: string, gymId: string, dto: RefundPaymentDto, userId: string) {
-    const payment = await this.findOne(id, gymId);
+    const payment = await this.prisma.payment.findFirst({
+      where: { id, gymId },
+      include: {
+        monthAllocations: {
+          include: { membershipMonth: true },
+        },
+      },
+    });
+    if (!payment) throw new NotFoundException('Payment not found');
     if (payment.status !== PaymentStatus.COMPLETED && payment.status !== PaymentStatus.PARTIALLY_REFUNDED) {
       throw new BadRequestException('Only completed or partially-refunded payments can be refunded');
     }
@@ -428,20 +637,76 @@ export class PaymentsService {
     const newRefundedTotal = alreadyRefunded + refundAmount;
     const isFullRefund = newRefundedTotal >= Number(payment.total);
 
-    const { count } = await this.prisma.payment.updateMany({
-      where: { id, status: payment.status },
-      data: {
-        status: isFullRefund ? PaymentStatus.REFUNDED : PaymentStatus.PARTIALLY_REFUNDED,
-        refundedAmount: newRefundedTotal,
-        notes: `${payment.notes ?? ''}\nRefund: ${dto.reason} (Rs.${refundAmount.toFixed(2)})`.trim(),
-      },
-    });
-    if (count === 0) {
-      throw new ConflictException('This payment was just modified by another request - please refresh and try again.');
-    }
-    const updated = await this.prisma.payment.findUniqueOrThrow({ where: { id } });
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const { count } = await tx.payment.updateMany({
+        where: { id, status: payment.status },
+        data: {
+          status: isFullRefund ? PaymentStatus.REFUNDED : PaymentStatus.PARTIALLY_REFUNDED,
+          refundedAmount: newRefundedTotal,
+          notes: `${payment.notes ?? ''}\nRefund: ${dto.reason} (Rs.${refundAmount.toFixed(2)})`.trim(),
+        },
+      });
+      if (count === 0) {
+        throw new ConflictException('This payment was just modified by another request - please refresh and try again.');
+      }
 
-    await this.audit.log({ action: 'REFUND', entity: 'Payment', entityId: id, oldValue: payment, newValue: updated, gymId, userId });
+      // Sort allocations LIFO: latest monthStart first
+      const sortedAllocations = [...payment.monthAllocations].sort(
+        (a, b) => new Date(b.membershipMonth.monthStart).getTime() - new Date(a.membershipMonth.monthStart).getTime(),
+      );
+
+      let toReconcile = refundAmount;
+      for (const alloc of sortedAllocations) {
+        if (toReconcile <= 0) break;
+        const allocAmount = Number(alloc.amount);
+        if (toReconcile >= allocAmount) {
+          toReconcile -= allocAmount;
+          await tx.paymentMonthAllocation.delete({ where: { id: alloc.id } });
+          await tx.membershipMonth.update({
+            where: { id: alloc.membershipMonthId },
+            data: { status: 'PAYABLE', paymentId: null },
+          });
+        } else {
+          const remainingAlloc = allocAmount - toReconcile;
+          await tx.paymentMonthAllocation.update({
+            where: { id: alloc.id },
+            data: { amount: remainingAlloc },
+          });
+          await tx.membershipMonth.update({
+            where: { id: alloc.membershipMonthId },
+            data: { amountDue: toReconcile, status: 'PAYABLE' },
+          });
+          toReconcile = 0;
+        }
+      }
+
+      if (payment.membershipId) {
+        const remainingPaidMonths = await tx.membershipMonth.count({
+          where: { membershipId: payment.membershipId, status: 'PAID' },
+        });
+        if (remainingPaidMonths === 0) {
+          await tx.membership.update({
+            where: { id: payment.membershipId },
+            data: { status: 'CANCELLED' },
+          });
+        }
+      }
+
+      const updatedPayment = await tx.payment.findUniqueOrThrow({ where: { id } });
+
+      await this.audit.logTx(tx, {
+        action: 'REFUND',
+        entity: 'Payment',
+        entityId: id,
+        oldValue: payment,
+        newValue: updatedPayment,
+        gymId,
+        userId,
+      });
+
+      return updatedPayment;
+    });
+
     return updated;
   }
 

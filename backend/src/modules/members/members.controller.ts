@@ -1,3 +1,4 @@
+import { CurrentUser, CurrentUserPayload } from '@common/decorators/current-user.decorator';
 import { GymId } from '@common/decorators/gym-id.decorator';
 import { Permissions } from '@common/decorators/permissions.decorator';
 import { GymOwnerGuard } from '@common/guards/gym-owner.guard';
@@ -35,15 +36,15 @@ export class MembersController {
   @Get(':id/360')
   @Permissions('members:read')
   @ApiOperation({ summary: 'Full 360-degree member profile (membership, attendance, payments) — staff only' })
-  async getMember360(@Param('id') id: string, @GymId() gymId: string) {
-    return this.service.getMember360(id, gymId);
+  async getMember360(@Param('id') id: string, @GymId() gymId: string, @CurrentUser() user: CurrentUserPayload) {
+    return this.service.getMember360(id, gymId, user);
   }
 
   @Get(':id')
   @Permissions('members:read')
   @ApiOperation({ summary: 'Get a single member with membership/batch details' })
-  async findOne(@Param('id') id: string, @GymId() gymId: string) {
-    return this.service.findOne(id, gymId);
+  async findOne(@Param('id') id: string, @GymId() gymId: string, @CurrentUser() user: CurrentUserPayload) {
+    return this.service.findOne(id, gymId, user);
   }
 
   @Post()

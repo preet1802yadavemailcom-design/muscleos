@@ -46,6 +46,25 @@ export class AuditService {
     }
   }
 
+  /** Transactional audit logging: ensures the audit record is committed atomically with the business mutation. */
+  async logTx(tx: any, data: AuditLogData): Promise<void> {
+    await tx.auditLog.create({
+      data: {
+        action: data.action,
+        entity: data.entity,
+        entityId: data.entityId,
+        oldValue: data.oldValue ? JSON.stringify(data.oldValue) : undefined,
+        newValue: data.newValue ? JSON.stringify(data.newValue) : undefined,
+        userId: data.userId,
+        gymId: data.gymId,
+        ipAddress: data.ipAddress,
+        userAgent: data.userAgent,
+        endpoint: data.endpoint,
+        method: data.method,
+      },
+    });
+  }
+
   async getAuditLogs(gymId: string | null, options: {
     action?: string;
     entity?: string;

@@ -55,16 +55,26 @@ export class AttendanceCoreService {
 
     // Membership validity — checked before we touch the DB at all.
     const membership = member.currentMembership;
-    if (membership) {
-      if (membership.status === MembershipStatus.FROZEN) {
-        throw new ForbiddenException('Membership is currently frozen.');
-      }
-      if (membership.status === MembershipStatus.CANCELLED) {
-        throw new ForbiddenException('Membership is cancelled — please contact reception.');
-      }
-      if (membership.status === MembershipStatus.ACTIVE && membership.endDate < new Date()) {
-        throw new ForbiddenException('Membership has expired — please renew to check in.');
-      }
+    if (!membership) {
+      throw new ForbiddenException('No active membership found for this member.');
+    }
+    if (membership.status === MembershipStatus.FROZEN) {
+      throw new ForbiddenException('Membership is currently frozen.');
+    }
+    if (membership.status === MembershipStatus.CANCELLED) {
+      throw new ForbiddenException('Membership is cancelled — please contact reception.');
+    }
+    if (membership.status === MembershipStatus.EXPIRED) {
+      throw new ForbiddenException('Membership has expired — please renew to check in.');
+    }
+    if (membership.status === MembershipStatus.PENDING) {
+      throw new ForbiddenException('Membership approval is pending — please complete payment or contact reception.');
+    }
+    if (membership.status !== MembershipStatus.ACTIVE) {
+      throw new ForbiddenException(`Membership is not active (current status: ${membership.status}).`);
+    }
+    if (membership.endDate && new Date(membership.endDate) < new Date()) {
+      throw new ForbiddenException('Membership has expired — please renew to check in.');
     }
 
     try {
