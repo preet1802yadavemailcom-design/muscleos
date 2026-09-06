@@ -3,7 +3,7 @@ import { randomUUID } from 'crypto';
 import { PrismaService } from '@database/prisma.service';
 import { Decimal } from '@prisma/client/runtime/library';
 import { Injectable, BadRequestException, NotFoundException, ForbiddenException, UnauthorizedException } from '@nestjs/common';
-import { MembershipPlan, MembershipStatus, UserStatus, Prisma } from '@prisma/client';
+import { MembershipPlan, MembershipStatus, UserStatus, UserRole, Prisma } from '@prisma/client';
 import { AuditService } from '@shared/services/audit.service';
 import { EncryptionService } from '@shared/services/encryption.service';
 import { SequenceService } from '@shared/services/sequence.service';
@@ -80,6 +80,9 @@ export class AttendanceService {
     // 2. Resolve the member being checked in/out.
     let member;
     const isOtherDevice = decodedMemberId !== undefined;
+    if (isOtherDevice && user.role === UserRole.MEMBER) {
+      throw new ForbiddenException('Members may only self check-in by scanning branch QR codes.');
+    }
     if (decodedMemberId === undefined && branchId !== undefined) {
       // Self check-in via branch QR: the person scanning IS the member.
       member = await this.resolveMemberForUser(scannerGymId, user);

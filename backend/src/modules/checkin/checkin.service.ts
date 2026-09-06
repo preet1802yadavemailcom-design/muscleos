@@ -210,25 +210,12 @@ export class CheckinService {
     const mobile = session.mobile;
 
     const existing = await this.findMemberByMobile(session.gymId, mobile);
-    const member = existing
-      ? await this.prisma.member.update({
-          where: { id: existing.id },
-          data: {
-            firstName: dto.firstName,
-            lastName: dto.lastName,
-            ...(dto.email ? { email: dto.email } : {}),
-            ...(dto.gender ? { gender: dto.gender } : {}),
-            ...(dto.dateOfBirth ? { dateOfBirth: new Date(dto.dateOfBirth) } : {}),
-            ...(dto.photo ? { photo: dto.photo } : {}),
-            ...(dto.address ? { address: dto.address } : {}),
-            ...(dto.city ? { city: dto.city } : {}),
-            ...(dto.state ? { state: dto.state } : {}),
-            ...(dto.pincode ? { pincode: dto.pincode } : {}),
-            status: UserStatus.ACTIVE,
-          },
-          include: { currentMembership: true },
-        })
-      : await this.createMemberWithPendingMembership(session.gymId, dto, mobile);
+    if (existing) {
+      throw new BadRequestException(
+        'A member with this mobile number is already registered at this gym. Please check in directly or contact staff.',
+      );
+    }
+    const member = await this.createMemberWithPendingMembership(session.gymId, dto, mobile);
 
     // Auto check-in after successful registration — but never create a
     // duplicate: if today already has an open or completed record, surface it

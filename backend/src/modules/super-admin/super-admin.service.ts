@@ -1,4 +1,5 @@
 import { PrismaService } from '@database/prisma.service';
+import { RedisService } from '@database/redis.service';
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { GymStatus, NotificationChannel, NotificationType, NotificationStatus, PaymentStatus, UserRole, Prisma } from '@prisma/client';
 import { AuditService } from '@shared/services/audit.service';
@@ -14,6 +15,7 @@ export class SuperAdminService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly redis: RedisService,
   ) {}
 
   // ---------- Dashboard ----------
@@ -194,6 +196,37 @@ export class SuperAdminService {
     return updated;
   }
 
+  private async purgeGymSessions(gymId: string) {
+    const users = await this.prisma.user.findMany({
+      where: { gymId },
+      select: { id: true },
+    });
+    const userIds = users.map((u) => u.id);
+    if (userIds.length === 0) return;
+
+    await Promise.all([
+      this.prisma.refreshToken.updateMany({
+        where: { userId: { in: userIds }, revokedAt: null },
+        data: { revokedAt: new Date() },
+      }),
+      this.prisma.userSession.updateMany({
+        where: { userId: { in: userIds }, isActive: true },
+        data: { isActive: false },
+      }),
+    ]);
+
+    const nowMs = Date.now().toString();
+    const redisTtlSeconds = 7 * 24 * 60 * 60; // 7 days
+    await Promise.all(
+      userIds.map((uid) =>
+        Promise.all([
+          this.redis.set(`user_revoked_at:${uid}`, nowMs, redisTtlSeconds),
+          this.redis.del(`session:${uid}`),
+        ]),
+      ),
+    );
+  }
+
   async suspendGym(id: string, dto: SuspendGymDto, adminId: string) {
     const gym = await this.getGym(id);
     if (gym.status === GymStatus.SUSPENDED) throw new BadRequestException('Gym is already suspended');
@@ -202,6 +235,7 @@ export class SuperAdminService {
       where: { id },
       data: { status: GymStatus.SUSPENDED },
     });
+    await this.purgeGymSessions(id);
     await this.audit.log({
       action: 'GYM_SUSPENDED', entity: 'Gym', entityId: id, userId: adminId, gymId: id,
       newValue: { reason: dto.reason },
@@ -225,6 +259,7 @@ export class SuperAdminService {
   async deleteGym(id: string, adminId: string) {
     await this.getGym(id);
     await this.prisma.gym.update({ where: { id }, data: { deletedAt: new Date(), status: GymStatus.SUSPENDED } });
+    await this.purgeGymSessions(id);
     await this.audit.log({ action: 'GYM_DELETED', entity: 'Gym', entityId: id, userId: adminId, gymId: id });
     return { message: 'Gym deleted successfully' };
   }

@@ -70,7 +70,10 @@ describe('AuthService', () => {
         { provide: PrismaService, useValue: prisma },
         {
           provide: JwtService,
-          useValue: { sign: jest.fn().mockReturnValue('signed.jwt.token') },
+          useValue: {
+            sign: jest.fn().mockReturnValue('signed.jwt.token'),
+            decode: jest.fn().mockReturnValue({ sub: 'user-1' }),
+          },
         },
         {
           provide: ConfigService,
@@ -217,6 +220,70 @@ describe('AuthService', () => {
         data: { isActive: false },
       });
       expect(result.message).toMatch(/revoked/i);
+    });
+  });
+
+  describe('refreshToken', () => {
+    const validStoredToken = {
+      id: 'rt-1',
+      token: 'valid-refresh-token',
+      userId: 'user-1',
+      revokedAt: null,
+      expiresAt: new Date(Date.now() + 86400000),
+      user: {
+        ...baseUser,
+        gym: { id: 'gym-1', status: 'ACTIVE', deletedAt: null },
+      },
+    };
+
+    it('successfully rotates refresh token when active', async () => {
+      redis.get.mockResolvedValue(null);
+      prisma.refreshToken.findUnique.mockResolvedValue(validStoredToken);
+      prisma.refreshToken.update.mockResolvedValue({});
+      prisma.refreshToken.create.mockResolvedValue({});
+
+      const tokens = await service.refreshToken({ refreshToken: 'valid-refresh-token' });
+      expect(tokens.accessToken).toBe('signed.jwt.token');
+      expect(tokens.refreshToken).toBe('signed.jwt.token');
+      expect(prisma.refreshToken.update).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 'rt-1' }, data: expect.objectContaining({ revokedAt: expect.any(Date) }) }),
+      );
+    });
+
+    it('rejects refresh when user is inactive or suspended', async () => {
+      redis.get.mockResolvedValue(null);
+      prisma.refreshToken.findUnique.mockResolvedValue({
+        ...validStoredToken,
+        user: { ...validStoredToken.user, status: UserStatus.SUSPENDED },
+      });
+
+      await expect(
+        service.refreshToken({ refreshToken: 'valid-refresh-token' }),
+      ).rejects.toBeInstanceOf(UnauthorizedException);
+    });
+
+    it('rejects refresh when gym is suspended', async () => {
+      redis.get.mockResolvedValue(null);
+      prisma.refreshToken.findUnique.mockResolvedValue({
+        ...validStoredToken,
+        user: { ...validStoredToken.user, gym: { id: 'gym-1', status: 'SUSPENDED', deletedAt: null } },
+      });
+
+      await expect(
+        service.refreshToken({ refreshToken: 'valid-refresh-token' }),
+      ).rejects.toBeInstanceOf(UnauthorizedException);
+    });
+
+    it('rejects refresh when session has been revoked in redis', async () => {
+      redis.get.mockImplementation(async (key: string) => {
+        if (key.startsWith('user_revoked_at:')) return Date.now().toString();
+        return null;
+      });
+      prisma.refreshToken.findUnique.mockResolvedValue(validStoredToken);
+
+      await expect(
+        service.refreshToken({ refreshToken: 'valid-refresh-token' }),
+      ).rejects.toBeInstanceOf(UnauthorizedException);
     });
   });
 });

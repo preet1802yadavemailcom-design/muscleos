@@ -1,4 +1,5 @@
 import { PrismaService } from '@database/prisma.service';
+import { RedisService } from '@database/redis.service';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { GymStatus } from '@prisma/client';
@@ -11,6 +12,7 @@ describe('SuperAdminService', () => {
   let service: SuperAdminService;
   let prisma: any;
   let audit: any;
+  let redis: any;
 
   const gym = { id: 'gym-1', name: 'Iron Paradise', status: GymStatus.PENDING, deletedAt: null };
 
@@ -27,14 +29,28 @@ describe('SuperAdminService', () => {
         create: jest.fn(),
         update: jest.fn(),
       },
+      user: {
+        findMany: jest.fn().mockResolvedValue([]),
+      },
+      refreshToken: {
+        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
+      userSession: {
+        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
     };
     audit = { log: jest.fn() };
+    redis = {
+      set: jest.fn().mockResolvedValue('OK'),
+      del: jest.fn().mockResolvedValue(1),
+    };
 
     const module = await Test.createTestingModule({
       providers: [
         SuperAdminService,
         { provide: PrismaService, useValue: prisma },
         { provide: AuditService, useValue: audit },
+        { provide: RedisService, useValue: redis },
       ],
     }).compile();
 

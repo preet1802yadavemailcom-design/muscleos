@@ -616,15 +616,21 @@ export class AuthService {
     const cachedRotation = await this.redis.get(`token_grace:${rawToken}`);
     if (cachedRotation) {
       try {
+        const decoded = this.jwtService.decode(rawToken) as any;
+        if (decoded?.sub) {
+          const revokedAtStr = await this.redis.get(`user_revoked_at:${decoded.sub}`);
+          if (revokedAtStr) throw new UnauthorizedException('User session has been revoked');
+        }
         return JSON.parse(cachedRotation);
-      } catch {
+      } catch (e) {
+        if (e instanceof UnauthorizedException) throw e;
         // Fall through to standard verification
       }
     }
 
     const stored = await this.prisma.refreshToken.findUnique({
       where: { token: rawToken },
-      include: { user: true },
+      include: { user: { include: { gym: true } } },
     });
     if (!stored || stored.revokedAt || stored.expiresAt < new Date()) {
       if (stored?.revokedAt) {
@@ -636,6 +642,21 @@ export class AuthService {
         this.logger.warn(`Refresh token reuse detected for user ${stored.userId} - revoked all sessions`, 'AuthService');
       }
       throw new UnauthorizedException('Invalid or expired refresh token');
+    }
+
+    if (stored.user.status !== UserStatus.ACTIVE) {
+      throw new UnauthorizedException('User account is suspended or inactive');
+    }
+
+    if (stored.user.gymId && stored.user.role !== UserRole.SUPER_ADMIN) {
+      if (!stored.user.gym || stored.user.gym.status !== 'ACTIVE' || stored.user.gym.deletedAt) {
+        throw new UnauthorizedException('Gym account is suspended or inactive');
+      }
+    }
+
+    const revokedAtStr = await this.redis.get(`user_revoked_at:${stored.userId}`);
+    if (revokedAtStr) {
+      throw new UnauthorizedException('User session has been revoked');
     }
     const tokens = await this.generateTokens(stored.user);
     await this.prisma.refreshToken.update({

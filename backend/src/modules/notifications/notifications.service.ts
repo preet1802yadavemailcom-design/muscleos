@@ -203,7 +203,8 @@ export class NotificationsService {
             title: dto.title,
             content: dto.content,
             memberId: member.id,
-            status: dto.scheduledAt ? 'PENDING' : 'PENDING',
+            status: 'PENDING',
+            variables: dto.scheduledAt ? { scheduledAt: new Date(dto.scheduledAt).toISOString() } : undefined,
             gymId,
           },
         });
@@ -226,6 +227,36 @@ export class NotificationsService {
   }
 
   // ---------- Scheduled reminder jobs ----------
+
+  /** Background processor for scheduled announcements. Runs every minute, queries
+   *  pending announcements with scheduledAt <= now, and dispatches them. */
+  @Cron('*/1 * * * *')
+  async processScheduledAnnouncements() {
+    if (!(await this.redis.setNx('cron:scheduled_announcements', 'locked', 50))) return;
+
+    try {
+      const pending = await this.prisma.notification.findMany({
+        where: {
+          status: 'PENDING',
+          type: 'ANNOUNCEMENT',
+        },
+        take: 100,
+      });
+
+      const now = new Date();
+      for (const item of pending) {
+        const vars = item.variables as Record<string, any> | null;
+        if (vars?.scheduledAt) {
+          const schedTime = new Date(vars.scheduledAt);
+          if (schedTime <= now) {
+            await this.dispatch(item.id);
+          }
+        }
+      }
+    } catch (err: any) {
+      this.logger.error(`Failed processing scheduled announcements: ${err?.message}`, err?.stack, 'NotificationsService');
+    }
+  }
 
   /** Multi-stage membership expiry reminders — 7 days before, 3 days before,
    *  1 day before, on the expiry day itself, and once after expiry. Each
