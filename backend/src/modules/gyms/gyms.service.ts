@@ -193,9 +193,10 @@ export class GymsService {
     );
   }
 
-  /** Recent activity feed for the dashboard — latest audit log entries for this gym. */
-  async recentActivity(gymId: string, limit = 20) {
-    const { logs } = await this.audit.getAuditLogs(gymId, { limit, offset: 0 });
+  /** Recent activity feed for the dashboard — latest audit log entries for this gym (capped at 5). */
+  async recentActivity(gymId: string, limit = 5) {
+    const safeLimit = Math.min(5, Math.max(1, limit ?? 5));
+    const { logs } = await this.audit.getAuditLogs(gymId, { limit: safeLimit, offset: 0 });
     return logs;
   }
 

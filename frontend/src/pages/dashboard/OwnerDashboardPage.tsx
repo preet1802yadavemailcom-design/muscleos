@@ -74,7 +74,8 @@ export function OwnerDashboardPage() {
       setRevenueTrend(analyticsRes.data?.revenueByDay ?? []);
       setAttendanceTrend(analyticsRes.data?.attendanceByDay ?? []);
       setBatchStats(batchRes.data ?? []);
-      setActivity(activityRes.data ?? []);
+      const activityData = Array.isArray(activityRes.data) ? activityRes.data : [];
+      setActivity(activityData.slice(0, 5));
     } catch (err) {
       // gracefully render empty state if endpoint/data unavailable
     } finally {

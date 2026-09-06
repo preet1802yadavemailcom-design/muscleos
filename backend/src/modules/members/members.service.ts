@@ -2,7 +2,7 @@ import { randomUUID, randomBytes } from 'crypto';
 
 import { PrismaService } from '@database/prisma.service';
 import { Injectable, NotFoundException, BadRequestException, ForbiddenException, ConflictException } from '@nestjs/common';
-import { UserStatus, Prisma } from '@prisma/client';
+import { UserStatus, MembershipStatus, Prisma } from '@prisma/client';
 import { AuditService } from '@shared/services/audit.service';
 import { EncryptionService } from '@shared/services/encryption.service';
 import { SequenceService } from '@shared/services/sequence.service';
@@ -162,6 +162,7 @@ export class MembersService {
       where: { id, gymId, deletedAt: null },
       include: {
         batch: true,
+        branch: { select: { id: true, name: true } },
         trainer: { select: { id: true, firstName: true, lastName: true } },
         currentMembership: true,
         memberships: { orderBy: { createdAt: 'desc' } },
@@ -170,18 +171,23 @@ export class MembersService {
     });
     if (!member) throw new NotFoundException('Member not found');
 
-    const [attendance, payments, lastPayment] = await Promise.all([
+    const [attendance, payments, lastPayment, activeDietPlan, activeWorkoutPlan] = await Promise.all([
       this.prisma.attendance.findMany({
         where: { memberId: id, gymId },
         orderBy: { checkInAt: 'desc' },
-        take: 15,
+        take: 30,
+        include: {
+          batch: { select: { id: true, name: true } },
+          branch: { select: { id: true, name: true } },
+        },
       }),
       this.prisma.payment.findMany({
         where: { memberId: id, gymId, deletedAt: null },
         orderBy: { createdAt: 'desc' },
-        take: 15,
+        take: 30,
         include: {
           monthAllocations: { include: { membershipMonth: { select: { monthStart: true } } } },
+          verifiedBy: { select: { id: true, firstName: true, lastName: true } },
         },
       }),
       this.prisma.payment.findFirst({
@@ -189,6 +195,18 @@ export class MembersService {
         orderBy: { createdAt: 'desc' },
         select: { createdAt: true, total: true },
       }),
+      this.prisma.dietPlan?.findFirst
+        ? this.prisma.dietPlan.findFirst({
+            where: { memberId: id, gymId, isActive: true },
+            include: { meals: { orderBy: { order: 'asc' } } },
+          })
+        : Promise.resolve(null),
+      this.prisma.workoutPlan?.findFirst
+        ? this.prisma.workoutPlan.findFirst({
+            where: { memberId: id, gymId, isActive: true },
+            include: { days: { include: { exercises: { orderBy: { order: 'asc' } } }, orderBy: { order: 'asc' } } },
+          })
+        : Promise.resolve(null),
     ]);
 
     const accountState = !member.userId
@@ -204,6 +222,8 @@ export class MembersService {
       lastPayment: lastPayment ?? null,
       attendance,
       payments,
+      activeDietPlan,
+      activeWorkoutPlan,
     };
   }
 
@@ -431,5 +451,134 @@ export class MembersService {
       expiresAt,
       claimUrl: `/claim?token=${rawToken}`,
     };
+  }
+
+  /** Lists all members in PENDING status awaiting review/approval by owner or staff. */
+  async findPendingRegistrations(gymId: string) {
+    return this.prisma.member.findMany({
+      where: { gymId, status: UserStatus.PENDING, deletedAt: null },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        batch: { select: { id: true, name: true, startTime: true, endTime: true } },
+        trainer: { select: { id: true, firstName: true, lastName: true } },
+        currentMembership: { select: { id: true, planName: true, status: true, startDate: true, endDate: true } },
+      },
+    });
+  }
+
+  /** Approves a pending self-registration, optionally assigning/changing their batch, and activates their trial membership. */
+  async approveRegistration(id: string, gymId: string, batchId?: string, reviewerId?: string) {
+    const member = await this.prisma.member.findFirst({
+      where: { id, gymId, deletedAt: null },
+      include: { currentMembership: true },
+    });
+    if (!member) throw new NotFoundException('Member not found');
+    if (member.status !== UserStatus.PENDING) {
+      throw new BadRequestException(`Member is not in PENDING status (current: ${member.status})`);
+    }
+
+    const finalBatchId = batchId || member.batchId;
+    if (batchId) {
+      const b = await this.prisma.batch.findFirst({ where: { id: batchId, gymId, deletedAt: null } });
+      if (!b) throw new BadRequestException('Specified batch does not exist in this gym');
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.member.update({
+        where: { id },
+        data: {
+          status: UserStatus.ACTIVE,
+          ...(finalBatchId ? { batchId: finalBatchId } : {}),
+        },
+        include: {
+          batch: true,
+          currentMembership: true,
+        },
+      });
+
+      if (member.currentMembershipId && member.currentMembership?.status === MembershipStatus.PENDING) {
+        await tx.membership.update({
+          where: { id: member.currentMembershipId },
+          data: { status: MembershipStatus.ACTIVE },
+        });
+      }
+
+      await this.audit.log({
+        action: 'MEMBER_REGISTRATION_APPROVED',
+        entity: 'Member',
+        entityId: id,
+        userId: reviewerId,
+        gymId,
+        newValue: { status: UserStatus.ACTIVE, batchId: finalBatchId },
+      });
+
+      return updated;
+    });
+  }
+
+  /** Rejects a pending self-registration, marking the profile INACTIVE and cancelling any pending membership. */
+  async rejectRegistration(id: string, gymId: string, reason?: string, reviewerId?: string) {
+    const member = await this.prisma.member.findFirst({
+      where: { id, gymId, deletedAt: null },
+    });
+    if (!member) throw new NotFoundException('Member not found');
+    if (member.status !== UserStatus.PENDING) {
+      throw new BadRequestException(`Member is not in PENDING status (current: ${member.status})`);
+    }
+
+    const updated = await this.prisma.member.update({
+      where: { id },
+      data: {
+        status: UserStatus.INACTIVE,
+      },
+    });
+
+    if (member.currentMembershipId) {
+      await this.prisma.membership.update({
+        where: { id: member.currentMembershipId },
+        data: { status: MembershipStatus.CANCELLED },
+      });
+    }
+
+    await this.audit.log({
+      action: 'MEMBER_REGISTRATION_REJECTED',
+      entity: 'Member',
+      entityId: id,
+      userId: reviewerId,
+      gymId,
+      newValue: { status: UserStatus.INACTIVE, reason },
+    });
+
+    return updated;
+  }
+
+  /** Assigns or updates a member's batch. */
+  async assignBatch(id: string, gymId: string, batchId: string, reviewerId?: string) {
+    const member = await this.prisma.member.findFirst({
+      where: { id, gymId, deletedAt: null },
+    });
+    if (!member) throw new NotFoundException('Member not found');
+
+    const batch = await this.prisma.batch.findFirst({
+      where: { id: batchId, gymId, deletedAt: null },
+    });
+    if (!batch) throw new BadRequestException('Batch does not exist in this gym');
+
+    const updated = await this.prisma.member.update({
+      where: { id },
+      data: { batchId },
+      include: { batch: true },
+    });
+
+    await this.audit.log({
+      action: 'MEMBER_BATCH_ASSIGNED',
+      entity: 'Member',
+      entityId: id,
+      userId: reviewerId,
+      gymId,
+      newValue: { batchId, batchName: batch.name },
+    });
+
+    return updated;
   }
 }

@@ -54,9 +54,21 @@ export class AttendanceController {
 
   @Get('my-history')
   @Permissions('attendance:read:own')
-  @ApiOperation({ summary: "The logged-in user's own recent attendance (member self-service)" })
-  async myHistory(@GymId() gymId: string, @CurrentUser() user: CurrentUserPayload) {
-    return this.service.myHistory(gymId, user);
+  @ApiOperation({ summary: "The logged-in user's own attendance history (filterable by month/year, with pagination)" })
+  async myHistory(
+    @GymId() gymId: string,
+    @CurrentUser() user: CurrentUserPayload,
+    @Query('month') month?: string,
+    @Query('year') year?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.service.myHistory(gymId, user, {
+      month: month ? Number(month) : undefined,
+      year: year ? Number(year) : undefined,
+      page: page ? Number(page) : undefined,
+      limit: limit ? Number(limit) : undefined,
+    });
   }
 
   @Get()

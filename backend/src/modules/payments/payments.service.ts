@@ -61,6 +61,9 @@ export class PaymentsService {
         { receiptNumber: { contains: search, mode: 'insensitive' } },
         { invoiceNumber: { contains: search, mode: 'insensitive' } },
         { member: { firstName: { contains: search, mode: 'insensitive' } } },
+        { member: { lastName: { contains: search, mode: 'insensitive' } } },
+        { member: { memberCode: { contains: search, mode: 'insensitive' } } },
+        { member: { mobile: { contains: search } } },
       ];
     }
     const [data, total] = await Promise.all([
@@ -69,7 +72,23 @@ export class PaymentsService {
         skip,
         take: limit,
         orderBy: { createdAt: 'desc' },
-        include: { member: { select: { id: true, firstName: true, lastName: true, mobile: true } }, collectedBy: { select: { id: true, firstName: true, lastName: true } } },
+        include: {
+          member: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              memberCode: true,
+              mobile: true,
+              photo: true,
+              batch: { select: { id: true, name: true } },
+              currentMembership: { select: { planName: true } },
+            },
+          },
+          collectedBy: { select: { id: true, firstName: true, lastName: true } },
+          verifiedBy: { select: { id: true, firstName: true, lastName: true } },
+          membership: { select: { id: true, planName: true } },
+        },
       }),
       this.prisma.payment.count({ where }),
     ]);

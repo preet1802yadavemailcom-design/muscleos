@@ -53,6 +53,17 @@ export class AttendanceCoreService {
   async recordScan(input: RecordScanInput) {
     const { member } = input;
 
+    // Registration and member status validity
+    if (member.status === 'PENDING') {
+      throw new ForbiddenException('Registration is pending owner approval.');
+    }
+    if (member.status && member.status !== 'ACTIVE') {
+      throw new ForbiddenException(`Member status is ${member.status} — attendance not permitted.`);
+    }
+    if (input.branchId && member.branchId && input.branchId !== member.branchId) {
+      throw new ForbiddenException('Cannot check in at a different branch than the one assigned.');
+    }
+
     // Membership validity — checked before we touch the DB at all.
     const membership = member.currentMembership;
     if (!membership) {

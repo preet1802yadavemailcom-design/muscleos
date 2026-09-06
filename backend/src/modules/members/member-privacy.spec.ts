@@ -39,6 +39,8 @@ describe('MembersService — Field-Level Privacy Protection', () => {
       membership: { findMany: jest.fn().mockResolvedValue([]), findFirst: jest.fn().mockResolvedValue(null) },
       payment: { findMany: jest.fn().mockResolvedValue([]), findFirst: jest.fn().mockResolvedValue(null) },
       bodyMetric: { findMany: jest.fn().mockResolvedValue([]) },
+      dietPlan: { findFirst: jest.fn().mockResolvedValue(null) },
+      workoutPlan: { findFirst: jest.fn().mockResolvedValue(null) },
     };
 
     const module = await Test.createTestingModule({

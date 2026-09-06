@@ -33,6 +33,13 @@ export class MembersController {
     return this.service.exportData(gymId, query);
   }
 
+  @Get('pending')
+  @Permissions('members:read')
+  @ApiOperation({ summary: 'List all pending member registrations awaiting approval' })
+  async findPendingRegistrations(@GymId() gymId: string) {
+    return this.service.findPendingRegistrations(gymId);
+  }
+
   @Get(':id/360')
   @Permissions('members:read')
   @ApiOperation({ summary: 'Full 360-degree member profile (membership, attendance, payments) — staff only' })
@@ -87,6 +94,42 @@ export class MembersController {
   @ApiOperation({ summary: 'Generate a one-time activation token for member self-claim' })
   async generateClaimToken(@Param('id') id: string, @GymId() gymId: string) {
     return this.service.generateClaimToken(id, gymId);
+  }
+
+  @Post(':id/approve')
+  @Permissions('members:update')
+  @ApiOperation({ summary: 'Approve a pending registration and optionally assign a batch' })
+  async approveRegistration(
+    @Param('id') id: string,
+    @GymId() gymId: string,
+    @Body('batchId') batchId?: string,
+    @CurrentUser() user?: CurrentUserPayload,
+  ) {
+    return this.service.approveRegistration(id, gymId, batchId, user?.userId);
+  }
+
+  @Post(':id/reject')
+  @Permissions('members:update')
+  @ApiOperation({ summary: 'Reject a pending registration' })
+  async rejectRegistration(
+    @Param('id') id: string,
+    @GymId() gymId: string,
+    @Body('reason') reason?: string,
+    @CurrentUser() user?: CurrentUserPayload,
+  ) {
+    return this.service.rejectRegistration(id, gymId, reason, user?.userId);
+  }
+
+  @Put(':id/batch')
+  @Permissions('members:update')
+  @ApiOperation({ summary: 'Assign or update a member batch' })
+  async assignBatch(
+    @Param('id') id: string,
+    @GymId() gymId: string,
+    @Body('batchId') batchId: string,
+    @CurrentUser() user?: CurrentUserPayload,
+  ) {
+    return this.service.assignBatch(id, gymId, batchId, user?.userId);
   }
 
   @Delete(':id')

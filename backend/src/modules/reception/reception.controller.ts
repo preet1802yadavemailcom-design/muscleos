@@ -28,9 +28,62 @@ export class ReceptionController {
   constructor(private readonly service: ReceptionService) {}
 
   @Get('dashboard')
-  @ApiOperation({ summary: "Front-desk snapshot: today's check-ins, expiring memberships, pending payments" })
-  dashboard(@GymId() gymId: string) {
-    return this.service.dashboard(gymId);
+  @ApiOperation({ summary: "Front-desk snapshot: today's check-ins, expiring memberships, pending payments (with optional batch filter)" })
+  @ApiQuery({ name: 'batchId', required: false, type: String })
+  dashboard(@GymId() gymId: string, @Query('batchId') batchId?: string) {
+    return this.service.dashboard(gymId, batchId);
+  }
+
+  @Get('batches')
+  @ApiOperation({ summary: 'List all active batches for the gym with capacity and enrollment' })
+  batches(@GymId() gymId: string) {
+    return this.service.getBatches(gymId);
+  }
+
+  @Get('checkins-today')
+  @ApiOperation({ summary: "Drill-down: today's check-ins with batch and search filter" })
+  @ApiQuery({ name: 'batchId', required: false, type: String })
+  @ApiQuery({ name: 'search', required: false, type: String })
+  checkinsToday(
+    @GymId() gymId: string,
+    @Query('batchId') batchId?: string,
+    @Query('search') search?: string,
+  ) {
+    return this.service.getCheckinsToday(gymId, batchId, search);
+  }
+
+  @Get('active-members')
+  @ApiOperation({ summary: 'Drill-down: active members with batch and search filter' })
+  @ApiQuery({ name: 'batchId', required: false, type: String })
+  @ApiQuery({ name: 'search', required: false, type: String })
+  activeMembers(
+    @GymId() gymId: string,
+    @Query('batchId') batchId?: string,
+    @Query('search') search?: string,
+  ) {
+    return this.service.getActiveMembers(gymId, batchId, search);
+  }
+
+  @Get('expiring-members')
+  @ApiOperation({ summary: 'Drill-down: members expiring in next N days' })
+  @ApiQuery({ name: 'batchId', required: false, type: String })
+  @ApiQuery({ name: 'days', required: false, type: Number })
+  expiringMembers(
+    @GymId() gymId: string,
+    @Query('batchId') batchId?: string,
+    @Query('days') days?: string,
+  ) {
+    return this.service.getExpiringMembers(gymId, batchId, days ? Number(days) : 7);
+  }
+
+  @Get('pending-payments')
+  @ApiOperation({ summary: 'Drill-down: members with pending payments' })
+  @ApiQuery({ name: 'batchId', required: false, type: String })
+  pendingPayments(
+    @GymId() gymId: string,
+    @Query('batchId') batchId?: string,
+  ) {
+    return this.service.getPendingPayments(gymId, batchId);
   }
 
   @Get('members/search')

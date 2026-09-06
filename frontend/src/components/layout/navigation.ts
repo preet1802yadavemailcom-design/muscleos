@@ -27,9 +27,9 @@ export const navigation: NavItem[] = [
   { name: 'Reception', href: '/reception', icon: UserCog, roles: ['GYM_OWNER', 'RECEPTIONIST'] },
   { name: 'Reports', href: '/reports', icon: BarChart3, roles: ['SUPER_ADMIN', 'GYM_OWNER'] },
   { name: 'Notifications', href: '/notifications', icon: Bell, roles: ['SUPER_ADMIN', 'GYM_OWNER'] },
-  { name: 'Settings', href: '/settings', icon: Settings, roles: ['SUPER_ADMIN', 'GYM_OWNER'] },
   { name: 'Support', href: '/support', icon: LifeBuoy, roles: ['SUPER_ADMIN', 'GYM_OWNER', 'TRAINER', 'RECEPTIONIST', 'MEMBER'] },
   { name: 'Assign Fitness Plan', href: '/fitness/assign', icon: Dumbbell, roles: ['GYM_OWNER', 'TRAINER'] },
+  { name: 'Settings', href: '/settings', icon: Settings, roles: ['SUPER_ADMIN', 'GYM_OWNER'] },
   { name: 'My Fitness', href: '/my/fitness', icon: Dumbbell, roles: ['MEMBER'] },
 ];
 

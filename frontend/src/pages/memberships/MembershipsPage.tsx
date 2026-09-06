@@ -5,7 +5,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { useToast } from '@/hooks/use-toast';
+import { apiErrorMessage } from '@/lib/api-error';
 import api from '@services/api';
 
 interface Membership {
@@ -27,6 +29,7 @@ const statusColor: Record<string, string> = {
 export function MembershipsPage() {
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState<string>('');
+  const [pendingRenew, setPendingRenew] = useState<{ id: string; memberName: string; plan: string; currentEnd: string } | null>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -41,10 +44,11 @@ export function MembershipsPage() {
   const renewMutation = useMutation({
     mutationFn: (id: string) => api.post(`/memberships/${id}/renew`, {}),
     onSuccess: () => {
-      toast({ title: 'Membership renewed' });
+      toast({ title: 'Membership renewed successfully' });
+      setPendingRenew(null);
       invalidate();
     },
-    onError: (e: any) => toast({ title: 'Renew failed', description: e?.response?.data?.message, variant: 'destructive' }),
+    onError: (e: any) => toast({ title: 'Renew failed', description: apiErrorMessage(e), variant: 'destructive' }),
   });
 
   const freezeMutation = useMutation({
@@ -57,7 +61,7 @@ export function MembershipsPage() {
       toast({ title: 'Membership frozen for 7 days' });
       invalidate();
     },
-    onError: (e: any) => toast({ title: 'Freeze failed', description: e?.response?.data?.message, variant: 'destructive' }),
+    onError: (e: any) => toast({ title: 'Freeze failed', description: apiErrorMessage(e), variant: 'destructive' }),
   });
 
   const unfreezeMutation = useMutation({
@@ -66,7 +70,7 @@ export function MembershipsPage() {
       toast({ title: 'Membership unfrozen' });
       invalidate();
     },
-    onError: (e: any) => toast({ title: 'Unfreeze failed', description: e?.response?.data?.message, variant: 'destructive' }),
+    onError: (e: any) => toast({ title: 'Unfreeze failed', description: apiErrorMessage(e), variant: 'destructive' }),
   });
 
   const [transferTarget, setTransferTarget] = useState<{ id: string; memberName: string } | null>(null);
@@ -82,7 +86,7 @@ export function MembershipsPage() {
       invalidate();
     },
     onError: (e: any) =>
-      toast({ title: 'Transfer failed', description: e?.response?.data?.message, variant: 'destructive' }),
+      toast({ title: 'Transfer failed', description: apiErrorMessage(e), variant: 'destructive' }),
   });
 
   const rows: Membership[] = data?.data ?? [];
@@ -178,64 +182,76 @@ export function MembershipsPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {rows.map((m) => (
-                      <tr key={m.id} className="border-b">
-                        <td className="p-4">
-                          {m.member ? `${m.member.firstName} ${m.member.lastName}` : '—'}
-                          <div className="text-xs text-muted-foreground">{m.member?.memberCode}</div>
-                        </td>
-                        <td className="p-4">{m.plan}</td>
-                        <td className="p-4">
-                          <Badge className={statusColor[m.status] ?? ''}>{m.status}</Badge>
-                        </td>
-                        <td className="p-4 text-muted-foreground">{new Date(m.endDate).toLocaleDateString()}</td>
-                        <td className="p-4">
-                          <div className="flex gap-1">
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              title="Renew"
-                              onClick={() => renewMutation.mutate(m.id)}
-                            >
-                              <RefreshCcw className="h-4 w-4" />
-                            </Button>
-                            {m.status === 'FROZEN' ? (
+                    {rows.map((m) => {
+                      const memberName = m.member ? `${m.member.firstName} ${m.member.lastName}` : 'Member';
+                      const canRenew = m.status === 'ACTIVE' || m.status === 'EXPIRED';
+                      return (
+                        <tr key={m.id} className="border-b hover:bg-muted/30">
+                          <td className="p-4">
+                            {m.member ? `${m.member.firstName} ${m.member.lastName}` : '—'}
+                            <div className="text-xs text-muted-foreground">{m.member?.memberCode}</div>
+                          </td>
+                          <td className="p-4">{m.plan}</td>
+                          <td className="p-4">
+                            <Badge className={statusColor[m.status] ?? ''}>{m.status}</Badge>
+                          </td>
+                          <td className="p-4 text-muted-foreground">{new Date(m.endDate).toLocaleDateString()}</td>
+                          <td className="p-4">
+                            <div className="flex gap-1">
                               <Button
                                 size="sm"
                                 variant="outline"
-                                title="Unfreeze"
-                                onClick={() => unfreezeMutation.mutate(m.id)}
-                              >
-                                <PlayCircle className="h-4 w-4" />
-                              </Button>
-                            ) : (
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                title="Freeze 7 days"
-                                onClick={() => freezeMutation.mutate(m.id)}
-                              >
-                                <Snowflake className="h-4 w-4" />
-                              </Button>
-                            )}
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              title="Transfer"
-                              disabled={m.status !== 'ACTIVE'}
-                              onClick={() =>
-                                setTransferTarget({
+                                title={canRenew ? 'Renew Membership' : 'Cannot renew in current status'}
+                                disabled={!canRenew || renewMutation.isPending}
+                                onClick={() => setPendingRenew({
                                   id: m.id,
-                                  memberName: m.member ? `${m.member.firstName} ${m.member.lastName}` : m.id,
-                                })
-                              }
-                            >
-                              <ArrowLeftRight className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
+                                  memberName,
+                                  plan: m.plan,
+                                  currentEnd: new Date(m.endDate).toLocaleDateString(),
+                                })}
+                              >
+                                <RefreshCcw className="h-4 w-4" />
+                              </Button>
+                              {m.status === 'FROZEN' ? (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  title="Unfreeze"
+                                  disabled={unfreezeMutation.isPending}
+                                  onClick={() => unfreezeMutation.mutate(m.id)}
+                                >
+                                  <PlayCircle className="h-4 w-4" />
+                                </Button>
+                              ) : (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  title="Freeze 7 days"
+                                  disabled={m.status !== 'ACTIVE' || freezeMutation.isPending}
+                                  onClick={() => freezeMutation.mutate(m.id)}
+                                >
+                                  <Snowflake className="h-4 w-4" />
+                                </Button>
+                              )}
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                title="Transfer"
+                                disabled={m.status !== 'ACTIVE' || transferMutation.isPending}
+                                onClick={() =>
+                                  setTransferTarget({
+                                    id: m.id,
+                                    memberName,
+                                  })
+                                }
+                              >
+                                <ArrowLeftRight className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -243,6 +259,17 @@ export function MembershipsPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Renew Confirmation Dialog */}
+      <ConfirmDialog
+        open={!!pendingRenew}
+        onOpenChange={(o) => !o && setPendingRenew(null)}
+        title="Confirm Membership Renewal"
+        description={`Are you sure you want to renew the ${pendingRenew?.plan} plan for ${pendingRenew?.memberName}? (Current end date: ${pendingRenew?.currentEnd}). This will extend their membership and add the next billing interval.`}
+        confirmLabel="Renew Membership"
+        loading={renewMutation.isPending}
+        onConfirm={() => pendingRenew && renewMutation.mutate(pendingRenew.id)}
+      />
     </div>
   );
 }

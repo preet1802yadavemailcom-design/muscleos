@@ -30,6 +30,7 @@ describe('AttendanceService - Role Isolation', () => {
           firstName: 'John',
           lastName: 'Doe',
           status: UserStatus.ACTIVE,
+          batchId: 'batch-1',
           currentMembership: { status: 'ACTIVE', endDate: new Date(Date.now() + 86400000) },
         }),
       },

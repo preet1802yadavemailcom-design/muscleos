@@ -31,27 +31,192 @@ export class ReceptionService {
     private readonly memberships: MembershipsService,
   ) {}
 
-  /** Front-desk landing snapshot: today's check-ins, expiring memberships, pending payments. */
-  async dashboard(gymId: string) {
+  /** Front-desk landing snapshot: today's check-ins, expiring memberships, pending payments (with optional batch filter). */
+  async dashboard(gymId: string, batchId?: string) {
     const startOfDay = getGymStartOfDay();
     const endOfDay = getGymEndOfDay();
 
+    const attendanceWhere: any = { gymId, checkInAt: { gte: startOfDay, lte: endOfDay } };
+    if (batchId) attendanceWhere.batchId = batchId;
+
+    const membershipWhere: any = {
+      gymId,
+      status: 'ACTIVE',
+      endDate: { gte: new Date(), lte: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) },
+    };
+    if (batchId) membershipWhere.member = { batchId };
+
+    const paymentWhere: any = { gymId, status: 'PENDING', deletedAt: null };
+    if (batchId) paymentWhere.member = { batchId };
+
+    const memberWhere: any = { gymId, status: 'ACTIVE', deletedAt: null };
+    if (batchId) memberWhere.batchId = batchId;
+
     const [todayCheckIns, expiringSoon, pendingPayments, activeMembers] = await Promise.all([
-      this.prisma.attendance.count({
-        where: { gymId, checkInAt: { gte: startOfDay, lte: endOfDay } },
-      }),
-      this.prisma.membership.count({
-        where: {
-          gymId,
-          status: 'ACTIVE',
-          endDate: { gte: new Date(), lte: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) },
-        },
-      }),
-      this.prisma.payment.count({ where: { gymId, status: 'PENDING' } }),
-      this.prisma.member.count({ where: { gymId, status: 'ACTIVE', deletedAt: null } }),
+      this.prisma.attendance.count({ where: attendanceWhere }),
+      this.prisma.membership.count({ where: membershipWhere }),
+      this.prisma.payment.count({ where: paymentWhere }),
+      this.prisma.member.count({ where: memberWhere }),
     ]);
 
     return { todayCheckIns, expiringSoon, pendingPayments, activeMembers };
+  }
+
+  /** Lists all active batches for the gym with current member counts and capacity. */
+  async getBatches(gymId: string) {
+    return this.prisma.batch.findMany({
+      where: { gymId, deletedAt: null, status: 'ACTIVE' },
+      select: {
+        id: true,
+        name: true,
+        startTime: true,
+        endTime: true,
+        capacity: true,
+        days: true,
+        _count: {
+          select: {
+            members: { where: { deletedAt: null, status: 'ACTIVE' } },
+          },
+        },
+      },
+      orderBy: { startTime: 'asc' },
+    });
+  }
+
+  /** Drill-down: today's check-ins with batch and search filter. */
+  async getCheckinsToday(gymId: string, batchId?: string, search?: string) {
+    const startOfDay = getGymStartOfDay();
+    const endOfDay = getGymEndOfDay();
+
+    const where: any = {
+      gymId,
+      checkInAt: { gte: startOfDay, lte: endOfDay },
+    };
+    if (batchId) {
+      where.batchId = batchId;
+    }
+    if (search) {
+      where.member = {
+        OR: [
+          { firstName: { contains: search, mode: 'insensitive' } },
+          { lastName: { contains: search, mode: 'insensitive' } },
+          { memberCode: { contains: search, mode: 'insensitive' } },
+          { mobile: { contains: search } },
+        ],
+      };
+    }
+
+    return this.prisma.attendance.findMany({
+      where,
+      orderBy: { checkInAt: 'desc' },
+      include: {
+        member: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            memberCode: true,
+            mobile: true,
+            photo: true,
+            batch: { select: { id: true, name: true } },
+            currentMembership: { select: { planName: true, status: true } },
+          },
+        },
+        batch: { select: { id: true, name: true } },
+        branch: { select: { id: true, name: true } },
+      },
+    });
+  }
+
+  /** Drill-down: active members with batch and search filter. */
+  async getActiveMembers(gymId: string, batchId?: string, search?: string) {
+    const where: any = {
+      gymId,
+      status: 'ACTIVE',
+      deletedAt: null,
+    };
+    if (batchId) {
+      where.batchId = batchId;
+    }
+    if (search) {
+      where.OR = [
+        { firstName: { contains: search, mode: 'insensitive' } },
+        { lastName: { contains: search, mode: 'insensitive' } },
+        { memberCode: { contains: search, mode: 'insensitive' } },
+        { mobile: { contains: search } },
+      ];
+    }
+
+    return this.prisma.member.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+      include: {
+        batch: { select: { id: true, name: true, startTime: true, endTime: true } },
+        trainer: { select: { id: true, firstName: true, lastName: true } },
+        currentMembership: { select: { id: true, planName: true, status: true, endDate: true } },
+      },
+    });
+  }
+
+  /** Drill-down: members whose active membership expires in next N days. */
+  async getExpiringMembers(gymId: string, batchId?: string, days = 7) {
+    const now = new Date();
+    const threshold = new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
+
+    const where: any = {
+      gymId,
+      status: 'ACTIVE',
+      deletedAt: null,
+      currentMembership: {
+        is: {
+          status: 'ACTIVE',
+          endDate: { gte: now, lte: threshold },
+        },
+      },
+    };
+    if (batchId) {
+      where.batchId = batchId;
+    }
+
+    return this.prisma.member.findMany({
+      where,
+      orderBy: { currentMembership: { endDate: 'asc' } },
+      include: {
+        batch: { select: { id: true, name: true } },
+        currentMembership: { select: { id: true, planName: true, endDate: true, status: true } },
+      },
+    });
+  }
+
+  /** Drill-down: pending payments list. */
+  async getPendingPayments(gymId: string, batchId?: string) {
+    const where: any = {
+      gymId,
+      status: 'PENDING',
+      deletedAt: null,
+    };
+    if (batchId) {
+      where.member = { batchId };
+    }
+
+    return this.prisma.payment.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      include: {
+        member: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            memberCode: true,
+            mobile: true,
+            photo: true,
+            batch: { select: { id: true, name: true } },
+          },
+        },
+      },
+    });
   }
 
   /** Register a walk-in member. Delegates to MembersService for full validation, QR issuance, etc. */

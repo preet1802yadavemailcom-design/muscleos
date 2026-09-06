@@ -138,8 +138,13 @@ export class CheckinService {
 
     const member = await this.findMemberByMobile(kiosk.gymId, mobile);
     if (!member) {
-      // New member — still issue a session token (scoped to this mobile) so
-      // the kiosk can proceed straight to the registration step without OTP.
+      // New member — load active batches for batch selection, and issue a session token
+      const batches = await this.prisma.batch.findMany({
+        where: { gymId: kiosk.gymId, deletedAt: null, status: 'ACTIVE' },
+        select: { id: true, name: true, startTime: true, endTime: true, capacity: true },
+        orderBy: { startTime: 'asc' },
+      });
+
       const newMemberSessionToken = await this.signToken<SessionPayload>(
         { purpose: 'checkin-session', gymId: kiosk.gymId, mobile, branchId: kiosk.branchId },
         SESSION_TOKEN_TTL,
@@ -151,6 +156,7 @@ export class CheckinService {
         expiresIn: SESSION_TOKEN_TTL,
         member: null,
         today: null,
+        batches,
       };
     }
 
@@ -198,12 +204,11 @@ export class CheckinService {
   }
 
   /* ------------------------------------------------------------------ */
-  /* Step 4 — new member registration (auto check-in)                    */
+  /* Step 4 — new member registration (pending owner approval)           */
   /* ------------------------------------------------------------------ */
 
-  /** Creates the member profile + a pending-approval membership, then
-   *  automatically checks the member in. Reuses an existing profile if the
-   *  mobile is already known to the gym (no duplicates). */
+  /** Creates the member profile in PENDING status + a pending-approval membership.
+   *  Does NOT grant immediate attendance access — requires owner/staff review and approval. */
   async register(dto: RegisterMemberDto, ipAddress?: string, userAgent?: string) {
     const session = await this.verifyToken<SessionPayload>(dto.sessionToken, 'checkin-session');
     await this.assertGymActive(session.gymId);
@@ -217,28 +222,17 @@ export class CheckinService {
     }
     const member = await this.createMemberWithPendingMembership(session.gymId, dto, mobile);
 
-    // Auto check-in after successful registration — but never create a
-    // duplicate: if today already has an open or completed record, surface it
-    // instead of writing a second CHECK_IN row.
-    const state = await this.todayState(session.gymId, member.id);
-    const attendance = state.checkedIn
-      ? {
-          id: state.recordId,
-          type: AttendanceType.CHECK_IN,
-          status: 'PRESENT',
-          checkInAt: state.checkedIn,
-          checkOutAt: state.checkOutAt,
-          isLate: false,
-          lateMinutes: 0,
-          alreadyRecorded: true,
-        }
-      : await this.performCheckIn(member, session.gymId, 'kiosk', undefined, session.branchId);
-
     await this.audit.log({
-      action: 'MEMBER_SELF_REGISTERED',
+      action: 'MEMBER_SELF_REGISTERED_PENDING',
       entity: 'Member',
       entityId: member.id,
-      newValue: { memberCode: member.memberCode, firstName: member.firstName, lastName: member.lastName },
+      newValue: {
+        memberCode: member.memberCode,
+        firstName: member.firstName,
+        lastName: member.lastName,
+        batchId: member.batchId,
+        status: UserStatus.PENDING,
+      },
       gymId: session.gymId,
       ipAddress,
       userAgent,
@@ -246,8 +240,9 @@ export class CheckinService {
 
     return {
       member: this.memberSummary(member),
-      attendance,
-      membershipStatus: member.currentMembership?.status ?? null,
+      status: 'PENDING_APPROVAL',
+      message: 'Registration submitted successfully. Please wait for gym staff or owner approval before checking in.',
+      membershipStatus: MembershipStatus.PENDING,
     };
   }
 
@@ -287,6 +282,16 @@ export class CheckinService {
     await this.assertWithinGeofence(session.gymId, session.branchId, dto.latitude, dto.longitude);
     const member = await this.findMemberByMobile(session.gymId, session.mobile);
     if (!member) throw new NotFoundException('Member not found — please register first');
+
+    if (member.status === UserStatus.PENDING) {
+      throw new ForbiddenException('Registration is pending owner approval.');
+    }
+    if (member.status !== UserStatus.ACTIVE) {
+      throw new ForbiddenException(`Member status is ${member.status} — check-in not permitted.`);
+    }
+    if (!member.batchId) {
+      throw new ForbiddenException('No batch assigned — gym owner must assign a batch before attendance is allowed.');
+    }
 
     const state = await this.todayState(session.gymId, member.id);
     if (state.checkedIn && state.checkOutAt) {
@@ -407,6 +412,8 @@ export class CheckinService {
       firstName: member.firstName,
       lastName: maskedLastName,
       photo: member.photo,
+      status: member.status,
+      batch: member.batch ? { id: member.batch.id, name: member.batch.name } : null,
       membershipEligible: member.currentMembership
         ? member.currentMembership.status === 'ACTIVE'
         : false,
@@ -443,12 +450,20 @@ export class CheckinService {
     });
   }
 
-  /** Creates a member profile + PENDING (pending-approval) membership in a transaction. */
+  /** Creates a member profile in PENDING status + PENDING membership in a transaction. */
   private async createMemberWithPendingMembership(
     gymId: string,
     dto: RegisterMemberDto,
     mobile: string,
   ) {
+    let validatedBatchId: string | null = null;
+    if (dto.batchId) {
+      const batch = await this.prisma.batch.findFirst({
+        where: { id: dto.batchId, gymId, deletedAt: null },
+      });
+      if (batch) validatedBatchId = batch.id;
+    }
+
     const memberCode = await this.generateMemberCode(gymId);
     const memberId = randomUUID();
     const qrCodeData = this.encryption.generateQRCodeData(memberId, gymId);
@@ -474,10 +489,11 @@ export class CheckinService {
           city: dto.city,
           state: dto.state,
           pincode: dto.pincode,
+          batchId: validatedBatchId,
           qrCode,
           qrCodeData,
           referralCode: `${memberCode}-REF`,
-          status: UserStatus.ACTIVE,
+          status: UserStatus.PENDING,
           gymId,
         },
       });

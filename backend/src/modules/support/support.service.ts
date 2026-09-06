@@ -37,12 +37,18 @@ export class SupportTicketsService {
       },
     });
 
+    const supportEmail = process.env.SUPPORT_EMAIL || 'muscleos021@gmail.com';
+
     await this.audit.log({
       action: 'TICKET_CREATED', entity: 'SupportTicket', entityId: ticket.id, userId, gymId: user.gymId,
-      newValue: { title: dto.title, priority: ticket.priority },
+      newValue: { title: dto.title, priority: ticket.priority, supportEmail },
     });
 
-    return ticket;
+    return {
+      ...ticket,
+      supportEmail,
+      expectedResponseTime: 'Within 24 hours',
+    };
   }
 
   /** Lists tickets the current user raised themself — matched by email
@@ -70,4 +76,14 @@ export class SupportTicketsService {
     }
     return ticket;
   }
+
+  getSupportInfo() {
+    return {
+      supportEmail: process.env.SUPPORT_EMAIL || 'muscleos021@gmail.com',
+      expectedResponseTime: 'Within 24 hours',
+      serviceHours: 'Monday - Saturday, 9:00 AM - 8:00 PM IST',
+      emergencyContact: process.env.SUPPORT_EMAIL || 'muscleos021@gmail.com',
+    };
+  }
 }
+

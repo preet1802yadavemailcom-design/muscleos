@@ -248,6 +248,25 @@ export class MembershipsService {
     const existing = await this.prisma.membership.findFirst({ where: { id, gymId, deletedAt: null } });
     if (!existing) throw new NotFoundException('Membership not found');
 
+    if (existing.status === 'FROZEN') {
+      throw new BadRequestException('Frozen memberships cannot be renewed — unfreeze first.');
+    }
+    if (existing.status === 'CANCELLED') {
+      throw new BadRequestException('Cancelled memberships cannot be renewed — create a new membership.');
+    }
+
+    // Double-click idempotency check: if already renewed within the last 10 seconds, return the existing renewal
+    const recentDuplicate = await this.prisma.membership.findFirst({
+      where: {
+        memberId: existing.memberId,
+        previousMembershipId: existing.id,
+        createdAt: { gte: new Date(Date.now() - 10000) },
+      },
+    });
+    if (recentDuplicate) {
+      return withComputed(recentDuplicate);
+    }
+
     // When the client renews without specifying plan/pricing (e.g. one-click renew), carry over the current terms.
     const plan = dto.plan ?? existing.plan;
     const baseAmount = dto.baseAmount !== undefined ? dto.baseAmount : Number(existing.baseAmount);
@@ -266,6 +285,15 @@ export class MembershipsService {
     const totalAmount = Math.max(baseAmount - discountAmount, 0) + taxAmount;
 
     const renewed = await this.prisma.$transaction(async (tx) => {
+      const raceCheck = await tx.membership.findFirst({
+        where: {
+          memberId: existing.memberId,
+          previousMembershipId: existing.id,
+          createdAt: { gte: new Date(Date.now() - 15000) },
+        },
+      });
+      if (raceCheck) return raceCheck;
+
       const created = await tx.membership.create({
         data: {
           memberId: existing.memberId,

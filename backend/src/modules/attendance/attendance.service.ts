@@ -103,6 +103,9 @@ export class AttendanceService {
     if (!member) throw new NotFoundException('Member not found');
 
     // 3. Member must be active.
+    if (member.status === UserStatus.PENDING) {
+      throw new ForbiddenException('Registration is pending owner approval.');
+    }
     if (member.status !== UserStatus.ACTIVE) {
       throw new ForbiddenException(`Member is ${member.status.toLowerCase()} — attendance blocked`);
     }
@@ -119,6 +122,15 @@ export class AttendanceService {
           photo: member.photo ?? null,
         },
       };
+    }
+
+    if (!member.batchId) {
+      const hasBatches = this.prisma.batch?.count
+        ? (await this.prisma.batch.count({ where: { gymId: scannerGymId, deletedAt: null } })) > 0
+        : false;
+      if (hasBatches) {
+        throw new ForbiddenException('No batch assigned — gym owner must assign a batch before attendance is allowed.');
+      }
     }
 
     // 4. Membership validity - shared with the manual (no-QR) flow below.
@@ -171,8 +183,19 @@ export class AttendanceService {
     });
     if (!member) throw new NotFoundException('Member not found');
 
+    if (member.status === UserStatus.PENDING) {
+      throw new ForbiddenException('Registration is pending owner approval.');
+    }
     if (member.status !== UserStatus.ACTIVE) {
       throw new ForbiddenException(`Member is ${member.status.toLowerCase()} - attendance blocked`);
+    }
+    if (!member.batchId) {
+      const hasBatches = this.prisma.batch?.count
+        ? (await this.prisma.batch.count({ where: { gymId, deletedAt: null } })) > 0
+        : false;
+      if (hasBatches) {
+        throw new ForbiddenException('No batch assigned — gym owner must assign a batch before attendance is allowed.');
+      }
     }
 
     await this.ensureMembershipValid(member, gymId);
@@ -335,8 +358,12 @@ export class AttendanceService {
     return clash ? `${prefix}-${Date.now().toString().slice(-6)}` : candidate;
   }
 
-  /** A member's own recent attendance (self-service page). */
-  async myHistory(gymId: string, user: CurrentUserPayload) {
+  /** A member's own recent attendance (self-service page, supporting month/year filter & pagination). */
+  async myHistory(
+    gymId: string,
+    user: CurrentUserPayload,
+    query?: { month?: number; year?: number; page?: number; limit?: number },
+  ) {
     const dbUser = await this.prisma.user.findUnique({
       where: { id: user.userId },
       select: { email: true, phone: true },
@@ -350,16 +377,53 @@ export class AttendanceService {
           ...(dbUser?.phone ? [{ mobile: dbUser.phone }] : []),
         ],
       },
-      select: { id: true, firstName: true, lastName: true, memberCode: true, photo: true, batch: { select: { id: true, name: true } } },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        memberCode: true,
+        photo: true,
+        batch: { select: { id: true, name: true, startTime: true, endTime: true } },
+        branch: { select: { id: true, name: true } },
+      },
     });
-    if (!member) return { member: null, data: [] };
+    if (!member) return { member: null, data: [], meta: { total: 0, page: 1, limit: 30, totalPages: 0 } };
 
-    const data = await this.prisma.attendance.findMany({
-      where: { memberId: member.id, gymId },
-      orderBy: { checkInAt: 'desc' },
-      take: 30,
-    });
-    return { member, data };
+    const page = Math.max(1, query?.page ?? 1);
+    const limit = Math.min(100, Math.max(1, query?.limit ?? 30));
+    const skip = (page - 1) * limit;
+
+    const where: any = { memberId: member.id, gymId };
+    if (query?.month && query?.year) {
+      const start = new Date(query.year, query.month - 1, 1);
+      const end = new Date(query.year, query.month, 1);
+      where.checkInAt = { gte: start, lt: end };
+    }
+
+    const [data, total] = await Promise.all([
+      this.prisma.attendance.findMany({
+        where,
+        orderBy: { checkInAt: 'desc' },
+        skip,
+        take: limit,
+        include: {
+          batch: { select: { id: true, name: true } },
+          branch: { select: { id: true, name: true } },
+        },
+      }),
+      this.prisma.attendance.count({ where }),
+    ]);
+
+    return {
+      member,
+      data,
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
   }
 
   async findAll(gymId: string, query: QueryAttendanceDto) {

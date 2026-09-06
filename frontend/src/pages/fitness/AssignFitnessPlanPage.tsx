@@ -10,6 +10,11 @@ interface MemberOption {
   firstName: string;
   lastName: string;
   memberCode: string;
+  mobile?: string;
+  status?: string;
+  batch?: { id: string; name: string } | null;
+  trainer?: { id: string; firstName: string; lastName: string } | null;
+  currentMembership?: { id: string; planName: string; endDate: string; status: string } | null;
 }
 
 const MEAL_TYPES = ['BREAKFAST', 'LUNCH', 'DINNER', 'SNACK', 'PRE_WORKOUT', 'POST_WORKOUT'];
@@ -22,13 +27,14 @@ type WorkoutDay = { dayOfWeek: number; name: string; exercises: Exercise[] };
 const emptyMeal = (): Meal => ({ mealType: 'BREAKFAST', name: '', description: '', calories: '', protein: '', carbs: '', fats: '' });
 const emptyExercise = (): Exercise => ({ name: '', sets: '3', reps: '10', weight: '', restSeconds: '60', notes: '' });
 
-/** Trainer/owner tool to build a structured diet or workout plan for a
- *  specific member — meals and day-by-day exercises as separate entries,
+/** Trainer/owner tool to build a structured diet or workout plan for an
+ *  individual member — meals and day-by-day exercises as separate entries,
  *  not a single free-text note. Assigning a new plan automatically
  *  deactivates any previous one (handled server-side). */
 export function AssignFitnessPlanPage() {
   const [tab, setTab] = useState<'diet' | 'workout'>('diet');
   const [memberId, setMemberId] = useState('');
+  const [memberSearch, setMemberSearch] = useState('');
   const [editingDietId, setEditingDietId] = useState<string | null>(null);
   const [editingWorkoutId, setEditingWorkoutId] = useState<string | null>(null);
   const [loadingExisting, setLoadingExisting] = useState(false);
@@ -36,9 +42,25 @@ export function AssignFitnessPlanPage() {
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
 
-  const { data: members } = useQuery<MemberOption[]>({
+  const { data: members = [], isLoading: loadingMembers } = useQuery<MemberOption[]>({
     queryKey: ['members', 'for-fitness-assign'],
-    queryFn: async () => (await api.get('/members', { params: { limit: 200 } })).data?.data ?? [],
+    queryFn: async () => {
+      const res: any = await api.get('/members', { params: { limit: 200 } });
+      const list = Array.isArray(res.data) ? res.data : (Array.isArray(res) ? res : (res?.data?.data ?? []));
+      return list;
+    },
+  });
+
+  const selectedMember = members.find((m) => m.id === memberId);
+
+  const filteredMembers = members.filter((m) => {
+    if (!memberSearch.trim()) return true;
+    const term = memberSearch.toLowerCase();
+    const fullName = `${m.firstName} ${m.lastName}`.toLowerCase();
+    const code = (m.memberCode || '').toLowerCase();
+    const mobile = (m.mobile || '').toLowerCase();
+    const batchName = (m.batch?.name || '').toLowerCase();
+    return fullName.includes(term) || code.includes(term) || mobile.includes(term) || batchName.includes(term);
   });
 
   // ---- Diet state ----
@@ -61,7 +83,8 @@ export function AssignFitnessPlanPage() {
     setLoadingExisting(true);
     try {
       if (tab === 'diet') {
-        const plans: any[] = (await api.get(`/fitness/diet-plans/member/${memberId}`)).data;
+        const res: any = await api.get(`/fitness/diet-plans/member/${memberId}`);
+        const plans: any[] = Array.isArray(res.data) ? res.data : (Array.isArray(res) ? res : []);
         const active = plans.find((p) => p.isActive);
         if (!active) { setError('No active diet plan for this member yet — create one below.'); return; }
         setEditingDietId(active.id);
@@ -73,7 +96,8 @@ export function AssignFitnessPlanPage() {
           carbs: m.carbs?.toString() ?? '', fats: m.fats?.toString() ?? '',
         })));
       } else {
-        const plans: any[] = (await api.get(`/fitness/workout-plans/member/${memberId}`)).data;
+        const res: any = await api.get(`/fitness/workout-plans/member/${memberId}`);
+        const plans: any[] = Array.isArray(res.data) ? res.data : (Array.isArray(res) ? res : []);
         const active = plans.find((p) => p.isActive);
         if (!active) { setError('No active workout plan for this member yet — create one below.'); return; }
         setEditingWorkoutId(active.id);
@@ -96,20 +120,32 @@ export function AssignFitnessPlanPage() {
 
   const submitDiet = async () => {
     resetMessages();
-    if (!memberId || !dietTitle.trim() || meals.some((m) => !m.name.trim())) {
-      setError('Select a member, give the plan a title, and name every meal.');
+    if (!memberId) {
+      setError('Please select a member first.');
+      return;
+    }
+    if (!dietTitle.trim()) {
+      setError('Please provide a plan title.');
+      return;
+    }
+    if (meals.length === 0) {
+      setError('A diet plan must contain at least one meal.');
+      return;
+    }
+    if (meals.some((m) => !m.name.trim())) {
+      setError('Every meal must have a name.');
       return;
     }
     setSaving(true);
     try {
       const payload = {
         memberId,
-        title: dietTitle,
-        notes: dietNotes || undefined,
+        title: dietTitle.trim(),
+        notes: dietNotes.trim() || undefined,
         meals: meals.map((m, i) => ({
           mealType: m.mealType,
-          name: m.name,
-          description: m.description || undefined,
+          name: m.name.trim(),
+          description: m.description?.trim() || undefined,
           calories: m.calories ? Number(m.calories) : undefined,
           protein: m.protein ? Number(m.protein) : undefined,
           carbs: m.carbs ? Number(m.carbs) : undefined,
@@ -134,27 +170,51 @@ export function AssignFitnessPlanPage() {
 
   const submitWorkout = async () => {
     resetMessages();
-    if (!memberId || !workoutTitle.trim() || days.some((d) => !d.name.trim() || d.exercises.some((e) => !e.name.trim()))) {
-      setError('Select a member, give the plan a title, and name every day and exercise.');
+    if (!memberId) {
+      setError('Please select a member first.');
       return;
+    }
+    if (!workoutTitle.trim()) {
+      setError('Please provide a workout plan title.');
+      return;
+    }
+    if (days.length === 0) {
+      setError('A workout plan must contain at least one day.');
+      return;
+    }
+    const seenDays = new Set<number>();
+    for (const d of days) {
+      if (seenDays.has(d.dayOfWeek)) {
+        setError(`Duplicate day detected: ${DAY_NAMES[d.dayOfWeek] || d.dayOfWeek}. Each day must be unique.`);
+        return;
+      }
+      seenDays.add(d.dayOfWeek);
+      if (!d.name.trim()) {
+        setError(`Please provide a name for ${DAY_NAMES[d.dayOfWeek] || 'day'}.`);
+        return;
+      }
+      if (d.exercises.length === 0 || d.exercises.some((e) => !e.name.trim())) {
+        setError(`Each day must have at least one exercise with a valid name.`);
+        return;
+      }
     }
     setSaving(true);
     try {
       const payload = {
         memberId,
-        title: workoutTitle,
-        notes: workoutNotes || undefined,
+        title: workoutTitle.trim(),
+        notes: workoutNotes.trim() || undefined,
         days: days.map((d, i) => ({
           dayOfWeek: d.dayOfWeek,
-          name: d.name,
+          name: d.name.trim(),
           order: i,
           exercises: d.exercises.map((e, j) => ({
-            name: e.name,
+            name: e.name.trim(),
             sets: Number(e.sets) || 1,
-            reps: e.reps,
-            weight: e.weight || undefined,
+            reps: e.reps.trim(),
+            weight: e.weight?.trim() || undefined,
             restSeconds: e.restSeconds ? Number(e.restSeconds) : undefined,
-            notes: e.notes || undefined,
+            notes: e.notes?.trim() || undefined,
             order: j,
           })),
         })),
@@ -178,22 +238,109 @@ export function AssignFitnessPlanPage() {
     <div className="p-6 space-y-6 max-w-4xl">
       <div>
         <h1 className="text-2xl font-bold">Assign Fitness Plan</h1>
-        <p className="text-sm text-muted-foreground">Build a structured diet or workout plan for a member.</p>
+        <p className="text-sm text-muted-foreground">Build a structured diet or workout plan for an individual member.</p>
       </div>
 
-      <div className="space-y-2">
-        <label className="text-sm font-medium">Member</label>
-        <select
-          value={memberId}
-          onChange={(e) => { setMemberId(e.target.value); setEditingDietId(null); setEditingWorkoutId(null); }}
-          className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-        >
-          <option value="">Select a member…</option>
-          {members?.map((m) => (
-            <option key={m.id} value={m.id}>{m.firstName} {m.lastName} ({m.memberCode})</option>
-          ))}
-        </select>
-      </div>
+      {/* Member Selection Section */}
+      <Card className="p-4 space-y-3 bg-muted/20 border-dashed">
+        <label className="text-sm font-semibold flex items-center justify-between">
+          <span>Target Member</span>
+          {selectedMember && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setMemberId('');
+                setEditingDietId(null);
+                setEditingWorkoutId(null);
+              }}
+              className="text-xs h-7 text-muted-foreground"
+            >
+              Change Member
+            </Button>
+          )}
+        </label>
+
+        {!selectedMember ? (
+          <div className="space-y-2">
+            <input
+              type="text"
+              placeholder="Search member by name, code, phone, or batch..."
+              value={memberSearch}
+              onChange={(e) => setMemberSearch(e.target.value)}
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+            />
+            {loadingMembers ? (
+              <p className="text-xs text-muted-foreground">Loading members...</p>
+            ) : (
+              <div className="max-h-48 overflow-y-auto rounded-md border bg-background divide-y">
+                {filteredMembers.length === 0 ? (
+                  <p className="p-3 text-xs text-muted-foreground">No members found</p>
+                ) : (
+                  filteredMembers.slice(0, 20).map((m) => (
+                    <button
+                      key={m.id}
+                      type="button"
+                      onClick={() => {
+                        setMemberId(m.id);
+                        setMemberSearch('');
+                        setEditingDietId(null);
+                        setEditingWorkoutId(null);
+                      }}
+                      className="w-full text-left p-2.5 hover:bg-accent/50 flex items-center justify-between transition-colors text-sm"
+                    >
+                      <div>
+                        <div className="font-medium text-foreground flex items-center gap-2">
+                          {m.firstName} {m.lastName}
+                          <span className="text-xs px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-mono">
+                            {m.memberCode}
+                          </span>
+                        </div>
+                        <div className="text-xs text-muted-foreground flex gap-2 mt-0.5">
+                          {m.mobile && <span>📞 {m.mobile}</span>}
+                          {m.batch && <span>🏷️ {m.batch.name}</span>}
+                          {m.trainer && <span>🏋️ Trainer: {m.trainer.firstName}</span>}
+                        </div>
+                      </div>
+                      {m.currentMembership && (
+                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                          m.currentMembership.status === 'ACTIVE'
+                            ? 'bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300'
+                            : 'bg-yellow-100 text-yellow-700 dark:bg-yellow-950 dark:text-yellow-300'
+                        }`}>
+                          {m.currentMembership.planName}
+                        </span>
+                      )}
+                    </button>
+                  ))
+                )}
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="flex items-center justify-between p-3 rounded-lg border bg-background">
+            <div className="space-y-1">
+              <div className="font-semibold flex items-center gap-2">
+                {selectedMember.firstName} {selectedMember.lastName}
+                <span className="text-xs px-2 py-0.5 rounded bg-primary/10 text-primary font-mono font-medium">
+                  {selectedMember.memberCode}
+                </span>
+                <span className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground">
+                  {selectedMember.status}
+                </span>
+              </div>
+              <div className="text-xs text-muted-foreground flex flex-wrap gap-3">
+                {selectedMember.mobile && <span>Phone: {selectedMember.mobile}</span>}
+                {selectedMember.batch && <span>Batch: {selectedMember.batch.name}</span>}
+                {selectedMember.trainer && <span>Trainer: {selectedMember.trainer.firstName} {selectedMember.trainer.lastName}</span>}
+                {selectedMember.currentMembership && (
+                  <span>Plan: {selectedMember.currentMembership.planName} ({selectedMember.currentMembership.status})</span>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+      </Card>
 
       <div className="flex gap-2 border-b">
         <button

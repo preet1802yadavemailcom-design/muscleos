@@ -60,4 +60,9 @@ export class RegisterMemberDto {
   @IsOptional()
   @IsString()
   pincode?: string;
+
+  @ApiPropertyOptional({ description: 'Desired batch ID chosen during self-registration' })
+  @IsOptional()
+  @IsString()
+  batchId?: string;
 }

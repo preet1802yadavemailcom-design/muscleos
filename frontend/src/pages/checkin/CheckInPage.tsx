@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   QrCode, Camera, CameraOff, AlertTriangle, LogIn, LogOut, CheckCircle2,
-  ArrowLeft, ArrowRight, User, RefreshCw, X, Upload,
+  ArrowLeft, ArrowRight, User, RefreshCw, X, Upload, Clock,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -31,11 +31,20 @@ interface GymInfo {
   state?: string | null;
 }
 
+export interface BatchInfo {
+  id: string;
+  name: string;
+  startTime: string;
+  endTime: string;
+}
+
 interface MemberSummary {
   id: string;
   memberCode: string;
   firstName: string;
   lastName: string;
+  status?: string;
+  batch?: BatchInfo | null;
   photo?: string | null;
   email?: string | null;
   gender?: string | null;
@@ -54,6 +63,7 @@ interface IdentifyResult {
   sessionToken?: string;
   member: MemberSummary | null;
   today: TodayState | null;
+  batches?: BatchInfo[];
 }
 
 interface AttendanceResult {
@@ -173,6 +183,12 @@ export function CheckInPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<AttendanceResult | null>(null);
+  const [batches, setBatches] = useState<BatchInfo[]>([]);
+  const [registeredPending, setRegisteredPending] = useState<{
+    memberName: string;
+    memberCode: string;
+    batchName?: string;
+  } | null>(null);
 
   // Registration form state
   const [form, setForm] = useState({
@@ -186,6 +202,7 @@ export function CheckInPage() {
     state: '',
     pincode: '',
     photo: '',
+    batchId: '',
   });
 
   const handleScanRef = useRef<(raw?: string) => Promise<void>>();
@@ -216,7 +233,7 @@ export function CheckInPage() {
       try {
         qrCodeData = new URL(qrCodeData).searchParams.get('token') || qrCodeData;
       } catch {
-        // Not a valid URL � fall through and let the backend reject it.
+        // Not a valid URL — fall through and let the backend reject it.
       }
     }
     setError('');
@@ -249,6 +266,9 @@ export function CheckInPage() {
       const data = res.data as IdentifyResult;
       setMember(data.member);
       setToday(data.today);
+      if (data.batches) {
+        setBatches(data.batches);
+      }
 
       const token = data.sessionToken || stored || '';
       setSessionToken(token);
@@ -285,9 +305,16 @@ export function CheckInPage() {
         state: form.state.trim() || undefined,
         pincode: form.pincode.trim() || undefined,
         photo: form.photo || undefined,
+        batchId: form.batchId || undefined,
       });
-      setResult(res.data.attendance);
-      setMember(res.data.member);
+      const memberData = res.data?.member;
+      const matchedBatch = batches.find((b) => b.id === form.batchId);
+      setRegisteredPending({
+        memberName: memberData ? `${memberData.firstName} ${memberData.lastName}` : `${form.firstName} ${form.lastName}`,
+        memberCode: memberData?.memberCode || '',
+        batchName: memberData?.batch?.name || matchedBatch?.name,
+      });
+      setMember(memberData);
       setStep('success');
     } catch (err: any) {
       setError(apiError(err));
@@ -340,8 +367,23 @@ export function CheckInPage() {
     setSessionToken('');
     setMember(null);
     setToday(null);
+    setBatches([]);
+    setRegisteredPending(null);
     setError('');
     setResult(null);
+    setForm({
+      firstName: '',
+      lastName: '',
+      email: '',
+      gender: '',
+      dateOfBirth: '',
+      address: '',
+      city: '',
+      state: '',
+      pincode: '',
+      photo: '',
+      batchId: '',
+    });
     stopCamera();
   };
 
@@ -555,6 +597,26 @@ export function CheckInPage() {
                   </div>
                 </div>
                 <div className="space-y-2">
+                  <Label>Preferred Batch (optional)</Label>
+                  <Select
+                    value={form.batchId || undefined}
+                    onValueChange={(v) => setForm({ ...form, batchId: v })}
+                  >
+                    <SelectTrigger><SelectValue placeholder="Select Preferred Batch" /></SelectTrigger>
+                    <SelectContent>
+                      {batches.length > 0 ? (
+                        batches.map((b) => (
+                          <SelectItem key={b.id} value={b.id}>
+                            {b.name} ({b.startTime} - {b.endTime})
+                          </SelectItem>
+                        ))
+                      ) : (
+                        <SelectItem value="none" disabled>No batches configured</SelectItem>
+                      )}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
                   <Label>Photo (optional)</Label>
                   <div className="flex items-center gap-3">
                     {form.photo ? (
@@ -576,7 +638,7 @@ export function CheckInPage() {
                   </div>
                 </div>
                 <Button className="w-full" onClick={handleRegister} disabled={loading}>
-                  {loading ? 'Registering…' : 'Create Profile & Check In'}
+                  {loading ? 'Submitting…' : 'Submit Registration'}
                 </Button>
               </div>
             )}
@@ -596,15 +658,44 @@ export function CheckInPage() {
                     <p className="text-xl font-semibold">Welcome, {member.firstName} {member.lastName} 👋</p>
                     <p className="font-mono text-xs text-muted-foreground">{member.memberCode}</p>
                   </div>
-                  {membershipLabel && (
+                  {member.status === 'PENDING' ? (
+                    <Badge variant="secondary" className="bg-amber-100 text-amber-800 border-amber-300">
+                      Pending Approval
+                    </Badge>
+                  ) : membershipLabel ? (
                     <Badge variant={membershipLabel.variant}>{membershipLabel.label}</Badge>
+                  ) : null}
+                  {member.batch && (
+                    <Badge variant="outline" className="text-xs">
+                      Batch: {member.batch.name} ({member.batch.startTime} - {member.batch.endTime})
+                    </Badge>
                   )}
                   {membership?.planName && (
                     <p className="text-sm text-muted-foreground">{membership.planName}</p>
                   )}
                 </div>
 
-                {alreadyCompleted ? (
+                {member.status === 'PENDING' ? (
+                  <div className="space-y-3">
+                    <div className="rounded-lg bg-amber-500/10 border border-amber-500/30 p-4 text-center text-sm text-amber-700 dark:text-amber-400">
+                      <Clock className="h-5 w-5 mx-auto mb-1 text-amber-600" />
+                      <p className="font-medium">Registration Pending Approval</p>
+                      <p className="text-xs mt-1">Your registration is under review by gym staff/owner. Attendance access will be enabled once approved.</p>
+                    </div>
+                    <Button className="w-full" disabled>
+                      Check In (Awaiting Approval)
+                    </Button>
+                  </div>
+                ) : !member.batch ? (
+                  <div className="space-y-3">
+                    <div className="rounded-lg bg-amber-500/10 border border-amber-500/30 p-3 text-xs text-amber-700 dark:text-amber-400 text-center">
+                      No batch assigned — gym owner must assign a batch before attendance is allowed.
+                    </div>
+                    <Button className="w-full" disabled>
+                      Check In (No Batch Assigned)
+                    </Button>
+                  </div>
+                ) : alreadyCompleted ? (
                   <div className="rounded-lg bg-muted p-4 text-center text-sm text-muted-foreground">
                     ✅ Attendance already completed for today.
                     <p className="mt-1 text-xs">
@@ -645,6 +736,33 @@ export function CheckInPage() {
             )}
 
             {/* ---------- STEP: success ---------- */}
+            {step === 'success' && registeredPending && (
+              <div className="space-y-4 text-center">
+                <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-amber-100 text-amber-600">
+                  <Clock className="h-10 w-10" />
+                </div>
+                <div>
+                  <Badge variant="secondary" className="mb-2 bg-amber-100 text-amber-800 border-amber-300">
+                    Registration Pending Approval
+                  </Badge>
+                  <p className="text-xl font-semibold">{registeredPending.memberName}</p>
+                  <p className="font-mono text-sm text-muted-foreground mt-0.5">Code: {registeredPending.memberCode}</p>
+                  {registeredPending.batchName && (
+                    <p className="text-xs text-muted-foreground mt-1">Requested Batch: {registeredPending.batchName}</p>
+                  )}
+                </div>
+                <div className="rounded-lg bg-muted/60 p-4 text-left text-xs text-muted-foreground space-y-2 border">
+                  <p className="font-medium text-foreground">Next Steps:</p>
+                  <p>• Your registration has been submitted to gym staff and owner for approval.</p>
+                  <p>• Once approved and your batch is confirmed, you can immediately check in using this kiosk.</p>
+                  <p>• Please speak with reception to activate your membership plan and get started.</p>
+                </div>
+                <Button className="w-full" onClick={reset}>
+                  <RefreshCw className="h-4 w-4 mr-2" /> Done / Next Person
+                </Button>
+              </div>
+            )}
+
             {step === 'success' && result && (
               <div className="space-y-4 text-center">
                 <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-green-100 text-green-600">

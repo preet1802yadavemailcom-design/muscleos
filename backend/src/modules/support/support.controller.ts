@@ -28,6 +28,12 @@ export class SupportTicketsController {
     return this.service.listMine(userId);
   }
 
+  @Get('info')
+  @ApiOperation({ summary: 'Get MuscleOS support email and SLA details' })
+  async getInfo() {
+    return this.service.getSupportInfo();
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'Get one of your own tickets by id' })
   async getOne(@CurrentUser('userId') userId: string, @Param('id') id: string) {
