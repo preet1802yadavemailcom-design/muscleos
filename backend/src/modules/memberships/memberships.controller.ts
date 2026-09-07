@@ -1,4 +1,4 @@
-import { CurrentUser } from '@common/decorators/current-user.decorator';
+import { CurrentUser, CurrentUserPayload } from '@common/decorators/current-user.decorator';
 import { GymId } from '@common/decorators/gym-id.decorator';
 import { Roles } from '@common/decorators/roles.decorator';
 import { GymOwnerGuard } from '@common/guards/gym-owner.guard';
@@ -31,8 +31,8 @@ export class MembershipsController {
   @Get()
   @Roles(UserRole.GYM_OWNER, UserRole.SUPER_ADMIN, UserRole.RECEPTIONIST, UserRole.TRAINER)
   @ApiOperation({ summary: 'List memberships (filter by status, plan, member, expiring window) — staff only' })
-  findAll(@GymId() gymId: string, @Query() query: QueryMembershipDto) {
-    return this.service.findAll(gymId, query);
+  findAll(@GymId() gymId: string, @Query() query: QueryMembershipDto, @CurrentUser() user: CurrentUserPayload) {
+    return this.service.findAll(gymId, query, user);
   }
 
   @Get('me')
@@ -51,50 +51,50 @@ export class MembershipsController {
   @Get(':id')
   @Roles(UserRole.GYM_OWNER, UserRole.SUPER_ADMIN, UserRole.RECEPTIONIST, UserRole.TRAINER)
   @ApiOperation({ summary: 'Get membership by id — staff only; members use GET /memberships/me' })
-  findOne(@Param('id') id: string, @GymId() gymId: string) {
-    return this.service.findOne(id, gymId);
+  findOne(@Param('id') id: string, @GymId() gymId: string, @CurrentUser() user: CurrentUserPayload) {
+    return this.service.findOne(id, gymId, user);
   }
 
   @Post()
   @Roles(UserRole.GYM_OWNER, UserRole.SUPER_ADMIN, UserRole.RECEPTIONIST)
   @ApiOperation({ summary: 'Create a new membership for a member' })
-  create(@Body() dto: CreateMembershipDto, @GymId() gymId: string) {
-    return this.service.create(gymId, dto);
+  create(@Body() dto: CreateMembershipDto, @GymId() gymId: string, @CurrentUser() user: CurrentUserPayload) {
+    return this.service.create(gymId, dto, user);
   }
 
   @Post(':id/renew')
   @Roles(UserRole.GYM_OWNER, UserRole.SUPER_ADMIN, UserRole.RECEPTIONIST)
   @ApiOperation({ summary: 'Renew membership (chains from current end date, preserves unused days)' })
-  renew(@Param('id') id: string, @Body() dto: RenewMembershipDto, @GymId() gymId: string) {
-    return this.service.renew(id, gymId, dto);
+  renew(@Param('id') id: string, @Body() dto: RenewMembershipDto, @GymId() gymId: string, @CurrentUser() user: CurrentUserPayload) {
+    return this.service.renew(id, gymId, dto, user);
   }
 
   @Patch(':id/freeze')
   @Roles(UserRole.GYM_OWNER, UserRole.SUPER_ADMIN, UserRole.RECEPTIONIST)
   @ApiOperation({ summary: 'Freeze membership for a date range' })
-  freeze(@Param('id') id: string, @Body() dto: FreezeMembershipDto, @GymId() gymId: string) {
-    return this.service.freeze(id, gymId, dto);
+  freeze(@Param('id') id: string, @Body() dto: FreezeMembershipDto, @GymId() gymId: string, @CurrentUser() user: CurrentUserPayload) {
+    return this.service.freeze(id, gymId, dto, user);
   }
 
   @Patch(':id/unfreeze')
   @Roles(UserRole.GYM_OWNER, UserRole.SUPER_ADMIN, UserRole.RECEPTIONIST)
   @ApiOperation({ summary: 'Unfreeze a frozen membership' })
-  unfreeze(@Param('id') id: string, @GymId() gymId: string) {
-    return this.service.unfreeze(id, gymId);
+  unfreeze(@Param('id') id: string, @GymId() gymId: string, @CurrentUser() user: CurrentUserPayload) {
+    return this.service.unfreeze(id, gymId, user);
   }
 
   @Post(':id/transfer')
   @Roles(UserRole.GYM_OWNER, UserRole.SUPER_ADMIN)
   @ApiOperation({ summary: 'Transfer remaining membership validity to another member' })
-  transfer(@Param('id') id: string, @Body() dto: TransferMembershipDto, @GymId() gymId: string) {
-    return this.service.transfer(id, gymId, dto);
+  transfer(@Param('id') id: string, @Body() dto: TransferMembershipDto, @GymId() gymId: string, @CurrentUser() user: CurrentUserPayload) {
+    return this.service.transfer(id, gymId, dto, user);
   }
 
   @Put(':id/change-plan')
   @Roles(UserRole.GYM_OWNER, UserRole.SUPER_ADMIN, UserRole.RECEPTIONIST)
   @ApiOperation({ summary: 'Upgrade or downgrade the plan on an active membership' })
-  changePlan(@Param('id') id: string, @Body() dto: ChangePlanDto, @GymId() gymId: string) {
-    return this.service.changePlan(id, gymId, dto);
+  changePlan(@Param('id') id: string, @Body() dto: ChangePlanDto, @GymId() gymId: string, @CurrentUser() user: CurrentUserPayload) {
+    return this.service.changePlan(id, gymId, dto, user);
   }
 
   @Post('run-expiry-check')

@@ -39,6 +39,7 @@ describe('AuthService', () => {
       user: {
         findFirst: jest.fn(),
         findUnique: jest.fn(),
+        findMany: jest.fn().mockResolvedValue([baseUser]),
         create: jest.fn(),
         update: jest.fn(),
         updateMany: jest.fn(),
@@ -142,6 +143,25 @@ describe('AuthService', () => {
         (createArgs.expiresAt.getTime() - Date.now()) / (1000 * 60 * 60 * 24),
       );
       expect(days).toBeGreaterThanOrEqual(29);
+    });
+
+    it('returns requiresGymSelection when user matches multiple gyms without gymId', async () => {
+      redis.get.mockResolvedValue(null);
+      prisma.user.findMany.mockResolvedValueOnce([
+        { ...baseUser, id: 'u1', gym: { id: 'gym-1', name: 'Downtown Gym', logo: null } },
+        { ...baseUser, id: 'u2', gym: { id: 'gym-2', name: 'Uptown Gym', logo: null } },
+      ]);
+
+      const res = await service.login({ email: baseUser.email, password: 'Password123' } as any);
+      expect(res).toEqual(
+        expect.objectContaining({
+          requiresGymSelection: true,
+          gyms: expect.arrayContaining([
+            expect.objectContaining({ id: 'gym-1', name: 'Downtown Gym' }),
+            expect.objectContaining({ id: 'gym-2', name: 'Uptown Gym' }),
+          ]),
+        }),
+      );
     });
   });
 

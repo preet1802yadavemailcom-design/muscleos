@@ -54,15 +54,15 @@ export class NotificationsController {
   @Get('templates/list')
   @Roles(UserRole.GYM_OWNER, UserRole.SUPER_ADMIN)
   @ApiOperation({ summary: 'List notification templates' })
-  async listTemplates() {
-    return this.service.listTemplates();
+  async listTemplates(@GymId() gymId: string) {
+    return this.service.listTemplates(gymId);
   }
 
   @Post('templates')
   @Roles(UserRole.GYM_OWNER, UserRole.SUPER_ADMIN)
   @ApiOperation({ summary: 'Create or update a notification template' })
-  async upsertTemplate(@Body() dto: UpsertTemplateDto) {
-    return this.service.upsertTemplate(dto);
+  async upsertTemplate(@GymId() gymId: string, @Body() dto: UpsertTemplateDto) {
+    return this.service.upsertTemplate(dto, gymId);
   }
 
   @Post('send')

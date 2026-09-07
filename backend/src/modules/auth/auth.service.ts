@@ -111,6 +111,27 @@ export class AuthService {
     // Rate limit BEFORE hitting the DB / bcrypt to blunt brute-force + credential stuffing
     await this.checkRateLimit(identifier, ipAddress);
 
+    if (!dto.gymId && this.prisma.user.findMany) {
+      const matchingUsers = await this.prisma.user.findMany({
+        where: { OR: [{ email: identifier }, { phone: identifier }], status: UserStatus.ACTIVE },
+        include: { gym: true },
+      });
+
+      if (matchingUsers.length > 1) {
+        return {
+          requiresGymSelection: true,
+          gyms: matchingUsers
+            .filter((u: any) => u.gym)
+            .map((u: any) => ({
+              id: u.gym.id,
+              name: u.gym.name,
+              logo: u.gym.logo,
+              role: u.role,
+            })),
+        };
+      }
+    }
+
     const user = await this.prisma.user.findFirst({
       where: { OR: [{ email: identifier }, { phone: identifier }], ...(dto.gymId ? { gymId: dto.gymId } : {}) },
       include: { gym: true },
@@ -661,12 +682,32 @@ export class AuthService {
     if (revokedAtStr) {
       throw new UnauthorizedException('User session has been revoked');
     }
-    const tokens = await this.generateTokens(stored.user);
+
+    let sessionId: string | undefined;
+    try {
+      const decoded: any = this.jwtService.decode(rawToken);
+      if (decoded?.sessionId) {
+        sessionId = decoded.sessionId;
+      }
+    } catch {}
+
+    if (!sessionId && stored.deviceInfo?.startsWith('session:')) {
+      sessionId = stored.deviceInfo.split('|')[0].replace('session:', '');
+    }
+
+    if (sessionId) {
+      const isSessionRevoked = await this.redis.get(`session_revoked:${sessionId}`);
+      if (isSessionRevoked) {
+        throw new UnauthorizedException('User session has been revoked');
+      }
+    }
+
+    const tokens = await this.generateTokens(stored.user, sessionId);
     await this.prisma.refreshToken.update({
       where: { id: stored.id },
       data: { revokedAt: new Date() },
     });
-    await this.createRefreshToken(stored.userId, tokens.refreshToken);
+    await this.createRefreshToken(stored.userId, tokens.refreshToken, stored.deviceInfo ?? undefined, undefined, 7, sessionId);
 
     // Cache the newly generated tokens under the old token for 20 seconds grace period
     await this.redis.set(`token_grace:${rawToken}`, JSON.stringify(tokens), 20);
@@ -675,6 +716,15 @@ export class AuthService {
   }
 
   async logout(userId: string, token?: string, sessionId?: string, pushToken?: string) {
+    if (!sessionId && token) {
+      try {
+        const decoded: any = this.jwtService.decode(token);
+        if (decoded?.sessionId) {
+          sessionId = decoded.sessionId;
+        }
+      } catch {}
+    }
+
     if (token) {
       await this.prisma.refreshToken.updateMany({
         where: { token, userId },
@@ -686,6 +736,7 @@ export class AuthService {
         where: { id: sessionId, userId },
         data: { isActive: false },
       });
+      await this.redis.set(`session_revoked:${sessionId}`, '1', 86400);
     }
     if (pushToken) {
       // Stop sending push notifications to a device the user just signed

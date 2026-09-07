@@ -1,4 +1,4 @@
-import { CurrentUser } from '@common/decorators/current-user.decorator';
+import { CurrentUser, CurrentUserPayload } from '@common/decorators/current-user.decorator';
 import { GymId } from '@common/decorators/gym-id.decorator';
 import { Roles } from '@common/decorators/roles.decorator';
 import { GymOwnerGuard } from '@common/guards/gym-owner.guard';
@@ -60,8 +60,8 @@ export class ReportsController {
   @Post('generate')
   @Roles(UserRole.GYM_OWNER, UserRole.SUPER_ADMIN)
   @ApiOperation({ summary: 'Generate a fresh report (attendance/revenue/member/trainer/batch/membership)' })
-  async generate(@Body() dto: GenerateReportDto, @GymId() gymId: string, @CurrentUser('userId') userId: string) {
-    return this.service.generate(gymId, userId, dto.type, dto.period, dto.startDate, dto.endDate);
+  async generate(@Body() dto: GenerateReportDto, @GymId() gymId: string, @CurrentUser() user: CurrentUserPayload) {
+    return this.service.generate(gymId, user.userId, dto.type, dto.period, dto.startDate, dto.endDate, user);
   }
 
   @Post('export')
@@ -70,17 +70,18 @@ export class ReportsController {
   async export(
     @Body() dto: ExportReportDto,
     @GymId() gymId: string,
-    @CurrentUser('userId') userId: string,
+    @CurrentUser() user: CurrentUserPayload,
     @Res() res: Response,
   ) {
     const { buffer, filename, contentType } = await this.service.exportReport(
       gymId,
-      userId,
+      user.userId,
       dto.type,
       dto.period,
       dto.format,
       dto.startDate,
       dto.endDate,
+      user,
     );
     res.set({
       'Content-Type': contentType,

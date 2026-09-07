@@ -14,8 +14,8 @@ describe('AttendanceCoreService Concurrency & Safety', () => {
   const validMember = {
     id: 'mem-100',
     gymId: 'gym-1',
-    batchId: null,
-    batch: null,
+    batchId: 'batch-1',
+    batch: { id: 'batch-1', name: 'General Batch', days: [] },
     currentMembership: {
       id: 'ms-1',
       status: MembershipStatus.ACTIVE,
@@ -53,6 +53,39 @@ describe('AttendanceCoreService Concurrency & Safety', () => {
   });
 
   describe('Strict Membership Pre-Validation', () => {
+    it('rejects check-in immediately if member has no assigned batch', async () => {
+      const input: any = {
+        member: { ...validMember, batchId: null, batch: null },
+        gymId: 'gym-1',
+        source: 'SELF',
+      };
+
+      await expect(core.recordScan(input)).rejects.toThrow(
+        new ForbiddenException('No batch assigned — attendance not permitted without an assigned batch.'),
+      );
+      expect(prisma.attendance.create).not.toHaveBeenCalled();
+    });
+
+    it('rejects check-in if attendance was already completed today', async () => {
+      prisma.attendance.findFirst.mockResolvedValueOnce({
+        id: 'completed-today-1',
+        memberId: validMember.id,
+        checkInAt: new Date(),
+        checkOutAt: new Date(),
+      });
+
+      const input: any = {
+        member: validMember,
+        gymId: 'gym-1',
+        source: 'SELF',
+      };
+
+      await expect(core.recordScan(input)).rejects.toThrow(
+        new BadRequestException('Attendance already completed for today.'),
+      );
+      expect(prisma.attendance.create).not.toHaveBeenCalled();
+    });
+
     it('rejects check-in immediately if member has no currentMembership', async () => {
       const input: any = {
         member: { ...validMember, currentMembership: null },

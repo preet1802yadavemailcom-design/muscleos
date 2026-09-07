@@ -23,7 +23,7 @@ describe('AttendanceCoreService — race-condition handling', () => {
 
   const member = {
     id: 'member-1', firstName: 'Rohit', lastName: 'Sharma', memberCode: 'MUS-1',
-    batchId: null, batch: null,
+    batchId: 'batch-1', batch: { id: 'batch-1', name: 'General Batch', days: [] },
     currentMembership: {
       id: 'mem-1',
       status: 'ACTIVE',

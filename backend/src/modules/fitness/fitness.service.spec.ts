@@ -21,6 +21,10 @@ describe('FitnessService', () => {
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
         create: jest.fn().mockResolvedValue({ id: 'workout-1', title: 'PPL' }),
       },
+      memberProgress: {
+        create: jest.fn().mockResolvedValue({ id: 'prog-1', memberId: 'member-1', weight: 75.5 }),
+        findMany: jest.fn().mockResolvedValue([{ id: 'prog-1', memberId: 'member-1', weight: 75.5 }]),
+      },
       $transaction: jest.fn().mockImplementation(async (callback) => {
         return callback(prisma);
       }),
@@ -129,6 +133,41 @@ describe('FitnessService', () => {
       });
       expect(prisma.workoutPlan.create).toHaveBeenCalled();
       expect(plan.id).toBe('workout-1');
+    });
+  });
+
+  describe('progressTracking', () => {
+    it('records member progress and logs audit', async () => {
+      const staffUser: any = { userId: 'staff-1', gymId: 'gym-1', role: 'TRAINER' };
+      const res = await service.recordProgress('gym-1', staffUser, {
+        memberId: 'member-1',
+        weight: 75.5,
+        bodyFatPercent: 15.0,
+      });
+
+      expect(prisma.memberProgress.create).toHaveBeenCalled();
+      expect(res.id).toBe('prog-1');
+    });
+
+    it('retrieves progress history for member', async () => {
+      const history = await service.getProgressHistory('gym-1', 'member-1');
+      expect(prisma.memberProgress.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { memberId: 'member-1' } }),
+      );
+      expect(history.length).toBe(1);
+    });
+
+    it('retrieves own progress history for authenticated member user', async () => {
+      const history = await service.getMyProgressHistory('user-1');
+      expect(prisma.member.findFirst).toHaveBeenCalledWith({
+        where: { userId: 'user-1', deletedAt: null },
+      });
+      expect(history.length).toBe(1);
+    });
+
+    it('throws NotFoundException if member not found for getMyProgressHistory', async () => {
+      prisma.member.findFirst.mockResolvedValueOnce(null);
+      await expect(service.getMyProgressHistory('user-unknown')).rejects.toThrow(NotFoundException);
     });
   });
 });

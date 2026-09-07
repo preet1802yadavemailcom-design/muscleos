@@ -48,6 +48,18 @@ export class QrService {
     return this.generateForBranch(branch.id, gymId, userId);
   }
 
+  async getBranchQr(branchId: string, gymId: string) {
+    await this.assertBranchOwnedByGym(branchId, gymId);
+    const existing = await this.prisma.branchQrToken.findFirst({
+      where: { branchId, isActive: true },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!existing) {
+      throw new NotFoundException('No active QR found for this branch');
+    }
+    return { token: existing.token, branchId, generatedAt: existing.createdAt };
+  }
+
   async generateForBranch(branchId: string, gymId: string, createdByUserId: string) {
     const branch = await this.assertBranchOwnedByGym(branchId, gymId);
 

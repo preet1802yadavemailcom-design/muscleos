@@ -1,9 +1,12 @@
 import { PrismaService } from '@database/prisma.service';
-import { BadRequestException, Injectable, NotFoundException, ForbiddenException, ConflictException } from '@nestjs/common';
+import { RedisService } from '@database/redis.service';
+import { BadRequestException, Injectable, NotFoundException, ForbiddenException, ConflictException, Optional } from '@nestjs/common';
 import { PaymentGateway, PaymentMethod, PaymentStatus, Prisma } from '@prisma/client';
 import { AuditService } from '@shared/services/audit.service';
 import { LoggerService } from '@shared/services/logger.service';
 import { SequenceService } from '@shared/services/sequence.service';
+import { AccessScopeService } from '@shared/services/access-scope.service';
+import { CurrentUserPayload } from '@common/decorators/current-user.decorator';
 
 import { CreatePaymentDto } from './dto/create-payment.dto';
 import { AllocateMonthsDto } from './dto/allocate-months.dto';
@@ -26,6 +29,8 @@ export class PaymentsService {
     private readonly invoiceGenerator: InvoiceGenerator,
     private readonly notifications: NotificationsService,
     private readonly sequence: SequenceService,
+    @Optional() private readonly accessScope?: AccessScopeService,
+    @Optional() private readonly redis?: RedisService,
   ) {}
 
   /** Atomic per-gym, per-scope counter (scoped by prefix+year so receipt
@@ -45,10 +50,16 @@ export class PaymentsService {
     return { tax, total };
   }
 
-  async findAll(gymId: string, query: QueryPaymentDto) {
+  async findAll(gymId: string, query: QueryPaymentDto, user?: CurrentUserPayload) {
     const { page = 1, limit = 20, search, status, gateway, fromDate, toDate } = query;
     const skip = (page - 1) * limit;
     const where: any = { gymId, deletedAt: null };
+    if (user && this.accessScope?.isBranchScoped(user)) {
+      const branchId = this.accessScope.getBranchId(user);
+      if (branchId) {
+        where.member = { branchId };
+      }
+    }
     if (status) where.status = status;
     if (gateway) where.gateway = gateway;
     if (fromDate || toDate) {
@@ -232,11 +243,23 @@ export class PaymentsService {
    *  ownership check the plain gymId scoping above doesn't provide, since
    *  gymId scoping alone still lets any member in the gym see any other
    *  member's payment by id. */
-  private async assertCanView(payment: { memberId: string | null }, requester?: { userId: string; role: string }) {
-    if (!requester || requester.role !== 'MEMBER') return; // staff already gated by @Roles on other endpoints; this fn only tightens the member case
-    const member = await this.prisma.member.findFirst({ where: { userId: requester.userId } });
-    if (!member || member.id !== payment.memberId) {
-      throw new ForbiddenException('You can only view your own payments');
+  private async assertCanView(
+    payment: { memberId: string | null; member?: { branchId?: string | null } | null },
+    requester?: CurrentUserPayload | { userId: string; role: string; branchId?: string | null },
+  ) {
+    if (!requester) return;
+    if (requester.role === 'MEMBER') {
+      const member = await this.prisma.member.findFirst({ where: { userId: requester.userId } });
+      if (!member || member.id !== payment.memberId) {
+        throw new ForbiddenException('You can only view your own payments');
+      }
+    } else if (this.accessScope?.isBranchScoped(requester as CurrentUserPayload)) {
+      let branchId = payment.member?.branchId;
+      if (branchId === undefined && payment.memberId) {
+        const m = await this.prisma.member.findUnique({ where: { id: payment.memberId }, select: { branchId: true } });
+        branchId = m?.branchId;
+      }
+      this.accessScope.assertBranchAccess(requester as CurrentUserPayload, branchId);
     }
   }
 
@@ -943,56 +966,69 @@ export class PaymentsService {
    *  else's), so this must be verified by staff/owner before it counts. */
   async submitUpiClaim(gymId: string, userId: string, membershipId: string, monthStarts: string[], utrReference: string) {
     const member = await this.assertOwnMembership(gymId, userId, membershipId);
-    if (!utrReference || utrReference.trim().length < 4) {
+    const cleanUtr = utrReference?.trim();
+    if (!cleanUtr || cleanUtr.length < 4) {
       throw new BadRequestException('Enter the UTR / reference number shown in your UPI app after paying.');
     }
-    await this.assertUtrNotAlreadyClaimed(gymId, utrReference.trim());
 
-    const { months, totalAmount } = await this.priceMonths(gymId, membershipId, monthStarts);
-    const receiptNumber = await this.nextSequence(gymId, 'RCPT');
-    const { tax, total } = this.calculateTotals(totalAmount);
-
-    const payment = await this.prisma.$transaction(async (tx) => {
-      const created = await tx.payment.create({
-        data: {
-          amount: totalAmount, tax, total, discount: 0,
-          gateway: PaymentGateway.UPI,
-          method: PaymentMethod.UPI,
-          source: 'ONLINE',
-          utr: utrReference.trim(),
-          status: PaymentStatus.PENDING,
-          memberId: member.id,
-          membershipId,
-          receiptNumber,
-          notes: 'Direct UPI payment � pending owner/staff verification',
-          gymId,
-        },
-      });
-      for (const month of months) {
-        // Atomic claim: only succeeds if the month's status hasn't changed
-        // since we read it above â€” closes the race where two concurrent
-        // requests could both pass the earlier pre-check and both allocate
-        // the same month.
-        const { count } = await tx.membershipMonth.updateMany({
-          where: { id: month.id, status: month.status },
-          data: { status: 'PENDING', paymentId: created.id },
-        });
-        if (count !== 1) {
-          throw new ConflictException('One or more selected months were just claimed by another payment — please refresh and try again.');
-        }
-        await tx.paymentMonthAllocation.create({
-          data: { paymentId: created.id, membershipMonthId: month.id, amount: month.amountDue },
-        });
+    const lockKey = `lock:utr:${gymId}:${cleanUtr}`;
+    let lockAcquired = false;
+    if (this.redis) {
+      lockAcquired = await this.redis.setNx(lockKey, 'locked', 10);
+      if (!lockAcquired) {
+        throw new ConflictException('A payment with this UTR is currently being processed. Please wait.');
       }
-      return created;
-    });
+    }
 
-    await this.audit.log({
-      action: 'UPI_CLAIM_SUBMITTED', entity: 'Payment', entityId: payment.id, userId, gymId,
-      newValue: { amount: totalAmount, utrReference, monthStarts },
-    });
+    try {
+      await this.assertUtrNotAlreadyClaimed(gymId, cleanUtr);
 
-    return payment;
+      const { months, totalAmount } = await this.priceMonths(gymId, membershipId, monthStarts);
+      const receiptNumber = await this.nextSequence(gymId, 'RCPT');
+      const { tax, total } = this.calculateTotals(totalAmount);
+
+      const payment = await this.prisma.$transaction(async (tx) => {
+        const created = await tx.payment.create({
+          data: {
+            amount: totalAmount, tax, total, discount: 0,
+            gateway: PaymentGateway.UPI,
+            method: PaymentMethod.UPI,
+            source: 'ONLINE',
+            utr: cleanUtr,
+            status: PaymentStatus.PENDING,
+            memberId: member.id,
+            membershipId,
+            receiptNumber,
+            notes: 'Direct UPI payment — pending owner/staff verification',
+            gymId,
+          },
+        });
+        for (const month of months) {
+          const { count } = await tx.membershipMonth.updateMany({
+            where: { id: month.id, status: month.status },
+            data: { status: 'PENDING', paymentId: created.id },
+          });
+          if (count !== 1) {
+            throw new ConflictException('One or more selected months were just claimed by another payment — please refresh and try again.');
+          }
+          await tx.paymentMonthAllocation.create({
+            data: { paymentId: created.id, membershipMonthId: month.id, amount: month.amountDue },
+          });
+        }
+        return created;
+      });
+
+      await this.audit.log({
+        action: 'UPI_CLAIM_SUBMITTED', entity: 'Payment', entityId: payment.id, userId, gymId,
+        newValue: { amount: totalAmount, utrReference: cleanUtr, monthStarts },
+      });
+
+      return payment;
+    } finally {
+      if (lockAcquired && this.redis) {
+        await this.redis.del(lockKey).catch(() => undefined);
+      }
+    }
   }
 
   /** Staff/owner-side list of UPI claims awaiting verification. */
@@ -1097,118 +1133,153 @@ export class PaymentsService {
    */
   async recordManualPaymentWithMonths(
     gymId: string,
-    staffUserId: string,
+    staffUser: CurrentUserPayload | string,
     dto: AllocateMonthsDto,
   ) {
+    const staffUserId = typeof staffUser === 'string' ? staffUser : staffUser.userId;
     this.assertGatewayMethodCompatible(dto.gateway, dto.method);
-    if (dto.utr) {
-      await this.assertUtrNotAlreadyClaimed(gymId, dto.utr);
-    }
 
     const membership = await this.prisma.membership.findFirst({
       where: { id: dto.membershipId, gymId, deletedAt: null },
+      include: { member: { select: { branchId: true } } },
     });
     if (!membership) throw new NotFoundException('Membership not found in this gym.');
 
-    const requestedStarts = dto.monthStarts
-      .map((d) => new Date(d))
-      .sort((a, b) => a.getTime() - b.getTime());
-
-    const months = await this.prisma.membershipMonth.findMany({
-      where: { membershipId: dto.membershipId, monthStart: { in: requestedStarts } },
-      orderBy: { monthStart: 'asc' },
-    });
-
-    if (months.length !== requestedStarts.length) {
-      throw new BadRequestException('One or more requested months do not exist for this membership.');
-    }
-    if (months.some((m) => m.status === 'PAID')) {
-      throw new BadRequestException('One or more selected months are already paid.');
-    }
-    if (months.some((m) => m.status === 'PENDING')) {
-      throw new BadRequestException('One or more selected months already have a pending verification.');
+    if (typeof staffUser !== 'string' && this.accessScope?.isBranchScoped(staffUser)) {
+      this.accessScope.assertBranchAccess(staffUser, membership.member?.branchId);
     }
 
-    const earliestRequested = requestedStarts[0];
-    const earlierUnpaid = await this.prisma.membershipMonth.count({
-      where: {
-        membershipId: dto.membershipId,
-        monthStart: { lt: earliestRequested },
-        status: { not: 'PAID' },
-      },
-    });
-    if (earlierUnpaid > 0) {
-      throw new BadRequestException('Cannot pay this month while an earlier month is still unpaid.');
-    }
-
-    for (let i = 1; i < months.length; i++) {
-      const prev = new Date(months[i - 1].monthStart);
-      const expectedNext = new Date(Date.UTC(prev.getUTCFullYear(), prev.getUTCMonth() + 1, 1));
-      if (new Date(months[i].monthStart).getTime() !== expectedNext.getTime()) {
-        throw new BadRequestException('Selected months must be consecutive.');
+    const cleanUtr = dto.utr?.trim();
+    let lockKey: string | null = null;
+    let lockAcquired = false;
+    if (cleanUtr) {
+      lockKey = `lock:utr:${gymId}:${cleanUtr}`;
+      if (this.redis) {
+        lockAcquired = await this.redis.setNx(lockKey, 'locked', 10);
+        if (!lockAcquired) {
+          throw new ConflictException('A payment with this UTR is currently being processed. Please wait.');
+        }
       }
     }
 
-    const totalAmount = months.reduce((sum, m) => sum + Number(m.amountDue), 0);
-    const isCash = dto.gateway === 'CASH';
-    const status: PaymentStatus = isCash ? 'COMPLETED' : 'PENDING';
-    const receiptNumber = isCash ? await this.nextSequence(gymId, 'RCPT') : null;
+    try {
+      if (cleanUtr) {
+        await this.assertUtrNotAlreadyClaimed(gymId, cleanUtr);
+      }
 
-    const result = await this.prisma.$transaction(async (tx) => {
-      const payment = await tx.payment.create({
-        data: {
-          amount: totalAmount,
-          discount: 0,
-          tax: 0,
-          total: totalAmount,
-          gateway: dto.gateway,
-          method: dto.method,
-          source: 'STAFF',
-          status,
-          utr: dto.utr,
-          receiptNumber,
-          notes: dto.notes,
-          memberId: membership.memberId,
-          membershipId: membership.id,
-          collectedById: staffUserId,
-          verifiedById: isCash ? staffUserId : null,
-          verifiedAt: isCash ? new Date() : null,
-          gymId,
-        },
+      const requestedStarts = dto.monthStarts
+        .map((d) => new Date(d))
+        .sort((a, b) => a.getTime() - b.getTime());
+
+      const months = await this.prisma.membershipMonth.findMany({
+        where: { membershipId: dto.membershipId, monthStart: { in: requestedStarts } },
+        orderBy: { monthStart: 'asc' },
       });
 
-      for (const month of months) {
-        const { count } = await tx.membershipMonth.updateMany({
-          where: { id: month.id, status: month.status },
-          data: { status: isCash ? 'PAID' : 'PENDING', paymentId: payment.id },
-        });
-        if (count !== 1) {
-          throw new ConflictException('One or more selected months were just claimed by another payment — please refresh and try again.');
+      if (months.length !== requestedStarts.length) {
+        throw new BadRequestException('One or more requested months do not exist for this membership.');
+      }
+      if (months.some((m) => m.status === 'PAID')) {
+        throw new BadRequestException('One or more selected months are already paid.');
+      }
+      if (months.some((m) => m.status === 'PENDING')) {
+        throw new BadRequestException('One or more selected months already have a pending verification.');
+      }
+
+      const earliestRequested = requestedStarts[0];
+      const earlierUnpaid = await this.prisma.membershipMonth.count({
+        where: {
+          membershipId: dto.membershipId,
+          monthStart: { lt: earliestRequested },
+          status: { not: 'PAID' },
+        },
+      });
+      if (earlierUnpaid > 0) {
+        throw new BadRequestException('Cannot pay this month while an earlier month is still unpaid.');
+      }
+
+      for (let i = 1; i < months.length; i++) {
+        const prev = new Date(months[i - 1].monthStart);
+        const expectedNext = new Date(Date.UTC(prev.getUTCFullYear(), prev.getUTCMonth() + 1, 1));
+        if (new Date(months[i].monthStart).getTime() !== expectedNext.getTime()) {
+          throw new BadRequestException('Selected months must be consecutive.');
         }
-        await tx.paymentMonthAllocation.create({
-          data: { paymentId: payment.id, membershipMonthId: month.id, amount: month.amountDue },
+      }
+
+      const totalAmount = months.reduce((sum, m) => sum + Number(m.amountDue), 0);
+      const isCash = dto.gateway === 'CASH';
+      const status: PaymentStatus = isCash ? 'COMPLETED' : 'PENDING';
+      const receiptNumber = isCash ? await this.nextSequence(gymId, 'RCPT') : null;
+
+      const result = await this.prisma.$transaction(async (tx) => {
+        const payment = await tx.payment.create({
+          data: {
+            amount: totalAmount,
+            discount: 0,
+            tax: 0,
+            total: totalAmount,
+            gateway: dto.gateway,
+            method: dto.method,
+            source: 'STAFF',
+            status,
+            utr: cleanUtr || dto.utr,
+            receiptNumber,
+            notes: dto.notes,
+            memberId: membership.memberId,
+            membershipId: membership.id,
+            collectedById: staffUserId,
+            verifiedById: isCash ? staffUserId : null,
+            verifiedAt: isCash ? new Date() : null,
+            gymId,
+          },
         });
-      }
-      if (isCash) {
-        await this.unlockNextMonth(tx, membership.id);
-      }
 
-      return payment;
-    });
+        for (const month of months) {
+          const { count } = await tx.membershipMonth.updateMany({
+            where: { id: month.id, status: month.status },
+            data: { status: isCash ? 'PAID' : 'PENDING', paymentId: payment.id },
+          });
+          if (count !== 1) {
+            throw new ConflictException('One or more selected months were just claimed by another payment — please refresh and try again.');
+          }
+          await tx.paymentMonthAllocation.create({
+            data: { paymentId: payment.id, membershipMonthId: month.id, amount: month.amountDue },
+          });
+        }
+        if (isCash) {
+          await this.unlockNextMonth(tx, membership.id);
+        }
 
-    this.logger.log(`Manual payment ${result.id} recorded for membership ${membership.id} (${status})`, 'PaymentsService');
-    return result;
+        return payment;
+      });
+
+      this.logger.log(`Manual payment ${result.id} recorded for membership ${membership.id} (${status})`, 'PaymentsService');
+      return result;
+    } finally {
+      if (lockKey && lockAcquired && this.redis) {
+        await this.redis.del(lockKey).catch(() => undefined);
+      }
+    }
   }
 
   /**
    * Owner/staff verifies a PENDING wall-QR UPI submission.
    */
-  async verifyManualPayment(gymId: string, paymentId: string, verifierUserId: string, approve: boolean) {
+  async verifyManualPayment(
+    gymId: string,
+    paymentId: string,
+    verifierUserId: string,
+    approve: boolean,
+    user?: CurrentUserPayload,
+  ) {
     const payment = await this.prisma.payment.findFirst({
       where: { id: paymentId, gymId, deletedAt: null },
-      include: { monthAllocations: true },
+      include: { monthAllocations: true, member: { select: { branchId: true } } },
     });
     if (!payment) throw new NotFoundException('Payment not found in this gym.');
+    if (user && this.accessScope?.isBranchScoped(user)) {
+      this.accessScope.assertBranchAccess(user, payment.member?.branchId);
+    }
     if (payment.status !== 'PENDING') {
       throw new BadRequestException('Only PENDING payments can be verified.');
     }

@@ -74,22 +74,33 @@ export class AttendanceController {
   @Get()
   @Permissions('attendance:read')
   @ApiOperation({ summary: 'Attendance history (filterable, paginated)' })
-  async findAll(@GymId() gymId: string, @Query() query: QueryAttendanceDto) {
-    return this.service.findAll(gymId, query);
+  async findAll(
+    @GymId() gymId: string,
+    @Query() query: QueryAttendanceDto,
+    @CurrentUser() user: CurrentUserPayload,
+  ) {
+    return this.service.findAll(gymId, query, user);
   }
 
   @Get('live')
   @Permissions('attendance:read')
   @ApiOperation({ summary: 'Real-time list of members currently checked in' })
-  async live(@GymId() gymId: string) {
-    return this.service.liveFeed(gymId);
+  async live(
+    @GymId() gymId: string,
+    @CurrentUser() user: CurrentUserPayload,
+  ) {
+    return this.service.liveFeed(gymId, user);
   }
 
   @Get('missed-checkouts')
   @Permissions('attendance:read')
   @ApiOperation({ summary: 'Sessions still open past the closing-time threshold' })
-  async missedCheckouts(@GymId() gymId: string, @Query('hours') hours?: string) {
-    return this.service.missedCheckouts(gymId, hours ? Number(hours) : undefined);
+  async missedCheckouts(
+    @GymId() gymId: string,
+    @CurrentUser() user: CurrentUserPayload,
+    @Query('hours') hours?: string,
+  ) {
+    return this.service.missedCheckouts(gymId, hours ? Number(hours) : undefined, user);
   }
 
   @Get('member/:memberId/calendar')
@@ -98,9 +109,10 @@ export class AttendanceController {
   async memberCalendar(
     @Param('memberId') memberId: string,
     @GymId() gymId: string,
+    @CurrentUser() user: CurrentUserPayload,
     @Query('month') month?: string,
     @Query('year') year?: string,
   ) {
-    return this.service.memberHistory(memberId, gymId, month ? Number(month) : undefined, year ? Number(year) : undefined);
+    return this.service.memberHistory(memberId, gymId, month ? Number(month) : undefined, year ? Number(year) : undefined, user);
   }
 }

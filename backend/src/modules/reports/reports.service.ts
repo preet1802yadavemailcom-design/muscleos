@@ -1,8 +1,10 @@
 import { PrismaService } from '@database/prisma.service';
-import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
+import { Injectable, BadRequestException, NotFoundException, Optional } from '@nestjs/common';
 import { ReportType, ReportPeriod } from '@prisma/client';
 import { AuditService } from '@shared/services/audit.service';
 import { ExportService, ExportColumn } from '@shared/services/export.service';
+import { AccessScopeService } from '@shared/services/access-scope.service';
+import { CurrentUserPayload } from '@common/decorators/current-user.decorator';
 import {
   getGymStartOfDay,
   getGymEndOfDay,
@@ -22,6 +24,7 @@ export class ReportsService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly exportService: ExportService,
+    @Optional() private readonly accessScope?: AccessScopeService,
   ) {}
 
   async findAll(
@@ -104,6 +107,7 @@ export class ReportsService {
     period: ReportPeriod,
     startDate?: string,
     endDate?: string,
+    user?: CurrentUserPayload,
   ) {
     const range = this.resolveRange(period, startDate, endDate);
     let data: any;
@@ -111,25 +115,25 @@ export class ReportsService {
 
     switch (type) {
       case ReportType.ATTENDANCE:
-        ({ data, summary } = await this.buildAttendanceReport(gymId, range));
+        ({ data, summary } = await this.buildAttendanceReport(gymId, range, user));
         break;
       case ReportType.REVENUE:
-        ({ data, summary } = await this.buildRevenueReport(gymId, range));
+        ({ data, summary } = await this.buildRevenueReport(gymId, range, user));
         break;
       case ReportType.MEMBER:
-        ({ data, summary } = await this.buildMemberReport(gymId, range));
+        ({ data, summary } = await this.buildMemberReport(gymId, range, user));
         break;
       case ReportType.TRAINER:
-        ({ data, summary } = await this.buildTrainerReport(gymId, range));
+        ({ data, summary } = await this.buildTrainerReport(gymId, range, user));
         break;
       case ReportType.BATCH:
-        ({ data, summary } = await this.buildBatchReport(gymId, range));
+        ({ data, summary } = await this.buildBatchReport(gymId, range, user));
         break;
       case ReportType.MEMBERSHIP:
-        ({ data, summary } = await this.buildMembershipReport(gymId, range));
+        ({ data, summary } = await this.buildMembershipReport(gymId, range, user));
         break;
       case ReportType.PAYMENT:
-        ({ data, summary } = await this.buildRevenueReport(gymId, range));
+        ({ data, summary } = await this.buildRevenueReport(gymId, range, user));
         break;
       default:
         throw new BadRequestException(`Unsupported report type: ${type}`);
@@ -160,11 +164,16 @@ export class ReportsService {
     return report;
   }
 
-  private async buildAttendanceReport(gymId: string, range: DateRange) {
+  private async buildAttendanceReport(gymId: string, range: DateRange, user?: CurrentUserPayload) {
+    const branchId = this.accessScope?.getBranchId(user);
     const records = await this.prisma.attendance.findMany({
-      where: { gymId, checkInAt: { gte: range.startDate, lte: range.endDate } },
+      where: {
+        gymId,
+        checkInAt: { gte: range.startDate, lte: range.endDate },
+        ...(branchId ? { member: { branchId } } : {}),
+      },
       include: {
-        member: { select: { firstName: true, lastName: true, memberCode: true } },
+        member: { select: { firstName: true, lastName: true, memberCode: true, branchId: true } },
         batch: { select: { name: true } },
       },
       orderBy: { checkInAt: 'desc' },
@@ -206,20 +215,39 @@ export class ReportsService {
     };
   }
 
-  private async buildRevenueReport(gymId: string, range: DateRange) {
+  private async buildRevenueReport(gymId: string, range: DateRange, user?: CurrentUserPayload) {
+    const branchId = this.accessScope?.getBranchId(user);
     const payments = await this.prisma.payment.findMany({
-      where: { gymId, status: 'COMPLETED', createdAt: { gte: range.startDate, lte: range.endDate } },
-      include: { member: { select: { firstName: true, lastName: true } } },
+      where: {
+        gymId,
+        createdAt: { gte: range.startDate, lte: range.endDate },
+        ...(branchId ? { member: { branchId } } : {}),
+      },
+      include: { member: { select: { firstName: true, lastName: true, branchId: true } } },
       orderBy: { createdAt: 'desc' },
     });
 
-    const totalRevenue = payments.reduce((sum, p) => sum + Number(p.total), 0);
-    const totalDiscount = payments.reduce((sum, p) => sum + Number(p.discount), 0);
-    const totalTax = payments.reduce((sum, p) => sum + Number(p.tax), 0);
+    const completed = payments.filter((p) => p.status === 'COMPLETED' || p.status === 'REFUNDED');
+    const pending = payments.filter((p) => p.status === 'PENDING');
+    const failed = payments.filter((p) => p.status === 'FAILED');
+
+    const grossRevenue = completed.reduce((sum, p) => sum + Number(p.total), 0);
+    const totalDiscount = completed.reduce((sum, p) => sum + Number(p.discount), 0);
+    const totalTax = completed.reduce((sum, p) => sum + Number(p.tax), 0);
+    const totalRefunds = payments.reduce((sum, p) => {
+      const ref = Number(p.refundedAmount || 0);
+      if (ref > 0) return sum + ref;
+      if (p.status === 'REFUNDED') return sum + Number(p.total);
+      return sum;
+    }, 0);
+    const netRevenue = Math.max(0, grossRevenue - totalRefunds);
+
+    const pendingAmount = pending.reduce((sum, p) => sum + Number(p.total), 0);
+    const failedAmount = failed.reduce((sum, p) => sum + Number(p.total), 0);
 
     const byGateway = new Map<string, number>();
     const byDay = new Map<string, number>();
-    for (const p of payments) {
+    for (const p of completed) {
       byGateway.set(p.gateway, (byGateway.get(p.gateway) || 0) + Number(p.total));
       const key = p.createdAt.toISOString().slice(0, 10);
       byDay.set(key, (byDay.get(key) || 0) + Number(p.total));
@@ -227,39 +255,55 @@ export class ReportsService {
 
     return {
       summary: {
-        totalRevenue: Number(totalRevenue.toFixed(2)),
+        grossRevenue: Number(grossRevenue.toFixed(2)),
+        totalRevenue: Number(grossRevenue.toFixed(2)),
+        totalRefunds: Number(totalRefunds.toFixed(2)),
+        netRevenue: Number(netRevenue.toFixed(2)),
+        pendingAmount: Number(pendingAmount.toFixed(2)),
+        failedAmount: Number(failedAmount.toFixed(2)),
         totalDiscount: Number(totalDiscount.toFixed(2)),
         totalTax: Number(totalTax.toFixed(2)),
-        transactionCount: payments.length,
-        avgTransactionValue: payments.length ? Number((totalRevenue / payments.length).toFixed(2)) : 0,
+        transactionCount: completed.length,
+        pendingCount: pending.length,
+        failedCount: failed.length,
+        avgTransactionValue: completed.length ? Number((grossRevenue / completed.length).toFixed(2)) : 0,
       },
       data: {
-        chart: Array.from(byDay.entries()).map(([date, amount]) => ({ date, amount })),
-        byGateway: Array.from(byGateway.entries()).map(([gateway, amount]) => ({ gateway, amount })),
+        chart: Array.from(byDay.entries()).map(([date, amount]) => ({ date, amount: Number(amount.toFixed(2)) })),
+        byGateway: Array.from(byGateway.entries()).map(([gateway, amount]) => ({ gateway, amount: Number(amount.toFixed(2)) })),
         rows: payments.map((p) => ({
           receiptNumber: p.receiptNumber,
           member: p.member ? `${p.member.firstName} ${p.member.lastName}` : '-',
           gateway: p.gateway,
           method: p.method,
+          status: p.status,
           amount: Number(p.total),
+          refundedAmount: Number(p.refundedAmount || 0),
           date: p.createdAt,
         })),
       },
     };
   }
 
-  private async buildMemberReport(gymId: string, range: DateRange) {
+  private async buildMemberReport(gymId: string, range: DateRange, user?: CurrentUserPayload) {
+    const branchId = this.accessScope?.getBranchId(user);
     const [newMembers, totalActive, totalInactive, totalExpired] = await Promise.all([
       this.prisma.member.findMany({
-        where: { gymId, joinDate: { gte: range.startDate, lte: range.endDate }, deletedAt: null },
+        where: {
+          gymId,
+          joinDate: { gte: range.startDate, lte: range.endDate },
+          deletedAt: null,
+          ...(branchId ? { branchId } : {}),
+        },
       }),
-      this.prisma.member.count({ where: { gymId, status: 'ACTIVE', deletedAt: null } }),
-      this.prisma.member.count({ where: { gymId, status: 'INACTIVE', deletedAt: null } }),
+      this.prisma.member.count({ where: { gymId, status: 'ACTIVE', deletedAt: null, ...(branchId ? { branchId } : {}) } }),
+      this.prisma.member.count({ where: { gymId, status: 'INACTIVE', deletedAt: null, ...(branchId ? { branchId } : {}) } }),
       this.prisma.member.count({
         where: {
           gymId,
           status: 'ACTIVE',
           deletedAt: null,
+          ...(branchId ? { branchId } : {}),
           currentMembership: { is: { endDate: { lt: new Date() } } },
         },
       }),
@@ -279,7 +323,7 @@ export class ReportsService {
     };
   }
 
-  private async buildTrainerReport(gymId: string, range: DateRange) {
+  private async buildTrainerReport(gymId: string, range: DateRange, user?: CurrentUserPayload) {
     const trainers = await this.prisma.user.findMany({
       where: { gymId, role: 'TRAINER', deletedAt: null },
       include: {
@@ -307,9 +351,10 @@ export class ReportsService {
     return { summary: { totalTrainers: trainers.length }, data: { rows } };
   }
 
-  private async buildBatchReport(gymId: string, range: DateRange) {
+  private async buildBatchReport(gymId: string, range: DateRange, user?: CurrentUserPayload) {
+    const branchId = this.accessScope?.getBranchId(user);
     const batches = await this.prisma.batch.findMany({
-      where: { gymId, deletedAt: null },
+      where: { gymId, deletedAt: null, ...(branchId ? { branchId } : {}) },
       include: {
         members: true,
         trainer: { select: { firstName: true, lastName: true } },
@@ -331,9 +376,14 @@ export class ReportsService {
     return { summary: { totalBatches: batches.length }, data: { rows } };
   }
 
-  private async buildMembershipReport(gymId: string, range: DateRange) {
+  private async buildMembershipReport(gymId: string, range: DateRange, user?: CurrentUserPayload) {
+    const branchId = this.accessScope?.getBranchId(user);
     const memberships = await this.prisma.membership.findMany({
-      where: { gymId, createdAt: { gte: range.startDate, lte: range.endDate } },
+      where: {
+        gymId,
+        createdAt: { gte: range.startDate, lte: range.endDate },
+        ...(branchId ? { branchId } : {}),
+      },
       include: { member: { select: { firstName: true, lastName: true } } },
     });
 
@@ -342,6 +392,7 @@ export class ReportsService {
         gymId,
         status: 'ACTIVE',
         endDate: { gte: new Date(), lte: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) },
+        ...(branchId ? { branchId } : {}),
       },
     });
 
@@ -378,8 +429,9 @@ export class ReportsService {
     format: 'pdf' | 'excel' | 'csv',
     startDate?: string,
     endDate?: string,
+    user?: CurrentUserPayload,
   ): Promise<{ buffer: Buffer; filename: string; contentType: string }> {
-    const report = await this.generate(gymId, userId, type, period, startDate, endDate);
+    const report = await this.generate(gymId, userId, type, period, startDate, endDate, user);
     const rawData = report.data as { rows?: Record<string, any>[] } | null;
     const rows: Record<string, any>[] = rawData?.rows ?? [];
     const columns: ExportColumn[] = rows.length

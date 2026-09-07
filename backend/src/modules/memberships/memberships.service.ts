@@ -4,9 +4,12 @@ import {
   NotFoundException,
   BadRequestException,
   ConflictException,
+  Optional,
 } from '@nestjs/common';
 import { NotificationType, NotificationChannel } from '@prisma/client';
 import { AuditService } from '@shared/services/audit.service';
+import { AccessScopeService } from '@shared/services/access-scope.service';
+import { CurrentUserPayload } from '@common/decorators/current-user.decorator';
 
 import {
   CreateMembershipDto,
@@ -92,17 +95,25 @@ export class MembershipsService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly notifications: NotificationsService,
+    @Optional() private readonly accessScope?: AccessScopeService,
   ) {}
 
-  async findAll(gymId: string, query: QueryMembershipDto) {
+  async findAll(gymId: string, query: QueryMembershipDto, user?: CurrentUserPayload) {
     const { page = 1, limit = 20, status, plan, memberId, expiringInDays, search } = query;
     const skip = (page - 1) * limit;
     const where: any = { gymId, deletedAt: null };
+    if (user && this.accessScope?.isBranchScoped(user)) {
+      const branchId = this.accessScope.getBranchId(user);
+      if (branchId) {
+        where.member = { branchId };
+      }
+    }
     if (status) where.status = status;
     if (plan) where.plan = plan;
     if (memberId) where.memberId = memberId;
     if (search) {
       where.member = {
+        ...where.member,
         OR: [
           { firstName: { contains: search, mode: 'insensitive' } },
           { lastName: { contains: search, mode: 'insensitive' } },
@@ -156,18 +167,24 @@ export class MembershipsService {
     return memberships.map(withComputed);
   }
 
-  async findOne(id: string, gymId: string) {
+  async findOne(id: string, gymId: string, user?: CurrentUserPayload) {
     const item = await this.prisma.membership.findFirst({
       where: { id, gymId, deletedAt: null },
       include: { member: true, payments: true },
     });
     if (!item) throw new NotFoundException('Membership not found');
+    if (user && this.accessScope?.isBranchScoped(user)) {
+      this.accessScope.assertBranchAccess(user, item.member?.branchId ?? item.branchId);
+    }
     return withComputed(item);
   }
 
-  async create(gymId: string, dto: CreateMembershipDto) {
+  async create(gymId: string, dto: CreateMembershipDto, user?: CurrentUserPayload) {
     const member = await this.prisma.member.findFirst({ where: { id: dto.memberId, gymId, deletedAt: null } });
     if (!member) throw new NotFoundException('Member not found');
+    if (user && this.accessScope?.isBranchScoped(user)) {
+      this.accessScope.assertBranchAccess(user, member.branchId);
+    }
 
     const durationDays = resolveDuration(dto.plan, dto.durationDays);
     const startDate = new Date();
@@ -244,9 +261,15 @@ export class MembershipsService {
    * Start date = later of (today, previous endDate) so unused paid days are never lost.
    * Member's currentMembershipId is repointed to the new record.
    */
-  async renew(id: string, gymId: string, dto: RenewMembershipDto) {
-    const existing = await this.prisma.membership.findFirst({ where: { id, gymId, deletedAt: null } });
+  async renew(id: string, gymId: string, dto: RenewMembershipDto, user?: CurrentUserPayload) {
+    const existing = await this.prisma.membership.findFirst({
+      where: { id, gymId, deletedAt: null },
+      include: { member: { select: { branchId: true } } },
+    });
     if (!existing) throw new NotFoundException('Membership not found');
+    if (user && this.accessScope?.isBranchScoped(user)) {
+      this.accessScope.assertBranchAccess(user, existing.member?.branchId ?? existing.branchId);
+    }
 
     if (existing.status === 'FROZEN') {
       throw new BadRequestException('Frozen memberships cannot be renewed — unfreeze first.');
@@ -353,8 +376,8 @@ export class MembershipsService {
   }
 
   /** Freeze: pauses membership and pushes endDate out by the frozen day count so no paid days are lost. */
-  async freeze(id: string, gymId: string, dto: FreezeMembershipDto) {
-    const existing = await this.findOne(id, gymId);
+  async freeze(id: string, gymId: string, dto: FreezeMembershipDto, user?: CurrentUserPayload) {
+    const existing = await this.findOne(id, gymId, user);
     if (existing.status !== 'ACTIVE') {
       throw new BadRequestException(`Cannot freeze a membership with status ${existing.status}`);
     }
@@ -399,8 +422,8 @@ export class MembershipsService {
     return withComputed(item);
   }
 
-  async unfreeze(id: string, gymId: string) {
-    const existing = await this.findOne(id, gymId);
+  async unfreeze(id: string, gymId: string, user?: CurrentUserPayload) {
+    const existing = await this.findOne(id, gymId, user);
     if (existing.status !== 'FROZEN') {
       throw new BadRequestException('Membership is not currently frozen');
     }
@@ -419,12 +442,15 @@ export class MembershipsService {
    * Transfer: moves the remaining validity of a membership to another member.
    * Creates a fresh membership row for the target member and closes out the source.
    */
-  async transfer(id: string, gymId: string, dto: TransferMembershipDto) {
+  async transfer(id: string, gymId: string, dto: TransferMembershipDto, user?: CurrentUserPayload) {
     const existing = await this.prisma.membership.findFirst({
       where: { id, gymId, deletedAt: null },
       include: { member: true },
     });
     if (!existing) throw new NotFoundException('Membership not found');
+    if (user && this.accessScope?.isBranchScoped(user)) {
+      this.accessScope.assertBranchAccess(user, existing.member?.branchId ?? existing.branchId);
+    }
     if (existing.status !== 'ACTIVE') {
       throw new BadRequestException(`Cannot transfer a membership with status ${existing.status}`);
     }
@@ -437,6 +463,9 @@ export class MembershipsService {
       },
     });
     if (!target) throw new NotFoundException('Target member not found');
+    if (user && this.accessScope?.isBranchScoped(user)) {
+      this.accessScope.assertBranchAccess(user, target.branchId);
+    }
     if (target.id === existing.memberId) {
       throw new BadRequestException('Cannot transfer a membership to the same member');
     }
@@ -507,8 +536,8 @@ export class MembershipsService {
   }
 
   /** Upgrade/downgrade: changes plan and pricing on the current membership in place. */
-  async changePlan(id: string, gymId: string, dto: ChangePlanDto) {
-    const existing = await this.findOne(id, gymId);
+  async changePlan(id: string, gymId: string, dto: ChangePlanDto, user?: CurrentUserPayload) {
+    const existing = await this.findOne(id, gymId, user);
     if (existing.status !== 'ACTIVE') {
       throw new BadRequestException(`Cannot change plan on a membership with status ${existing.status}`);
     }

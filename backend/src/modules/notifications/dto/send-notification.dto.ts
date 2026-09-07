@@ -42,6 +42,14 @@ export class SendNotificationDto {
   content?: string;
 }
 
+export enum AnnouncementTargetType {
+  ALL_ACTIVE = 'ALL_ACTIVE',
+  BATCH = 'BATCH',
+  SPECIFIC_MEMBER = 'SPECIFIC_MEMBER',
+  EXPIRING = 'EXPIRING',
+  PENDING_PAYMENT = 'PENDING_PAYMENT',
+}
+
 export class CreateAnnouncementDto {
   @ApiProperty()
   @IsString()
@@ -56,6 +64,21 @@ export class CreateAnnouncementDto {
   @ArrayNotEmpty()
   @IsEnum(NotificationChannel, { each: true })
   channels: NotificationChannel[];
+
+  @ApiPropertyOptional({ enum: AnnouncementTargetType, default: AnnouncementTargetType.ALL_ACTIVE })
+  @IsOptional()
+  @IsEnum(AnnouncementTargetType)
+  targetType?: AnnouncementTargetType;
+
+  @ApiPropertyOptional({ description: 'Batch ID if targetType is BATCH' })
+  @IsOptional()
+  @IsString()
+  batchId?: string;
+
+  @ApiPropertyOptional({ description: 'Member ID if targetType is SPECIFIC_MEMBER' })
+  @IsOptional()
+  @IsString()
+  memberId?: string;
 
   @ApiPropertyOptional({ description: 'ISO datetime to schedule the announcement for; omit to send immediately' })
   @IsOptional()

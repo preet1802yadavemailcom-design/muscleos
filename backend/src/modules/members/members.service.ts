@@ -1,15 +1,15 @@
 import { randomUUID, randomBytes } from 'crypto';
 
 import { PrismaService } from '@database/prisma.service';
-import { Injectable, NotFoundException, BadRequestException, ForbiddenException, ConflictException } from '@nestjs/common';
+import { Optional, Injectable, NotFoundException, BadRequestException, ForbiddenException, ConflictException } from '@nestjs/common';
 import { UserStatus, MembershipStatus, Prisma } from '@prisma/client';
 import { AuditService } from '@shared/services/audit.service';
 import { EncryptionService } from '@shared/services/encryption.service';
 import { SequenceService } from '@shared/services/sequence.service';
+import { AccessScopeService } from '@shared/services/access-scope.service';
+import { CurrentUserPayload } from '@common/decorators/current-user.decorator';
 
 import { CreateMemberDto, UpdateMemberDto, QueryMemberDto } from './dto';
-
-
 
 @Injectable()
 export class MembersService {
@@ -18,13 +18,17 @@ export class MembersService {
     private readonly audit: AuditService,
     private readonly encryption: EncryptionService,
     private readonly sequence: SequenceService,
+    @Optional() private readonly accessScope?: AccessScopeService,
   ) {}
 
-  async findAll(gymId: string, query: QueryMemberDto) {
+  async findAll(gymId: string, query: QueryMemberDto, user?: CurrentUserPayload) {
     const { page = 1, limit = 20, search, status, batchId, trainerId, expired } = query;
     const skip = (page - 1) * limit;
 
     const where: Prisma.MemberWhereInput = { gymId, deletedAt: null };
+    if (this.accessScope?.isBranchScoped(user)) {
+      where.branchId = user!.branchId;
+    }
     if (search) {
       where.OR = [
         { firstName: { contains: search, mode: 'insensitive' } },
@@ -454,9 +458,20 @@ export class MembersService {
   }
 
   /** Lists all members in PENDING status awaiting review/approval by owner or staff. */
-  async findPendingRegistrations(gymId: string) {
+  async findPendingRegistrations(gymId: string, user?: CurrentUserPayload) {
+    const where: any = {
+      gymId,
+      deletedAt: null,
+      OR: [
+        { registrationStatus: 'PENDING' },
+        { status: UserStatus.PENDING },
+      ],
+    };
+    if (this.accessScope?.isBranchScoped(user)) {
+      where.branchId = user!.branchId;
+    }
     return this.prisma.member.findMany({
-      where: { gymId, status: UserStatus.PENDING, deletedAt: null },
+      where,
       orderBy: { createdAt: 'desc' },
       include: {
         batch: { select: { id: true, name: true, startTime: true, endTime: true } },
@@ -473,7 +488,7 @@ export class MembersService {
       include: { currentMembership: true },
     });
     if (!member) throw new NotFoundException('Member not found');
-    if (member.status !== UserStatus.PENDING) {
+    if (member.status !== UserStatus.PENDING && (member as any).registrationStatus !== 'PENDING') {
       throw new BadRequestException(`Member is not in PENDING status (current: ${member.status})`);
     }
 
@@ -484,10 +499,25 @@ export class MembersService {
     }
 
     return this.prisma.$transaction(async (tx) => {
+      if (finalBatchId) {
+        const batch = await tx.batch.findUnique({ where: { id: finalBatchId } });
+        if (batch) {
+          const currentCount = await tx.member.count({
+            where: { batchId: finalBatchId, deletedAt: null, registrationStatus: 'APPROVED' },
+          });
+          if (currentCount >= batch.capacity) {
+            throw new ConflictException(`Batch "${batch.name}" has reached maximum capacity (${batch.capacity}).`);
+          }
+        }
+      }
+
       const updated = await tx.member.update({
         where: { id },
         data: {
           status: UserStatus.ACTIVE,
+          registrationStatus: 'APPROVED' as any,
+          approvedAt: new Date(),
+          approvedBy: reviewerId,
           ...(finalBatchId ? { batchId: finalBatchId } : {}),
         },
         include: {
@@ -509,7 +539,7 @@ export class MembersService {
         entityId: id,
         userId: reviewerId,
         gymId,
-        newValue: { status: UserStatus.ACTIVE, batchId: finalBatchId },
+        newValue: { status: UserStatus.ACTIVE, registrationStatus: 'APPROVED', batchId: finalBatchId },
       });
 
       return updated;
@@ -522,7 +552,7 @@ export class MembersService {
       where: { id, gymId, deletedAt: null },
     });
     if (!member) throw new NotFoundException('Member not found');
-    if (member.status !== UserStatus.PENDING) {
+    if (member.status !== UserStatus.PENDING && (member as any).registrationStatus !== 'PENDING') {
       throw new BadRequestException(`Member is not in PENDING status (current: ${member.status})`);
     }
 
@@ -530,6 +560,10 @@ export class MembersService {
       where: { id },
       data: {
         status: UserStatus.INACTIVE,
+        registrationStatus: 'REJECTED' as any,
+        rejectedAt: new Date(),
+        rejectedBy: reviewerId,
+        rejectionReason: reason,
       },
     });
 
@@ -546,7 +580,7 @@ export class MembersService {
       entityId: id,
       userId: reviewerId,
       gymId,
-      newValue: { status: UserStatus.INACTIVE, reason },
+      newValue: { status: UserStatus.INACTIVE, registrationStatus: 'REJECTED', reason },
     });
 
     return updated;
@@ -559,26 +593,35 @@ export class MembersService {
     });
     if (!member) throw new NotFoundException('Member not found');
 
-    const batch = await this.prisma.batch.findFirst({
-      where: { id: batchId, gymId, deletedAt: null },
-    });
-    if (!batch) throw new BadRequestException('Batch does not exist in this gym');
+    return this.prisma.$transaction(async (tx) => {
+      const batch = await tx.batch.findFirst({
+        where: { id: batchId, gymId, deletedAt: null },
+      });
+      if (!batch) throw new BadRequestException('Batch does not exist in this gym');
 
-    const updated = await this.prisma.member.update({
-      where: { id },
-      data: { batchId },
-      include: { batch: true },
-    });
+      const currentCount = await tx.member.count({
+        where: { batchId, deletedAt: null, registrationStatus: 'APPROVED' },
+      });
+      if (currentCount >= batch.capacity) {
+        throw new ConflictException(`Batch "${batch.name}" has reached maximum capacity (${batch.capacity}).`);
+      }
 
-    await this.audit.log({
-      action: 'MEMBER_BATCH_ASSIGNED',
-      entity: 'Member',
-      entityId: id,
-      userId: reviewerId,
-      gymId,
-      newValue: { batchId, batchName: batch.name },
-    });
+      const updated = await tx.member.update({
+        where: { id },
+        data: { batchId },
+        include: { batch: true },
+      });
 
-    return updated;
+      await this.audit.log({
+        action: 'MEMBER_BATCH_ASSIGNED',
+        entity: 'Member',
+        entityId: id,
+        userId: reviewerId,
+        gymId,
+        newValue: { batchId, batchName: batch.name },
+      });
+
+      return updated;
+    });
   }
 }

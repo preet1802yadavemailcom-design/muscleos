@@ -132,4 +132,38 @@ describe('QrService Security & Lifecycle', () => {
       expect(res.gym.id).toBe('g-1');
     });
   });
+
+  describe('getBranchQr', () => {
+    it('returns active QR token for a branch', async () => {
+      prisma.branch.findFirst.mockResolvedValue({ id: 'branch-1', gymId: 'gym-1' });
+      prisma.branchQrToken.findFirst.mockResolvedValue({
+        id: 'tok-1',
+        token: 'TOKEN_ACTIVE_123',
+        isActive: true,
+        createdAt: new Date(),
+      });
+
+      const res = await service.getBranchQr('branch-1', 'gym-1');
+      expect(res.token).toBe('TOKEN_ACTIVE_123');
+      expect(res.branchId).toBe('branch-1');
+    });
+
+    it('throws NotFoundException when no active QR token exists for branch', async () => {
+      prisma.branch.findFirst.mockResolvedValue({ id: 'branch-1', gymId: 'gym-1' });
+      prisma.branchQrToken.findFirst.mockResolvedValue(null);
+
+      await expect(service.getBranchQr('branch-1', 'gym-1')).rejects.toThrow(
+        new NotFoundException('No active QR found for this branch'),
+      );
+    });
+
+    it('throws NotFoundException when branch is not owned by gym', async () => {
+      prisma.branch.findFirst.mockResolvedValue(null);
+
+      await expect(service.getBranchQr('branch-unowned', 'gym-1')).rejects.toThrow(
+        new NotFoundException('Branch not found'),
+      );
+    });
+  });
 });
+

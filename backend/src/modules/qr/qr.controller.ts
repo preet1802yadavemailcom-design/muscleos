@@ -37,6 +37,13 @@ export class QrController {
 
   // ---- Per-branch endpoints for real multi-branch management ----
 
+  @Get('branches/:branchId/qr')
+  @Roles(UserRole.GYM_OWNER, UserRole.SUPER_ADMIN)
+  @ApiOperation({ summary: 'Get the active permanent wall QR for a specific branch' })
+  async getBranchQr(@Param('branchId') branchId: string, @GymId() gymId: string) {
+    return this.qr.getBranchQr(branchId, gymId);
+  }
+
   @Post('branches/:branchId/qr/generate')
   @Roles(UserRole.GYM_OWNER, UserRole.SUPER_ADMIN)
   @ApiOperation({ summary: 'Generate the permanent wall QR for a branch (first time)' })

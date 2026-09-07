@@ -24,6 +24,12 @@ enum UserStatus {
   DELETED
 }
 
+enum RegistrationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
 enum Gender {
   MALE
   FEMALE
@@ -78,6 +84,7 @@ enum PaymentMethod {
   CARD
   UPI
   BANK_TRANSFER
+  CHEQUE
 }
 
 enum BatchType {
@@ -278,6 +285,7 @@ model Gym {
   supportTickets       SupportTicket[]
   branches             Branch[]
   platformSubscription PlatformSubscription?
+  notificationTemplates NotificationTemplate[]
 
   @@index([status])
   @@index([planType])
@@ -418,6 +426,7 @@ model User {
   receptionPayments      Payment[]      @relation("ReceptionPayments")
   verifiedPayments       Payment[]      @relation("PaymentVerifier")
   trainees               Member[]
+  recordedProgress       MemberProgress[] @relation("ProgressRecorder")
 
   @@unique([email, gymId])
   @@index([email])
@@ -518,28 +527,36 @@ model Member {
   qrCode                String        @unique
   qrCodeData            String        @unique
   referredBy            String?
-  referralCode          String?       @unique
-  status                UserStatus    @default(ACTIVE)
-  joinDate              DateTime      @default(now())
-  currentStreak         Int           @default(0) // consecutive days checked in, ending on the most recent visit day
-  longestStreak         Int           @default(0)
+  referralCode          String?            @unique
+  status                UserStatus         @default(ACTIVE)
+  registrationStatus    RegistrationStatus @default(APPROVED)
+  approvedAt            DateTime?
+  approvedBy            String?
+  rejectedAt            DateTime?
+  rejectedBy            String?
+  rejectionReason       String?
+  joinDate              DateTime           @default(now())
+  currentStreak         Int                @default(0) // consecutive days checked in, ending on the most recent visit day
+  longestStreak         Int                @default(0)
   lastStreakDate        DateTime? // date (day-precision) of the last check-in counted toward the streak, for gap detection
   gymId                 String
-  gym                   Gym           @relation(fields: [gymId], references: [id], onDelete: Cascade)
+  gym                   Gym                @relation(fields: [gymId], references: [id], onDelete: Cascade)
   branchId              String?
-  branch                Branch?       @relation(fields: [branchId], references: [id])
-  createdAt             DateTime      @default(now())
-  updatedAt             DateTime      @updatedAt
+  branch                Branch?            @relation(fields: [branchId], references: [id])
+  createdAt             DateTime           @default(now())
+  updatedAt             DateTime           @updatedAt
   deletedAt             DateTime?
   memberships           Membership[]
   attendance            Attendance[]
   payments              Payment[]
   dietPlans             DietPlan[]
   workoutPlans          WorkoutPlan[]
+  progressRecords       MemberProgress[]
 
   @@index([gymId])
   @@index([branchId])
   @@index([status])
+  @@index([registrationStatus])
   @@index([memberCode])
   @@index([mobile])
   @@index([batchId])
@@ -784,7 +801,9 @@ model Notification {
 
 model NotificationTemplate {
   id        String              @id @default(uuid())
-  name      String              @unique
+  name      String
+  gymId     String?
+  gym       Gym?                @relation(fields: [gymId], references: [id], onDelete: Cascade)
   type      NotificationType
   channel   NotificationChannel
   subject   String?
@@ -794,7 +813,32 @@ model NotificationTemplate {
   createdAt DateTime            @default(now())
   updatedAt DateTime            @updatedAt
 
+  @@unique([gymId, name])
+  @@index([gymId])
   @@map("notification_templates")
+}
+
+model MemberProgress {
+  id             String   @id @default(uuid())
+  memberId       String
+  member         Member   @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  recordedById   String?
+  recordedBy     User?    @relation("ProgressRecorder", fields: [recordedById], references: [id])
+  weight         Decimal? @db.Decimal(5, 2) // kg
+  bodyFatPercent Decimal? @db.Decimal(4, 1) // %
+  chest          Decimal? @db.Decimal(5, 2) // cm
+  waist          Decimal? @db.Decimal(5, 2) // cm
+  hips           Decimal? @db.Decimal(5, 2) // cm
+  biceps         Decimal? @db.Decimal(5, 2) // cm
+  thighs         Decimal? @db.Decimal(5, 2) // cm
+  photoUrl       String?
+  notes          String?
+  recordedAt     DateTime @default(now())
+  createdAt      DateTime @default(now())
+
+  @@index([memberId])
+  @@index([recordedAt])
+  @@map("member_progress")
 }
 
 model Report {

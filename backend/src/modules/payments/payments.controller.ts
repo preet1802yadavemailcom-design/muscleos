@@ -52,8 +52,8 @@ export class PaymentsController {
   @ApiBearerAuth('access-token')
   @Roles(UserRole.GYM_OWNER, UserRole.SUPER_ADMIN, UserRole.RECEPTIONIST, UserRole.TRAINER)
   @ApiOperation({ summary: 'List payments (filterable, paginated)' })
-  async findAll(@GymId() gymId: string, @Query() query: QueryPaymentDto) {
-    return this.service.findAll(gymId, query);
+  async findAll(@GymId() gymId: string, @Query() query: QueryPaymentDto, @CurrentUser() user: CurrentUserPayload) {
+    return this.service.findAll(gymId, query, user);
   }
 
   @Get('summary')
@@ -292,7 +292,7 @@ export class PaymentsController {
     @CurrentUser() user: CurrentUserPayload,
     @Body() dto: AllocateMonthsDto,
   ) {
-    return this.service.recordManualPaymentWithMonths(gymId, user.userId, dto);
+    return this.service.recordManualPaymentWithMonths(gymId, user, dto);
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard, GymOwnerGuard)
@@ -306,6 +306,6 @@ export class PaymentsController {
     @CurrentUser() user: CurrentUserPayload,
     @Body('approve') approve: boolean,
   ) {
-    return this.service.verifyManualPayment(gymId, id, user.userId, approve);
+    return this.service.verifyManualPayment(gymId, id, user.userId, approve, user);
   }
 }

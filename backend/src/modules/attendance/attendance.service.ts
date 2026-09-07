@@ -2,11 +2,12 @@ import { randomUUID } from 'crypto';
 
 import { PrismaService } from '@database/prisma.service';
 import { Decimal } from '@prisma/client/runtime/library';
-import { Injectable, BadRequestException, NotFoundException, ForbiddenException, UnauthorizedException } from '@nestjs/common';
+import { Injectable, BadRequestException, NotFoundException, ForbiddenException, UnauthorizedException, Optional } from '@nestjs/common';
 import { MembershipPlan, MembershipStatus, UserStatus, UserRole, Prisma } from '@prisma/client';
 import { AuditService } from '@shared/services/audit.service';
 import { EncryptionService } from '@shared/services/encryption.service';
 import { SequenceService } from '@shared/services/sequence.service';
+import { AccessScopeService } from '@shared/services/access-scope.service';
 import { CurrentUserPayload } from '@common/decorators/current-user.decorator';
 import { distanceMeters } from '@common/utils/geo.util';
 import { QrService } from '@modules/qr/qr.service';
@@ -23,6 +24,7 @@ export class AttendanceService {
     private readonly core: AttendanceCoreService,
     private readonly qr: QrService,
     private readonly sequence: SequenceService,
+    @Optional() private readonly accessScope?: AccessScopeService,
   ) {}
 
   /**
@@ -102,6 +104,10 @@ export class AttendanceService {
     // TS can't see both branches guarantee a member, so narrow explicitly.
     if (!member) throw new NotFoundException('Member not found');
 
+    if (isOtherDevice && user && this.accessScope?.isBranchScoped(user)) {
+      this.accessScope.assertBranchAccess(user, member.branchId);
+    }
+
     // 3. Member must be active.
     if (member.status === UserStatus.PENDING) {
       throw new ForbiddenException('Registration is pending owner approval.');
@@ -125,12 +131,7 @@ export class AttendanceService {
     }
 
     if (!member.batchId) {
-      const hasBatches = this.prisma.batch?.count
-        ? (await this.prisma.batch.count({ where: { gymId: scannerGymId, deletedAt: null } })) > 0
-        : false;
-      if (hasBatches) {
-        throw new ForbiddenException('No batch assigned — gym owner must assign a batch before attendance is allowed.');
-      }
+      throw new ForbiddenException('No batch assigned — gym owner must assign a batch before attendance is allowed.');
     }
 
     // 4. Membership validity - shared with the manual (no-QR) flow below.
@@ -183,6 +184,10 @@ export class AttendanceService {
     });
     if (!member) throw new NotFoundException('Member not found');
 
+    if (this.accessScope?.isBranchScoped(staffUser)) {
+      this.accessScope.assertBranchAccess(staffUser, member.branchId);
+    }
+
     if (member.status === UserStatus.PENDING) {
       throw new ForbiddenException('Registration is pending owner approval.');
     }
@@ -190,12 +195,7 @@ export class AttendanceService {
       throw new ForbiddenException(`Member is ${member.status.toLowerCase()} - attendance blocked`);
     }
     if (!member.batchId) {
-      const hasBatches = this.prisma.batch?.count
-        ? (await this.prisma.batch.count({ where: { gymId, deletedAt: null } })) > 0
-        : false;
-      if (hasBatches) {
-        throw new ForbiddenException('No batch assigned — gym owner must assign a batch before attendance is allowed.');
-      }
+      throw new ForbiddenException('No batch assigned — gym owner must assign a batch before attendance is allowed.');
     }
 
     await this.ensureMembershipValid(member, gymId);
@@ -426,11 +426,15 @@ export class AttendanceService {
     };
   }
 
-  async findAll(gymId: string, query: QueryAttendanceDto) {
+  async findAll(gymId: string, query: QueryAttendanceDto, user?: CurrentUserPayload) {
     const { page = 1, limit = 20, memberId, batchId, fromDate, toDate } = query;
     const skip = (page - 1) * limit;
 
     const where: Prisma.AttendanceWhereInput = { gymId };
+    if (user && this.accessScope?.isBranchScoped(user)) {
+      const branchId = this.accessScope.getBranchId(user);
+      if (branchId) where.branchId = branchId;
+    }
     if (memberId) where.memberId = memberId;
     if (batchId) where.batchId = batchId;
     if (fromDate || toDate) {
@@ -461,7 +465,13 @@ export class AttendanceService {
   }
 
   /** A member's own attendance calendar (for the member-facing app/portal). */
-  async memberHistory(memberId: string, gymId: string, month?: number, year?: number) {
+  async memberHistory(memberId: string, gymId: string, month?: number, year?: number, user?: CurrentUserPayload) {
+    if (user && this.accessScope?.isBranchScoped(user)) {
+      const member = await this.prisma.member.findUnique({ where: { id: memberId }, select: { branchId: true } });
+      if (member) {
+        this.accessScope.assertBranchAccess(user, member.branchId);
+      }
+    }
     const now = new Date();
     const y = year ?? now.getFullYear();
     const m = month ?? now.getMonth() + 1;
@@ -475,9 +485,14 @@ export class AttendanceService {
   }
 
   /** Live "who's in the gym right now" dashboard feed. */
-  async liveFeed(gymId: string) {
+  async liveFeed(gymId: string, user?: CurrentUserPayload) {
+    const where: Prisma.AttendanceWhereInput = { gymId, checkOutAt: null };
+    if (user && this.accessScope?.isBranchScoped(user)) {
+      const branchId = this.accessScope.getBranchId(user);
+      if (branchId) where.branchId = branchId;
+    }
     return this.prisma.attendance.findMany({
-      where: { gymId, checkOutAt: null },
+      where,
       orderBy: { checkInAt: 'desc' },
       take: 50,
       include: { member: { select: { id: true, firstName: true, lastName: true, photo: true } } },
@@ -485,10 +500,15 @@ export class AttendanceService {
   }
 
   /** Flags sessions still open past closing time — feeds the "missed checkout" report. */
-  async missedCheckouts(gymId: string, hoursThreshold = 4) {
+  async missedCheckouts(gymId: string, hoursThreshold = 4, user?: CurrentUserPayload) {
     const cutoff = new Date(Date.now() - hoursThreshold * 60 * 60 * 1000);
+    const where: Prisma.AttendanceWhereInput = { gymId, checkOutAt: null, checkInAt: { lt: cutoff } };
+    if (user && this.accessScope?.isBranchScoped(user)) {
+      const branchId = this.accessScope.getBranchId(user);
+      if (branchId) where.branchId = branchId;
+    }
     return this.prisma.attendance.findMany({
-      where: { gymId, checkOutAt: null, checkInAt: { lt: cutoff } },
+      where,
       include: { member: { select: { id: true, firstName: true, lastName: true, mobile: true } } },
     });
   }

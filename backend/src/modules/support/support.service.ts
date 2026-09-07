@@ -1,6 +1,8 @@
-import { Injectable, BadRequestException, ForbiddenException } from '@nestjs/common';
+import { Injectable, BadRequestException, ForbiddenException, ConflictException, Optional } from '@nestjs/common';
 import { PrismaService } from '@database/prisma.service';
 import { AuditService } from '@shared/services/audit.service';
+import { RedisService } from '@database/redis.service';
+import { EmailProvider } from '../notifications/providers/email.provider';
 import { randomUUID } from 'crypto';
 
 import { CreateSupportTicketDto } from './dto/create-ticket.dto';
@@ -10,12 +12,22 @@ export class SupportTicketsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    @Optional() private readonly emailProvider?: EmailProvider,
+    @Optional() private readonly redis?: RedisService,
   ) {}
 
   /** Any authenticated member/owner/trainer/reception can raise a ticket for
    *  their own gym. Previously this was super-admin-only (list + update);
    *  there was no way for the people actually using the app to open one. */
   async create(userId: string, dto: CreateSupportTicketDto) {
+    if (this.redis) {
+      const lockKey = `lock:support_ticket:${userId}`;
+      const acquired = await this.redis.setNx(lockKey, 'locked', 5);
+      if (!acquired) {
+        throw new ConflictException('A ticket submission is already in progress. Please wait a few seconds.');
+      }
+    }
+
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw new BadRequestException('User not found');
     if (!user.gymId) {
@@ -38,6 +50,33 @@ export class SupportTicketsService {
     });
 
     const supportEmail = process.env.SUPPORT_EMAIL || 'muscleos021@gmail.com';
+
+    if (this.emailProvider) {
+      // Alert support desk
+      this.emailProvider.send(
+        supportEmail,
+        `[New Support Ticket] ${ticket.ticketNumber}: ${dto.title}`,
+        `<p>A new support ticket has been submitted.</p>
+         <p><strong>Ticket Number:</strong> ${ticket.ticketNumber}</p>
+         <p><strong>Gym ID:</strong> ${user.gymId}</p>
+         <p><strong>Requester:</strong> ${user.firstName} ${user.lastName} (${user.email})</p>
+         <p><strong>Priority:</strong> ${ticket.priority}</p>
+         <p><strong>Title:</strong> ${dto.title}</p>
+         <p><strong>Description:</strong></p>
+         <p>${dto.description}</p>`,
+      ).catch(() => {});
+
+      // Acknowledge receipt to user
+      this.emailProvider.send(
+        user.email,
+        `[Ticket Received] ${ticket.ticketNumber}: ${dto.title}`,
+        `<p>Hi ${user.firstName},</p>
+         <p>We have received your support request (Ticket: <strong>${ticket.ticketNumber}</strong>).</p>
+         <p>Our team will investigate and respond within 24 hours.</p>
+         <p><strong>Subject:</strong> ${dto.title}</p>
+         <p>Best regards,<br/>MuscleOS Support Team</p>`,
+      ).catch(() => {});
+    }
 
     await this.audit.log({
       action: 'TICKET_CREATED', entity: 'SupportTicket', entityId: ticket.id, userId, gymId: user.gymId,

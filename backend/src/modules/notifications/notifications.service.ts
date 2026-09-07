@@ -6,7 +6,7 @@ import { NotificationChannel, NotificationStatus, NotificationType } from '@pris
 import { AuditService } from '@shared/services/audit.service';
 import { LoggerService } from '@shared/services/logger.service';
 
-import { SendNotificationDto, CreateAnnouncementDto, UpsertTemplateDto } from './dto/send-notification.dto';
+import { SendNotificationDto, CreateAnnouncementDto, UpsertTemplateDto, AnnouncementTargetType } from './dto/send-notification.dto';
 import { EmailProvider } from './providers/email.provider';
 import { PushProvider } from './providers/push.provider';
 import { SmsProvider } from './providers/sms.provider';
@@ -83,15 +83,25 @@ export class NotificationsService {
 
   // ---------- Templates ----------
 
-  async listTemplates() {
-    return this.prisma.notificationTemplate.findMany({ orderBy: { name: 'asc' } });
+  async listTemplates(gymId?: string) {
+    return this.prisma.notificationTemplate.findMany({
+      where: gymId ? { OR: [{ gymId }, { gymId: null }] } : undefined,
+      orderBy: { name: 'asc' },
+    });
   }
 
-  async upsertTemplate(dto: UpsertTemplateDto) {
-    return this.prisma.notificationTemplate.upsert({
-      where: { name: dto.name },
-      create: dto,
-      update: dto,
+  async upsertTemplate(dto: UpsertTemplateDto, gymId?: string) {
+    const existing = await this.prisma.notificationTemplate.findFirst({
+      where: { name: dto.name, gymId: gymId ?? null },
+    });
+    if (existing) {
+      return this.prisma.notificationTemplate.update({
+        where: { id: existing.id },
+        data: { ...dto, gymId: gymId ?? null },
+      });
+    }
+    return this.prisma.notificationTemplate.create({
+      data: { ...dto, gymId: gymId ?? null },
     });
   }
 
@@ -106,7 +116,13 @@ export class NotificationsService {
     let content = dto.content ?? '';
 
     if (dto.templateName) {
-      const template = await this.prisma.notificationTemplate.findUnique({ where: { name: dto.templateName } });
+      const template = await this.prisma.notificationTemplate.findFirst({
+        where: {
+          name: dto.templateName,
+          OR: [{ gymId }, { gymId: null }],
+        },
+        orderBy: { gymId: 'desc' },
+      });
       if (!template) throw new BadRequestException(`Template "${dto.templateName}" not found`);
       title = template.subject ? this.renderTemplate(template.subject, dto.variables) : title;
       content = this.renderTemplate(template.body, dto.variables);
@@ -210,12 +226,49 @@ export class NotificationsService {
   // ---------- Announcements (broadcast to all members of a gym) ----------
 
   async createAnnouncement(gymId: string, dto: CreateAnnouncementDto) {
+    const targetType = dto.targetType ?? AnnouncementTargetType.ALL_ACTIVE;
+    let memberWhere: any = { gymId, deletedAt: null };
+
+    if (targetType === AnnouncementTargetType.BATCH) {
+      if (!dto.batchId) throw new BadRequestException('batchId is required when targetType is BATCH');
+      memberWhere = { ...memberWhere, batchId: dto.batchId, status: 'ACTIVE' };
+    } else if (targetType === AnnouncementTargetType.SPECIFIC_MEMBER) {
+      if (!dto.memberId) throw new BadRequestException('memberId is required when targetType is SPECIFIC_MEMBER');
+      memberWhere = { ...memberWhere, id: dto.memberId };
+    } else if (targetType === AnnouncementTargetType.EXPIRING) {
+      const now = new Date();
+      const in7Days = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+      memberWhere = {
+        ...memberWhere,
+        status: 'ACTIVE',
+        memberships: {
+          some: {
+            status: 'ACTIVE',
+            endDate: { gte: now, lte: in7Days },
+          },
+        },
+      };
+    } else if (targetType === AnnouncementTargetType.PENDING_PAYMENT) {
+      memberWhere = {
+        ...memberWhere,
+        status: 'ACTIVE',
+        payments: {
+          some: {
+            status: 'PENDING',
+          },
+        },
+      };
+    } else {
+      // ALL_ACTIVE
+      memberWhere = { ...memberWhere, status: 'ACTIVE' };
+    }
+
     const members = await this.prisma.member.findMany({
-      where: { gymId, status: 'ACTIVE', deletedAt: null },
+      where: memberWhere,
       select: { id: true },
     });
 
-    const created = [];
+    const created: string[] = [];
     for (const channel of dto.channels) {
       for (const member of members) {
         const notification = await this.prisma.notification.create({
@@ -235,13 +288,22 @@ export class NotificationsService {
     }
 
     if (!dto.scheduledAt) {
-      for (const id of created) await this.dispatch(id);
+      // Broadcast asynchronously in background without blocking the HTTP response
+      setImmediate(async () => {
+        for (const id of created) {
+          try {
+            await this.dispatch(id);
+          } catch (err: any) {
+            this.logger.error(`Announcement dispatch error for ${id}: ${err?.message}`, err?.stack, 'NotificationsService');
+          }
+        }
+      });
     }
 
     await this.audit.log({
       action: 'CREATE',
       entity: 'Announcement',
-      newValue: { title: dto.title, recipients: members.length, channels: dto.channels },
+      newValue: { title: dto.title, recipients: members.length, channels: dto.channels, targetType },
       gymId,
     });
 

@@ -3,7 +3,7 @@ import { AttendanceType, AttendanceStatus, AttendanceSource, MembershipStatus, P
 import { PrismaService } from '@database/prisma.service';
 import { RedisService } from '@database/redis.service';
 import { AuditService } from '@shared/services/audit.service';
-import { getZonedDateParts, parseGymTimeToDate } from '@common/utils/timezone.util';
+import { getZonedDateParts, parseGymTimeToDate, getGymStartOfDay, getGymEndOfDay } from '@common/utils/timezone.util';
 
 /** Grace window (minutes) before a batch start counts as "late". */
 const LATE_GRACE_MINUTES = 10;
@@ -54,14 +54,22 @@ export class AttendanceCoreService {
     const { member } = input;
 
     // Registration and member status validity
-    if (member.status === 'PENDING') {
+    if (member.status === 'PENDING' || member.registrationStatus === 'PENDING') {
       throw new ForbiddenException('Registration is pending owner approval.');
+    }
+    if (member.registrationStatus === 'REJECTED') {
+      throw new ForbiddenException('Registration was rejected by gym owner.');
     }
     if (member.status && member.status !== 'ACTIVE') {
       throw new ForbiddenException(`Member status is ${member.status} — attendance not permitted.`);
     }
     if (input.branchId && member.branchId && input.branchId !== member.branchId) {
       throw new ForbiddenException('Cannot check in at a different branch than the one assigned.');
+    }
+
+    // Strictly enforce: No batch = No attendance
+    if (!member.batchId || !member.batch) {
+      throw new ForbiddenException('No batch assigned — attendance not permitted without an assigned batch.');
     }
 
     // Membership validity — checked before we touch the DB at all.
@@ -102,20 +110,23 @@ export class AttendanceCoreService {
     const { member, gymId, branchId, source, performedBy, deviceType, location, latitude, longitude } = input;
     const now = new Date();
 
-    // Duplicate-tap guard: a second insert attempt within the window for a
-    // session that's already open is caught by the unique index below; this
-    // just gives a friendlier message for the sub-30s double-tap case where
-    // the *first* insert hasn't been read back yet by the guard above.
-    const veryRecent = await this.prisma.attendance.findFirst({
+    const startOfDay = getGymStartOfDay(now);
+    const endOfDay = getGymEndOfDay(now);
+
+    const latestToday = await this.prisma.attendance.findFirst({
       where: {
         memberId: member.id,
         gymId,
-        checkInAt: { gte: new Date(now.getTime() - DUPLICATE_SCAN_WINDOW_SECONDS * 1000) },
+        checkInAt: { gte: startOfDay, lte: endOfDay },
       },
       orderBy: { checkInAt: 'desc' },
     });
-    if (veryRecent && !veryRecent.checkOutAt) {
-      const secondsSince = (now.getTime() - veryRecent.checkInAt.getTime()) / 1000;
+
+    if (latestToday) {
+      if (latestToday.checkOutAt) {
+        throw new BadRequestException('Attendance already completed for today.');
+      }
+      const secondsSince = (now.getTime() - latestToday.checkInAt.getTime()) / 1000;
       if (secondsSince < 5) {
         throw new BadRequestException('Duplicate scan — please wait a moment before scanning again');
       }
