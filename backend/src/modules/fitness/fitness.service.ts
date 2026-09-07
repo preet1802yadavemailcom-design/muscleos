@@ -1,8 +1,8 @@
-import { Injectable, ForbiddenException, NotFoundException, BadRequestException, Optional } from '@nestjs/common';
-import { PrismaService } from '@database/prisma.service';
-import { AuditService } from '@shared/services/audit.service';
-import { AccessScopeService } from '@shared/services/access-scope.service';
 import { CurrentUserPayload } from '@common/decorators/current-user.decorator';
+import { PrismaService } from '@database/prisma.service';
+import { Injectable, ForbiddenException, NotFoundException, BadRequestException, Optional } from '@nestjs/common';
+import { AccessScopeService } from '@shared/services/access-scope.service';
+import { AuditService } from '@shared/services/audit.service';
 
 import { CreateDietPlanDto } from './dto/create-diet-plan.dto';
 import { CreateWorkoutPlanDto } from './dto/create-workout-plan.dto';

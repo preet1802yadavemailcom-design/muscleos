@@ -5,10 +5,10 @@ import { GymOwnerGuard } from '@common/guards/gym-owner.guard';
 import { JwtAuthGuard } from '@common/guards/jwt-auth.guard';
 import { PermissionsGuard } from '@common/guards/permissions.guard';
 import { RolesGuard } from '@common/guards/roles.guard';
+import { IdempotencyInterceptor } from '@common/interceptors/idempotency.interceptor';
 import { Controller, Get, Post, Put, Patch, Delete, Body, Param, Query, UseGuards, UseInterceptors } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { UserRole } from '@prisma/client';
-import { IdempotencyInterceptor } from '@common/interceptors/idempotency.interceptor';
 
 import {
   CreateMembershipDto,

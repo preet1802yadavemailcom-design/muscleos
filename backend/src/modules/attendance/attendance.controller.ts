@@ -1,6 +1,7 @@
 import { CurrentUser, CurrentUserPayload } from '@common/decorators/current-user.decorator';
 import { GymId } from '@common/decorators/gym-id.decorator';
 import { Permissions } from '@common/decorators/permissions.decorator';
+import { Roles } from '@common/decorators/roles.decorator';
 import { GymOwnerGuard } from '@common/guards/gym-owner.guard';
 import { JwtAuthGuard } from '@common/guards/jwt-auth.guard';
 import { PermissionsGuard } from '@common/guards/permissions.guard';
@@ -8,7 +9,6 @@ import { RolesGuard } from '@common/guards/roles.guard';
 import { Controller, Get, Post, Body, Param, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { UserRole } from '@prisma/client';
-import { Roles } from '@common/decorators/roles.decorator';
 
 import { AttendanceService } from './attendance.service';
 import { ScanQrDto, QueryAttendanceDto, ManualCheckInDto } from './dto';
@@ -101,6 +101,38 @@ export class AttendanceController {
     @Query('hours') hours?: string,
   ) {
     return this.service.missedCheckouts(gymId, hours ? Number(hours) : undefined, user);
+  }
+
+  @Get('member/:memberId')
+  @Permissions('attendance:read')
+  @ApiOperation({ summary: 'Paginated attendance history for a specific member' })
+  async memberHistory(
+    @Param('memberId') memberId: string,
+    @GymId() gymId: string,
+    @CurrentUser() user: CurrentUserPayload,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.service.getMemberAttendanceHistory(
+      gymId,
+      memberId,
+      {
+        page: page ? Number(page) : undefined,
+        limit: limit ? Number(limit) : undefined,
+      },
+      user,
+    );
+  }
+
+  @Get('member/:memberId/stats')
+  @Permissions('attendance:read')
+  @ApiOperation({ summary: 'Attendance metrics summary (streaks, total visits, week/month) for a member' })
+  async memberStats(
+    @Param('memberId') memberId: string,
+    @GymId() gymId: string,
+    @CurrentUser() user: CurrentUserPayload,
+  ) {
+    return this.service.getMemberAttendanceStats(gymId, memberId, user);
   }
 
   @Get('member/:memberId/calendar')

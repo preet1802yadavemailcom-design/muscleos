@@ -1,7 +1,8 @@
-import { NotFoundException, ForbiddenException } from '@nestjs/common';
-import { QrService } from './qr.service';
 import { PrismaService } from '@database/prisma.service';
+import { NotFoundException, ForbiddenException } from '@nestjs/common';
 import { AuditService } from '@shared/services/audit.service';
+
+import { QrService } from './qr.service';
 
 describe('QrService Security & Lifecycle', () => {
   let service: QrService;

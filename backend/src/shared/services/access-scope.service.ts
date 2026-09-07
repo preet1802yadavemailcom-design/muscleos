@@ -1,6 +1,6 @@
+import { CurrentUserPayload } from '@common/decorators/current-user.decorator';
 import { Injectable, ForbiddenException } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
-import { CurrentUserPayload } from '@common/decorators/current-user.decorator';
 
 @Injectable()
 export class AccessScopeService {

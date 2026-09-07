@@ -1,9 +1,3 @@
-import { PrismaService } from '@database/prisma.service';
-import { Injectable, BadRequestException, NotFoundException, Optional } from '@nestjs/common';
-import { ReportType, ReportPeriod } from '@prisma/client';
-import { AuditService } from '@shared/services/audit.service';
-import { ExportService, ExportColumn } from '@shared/services/export.service';
-import { AccessScopeService } from '@shared/services/access-scope.service';
 import { CurrentUserPayload } from '@common/decorators/current-user.decorator';
 import {
   getGymStartOfDay,
@@ -12,6 +6,12 @@ import {
   getGymStartOfMonth,
   getGymStartOfYear,
 } from '@common/utils/timezone.util';
+import { PrismaService } from '@database/prisma.service';
+import { Injectable, BadRequestException, NotFoundException, Optional } from '@nestjs/common';
+import { ReportType, ReportPeriod } from '@prisma/client';
+import { AccessScopeService } from '@shared/services/access-scope.service';
+import { AuditService } from '@shared/services/audit.service';
+import { ExportService, ExportColumn } from '@shared/services/export.service';
 
 interface DateRange {
   startDate: Date;

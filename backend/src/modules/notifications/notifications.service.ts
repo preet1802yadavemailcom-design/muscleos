@@ -139,6 +139,12 @@ export class NotificationsService {
       if (!member) throw new NotFoundException(`Member not found in this gym`);
     }
 
+    const variables = {
+      ...(dto.variables ?? {}),
+      ...(dto.recipientEmail ? { directRecipientEmail: dto.recipientEmail } : {}),
+      ...(dto.recipientPhone ? { directRecipientPhone: dto.recipientPhone } : {}),
+    };
+
     const notification = await this.prisma.notification.create({
       data: {
         type: dto.type,
@@ -148,7 +154,7 @@ export class NotificationsService {
         userId: dto.userId,
         memberId: dto.memberId,
         templateId: dto.templateName,
-        variables: dto.variables,
+        variables,
         status: 'PENDING',
         gymId,
       },
@@ -156,6 +162,34 @@ export class NotificationsService {
 
     await this.dispatch(notification.id);
     return this.findOne(notification.id, gymId);
+  }
+
+  async sendTestEmail(gymId: string, recipientEmail: string) {
+    if (!recipientEmail || !recipientEmail.includes('@')) {
+      throw new BadRequestException('Valid recipient email address is required');
+    }
+    const gym = await this.prisma.gym.findUnique({ where: { id: gymId }, select: { name: true } });
+    const gymName = gym?.name || 'MuscleOS Gym';
+    const subject = `Test Email from ${gymName}`;
+    const html = `
+      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 500px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 8px;">
+        <h2 style="color: #0f172a; margin-top: 0;">Email System Verified</h2>
+        <p style="color: #475569; font-size: 15px; line-height: 1.6;">
+          This is a confirmation test sent from <strong>${gymName}</strong>. Your email configuration is verified and functioning correctly.
+        </p>
+        <div style="background-color: #f8fafc; border-left: 4px solid #3b82f6; padding: 12px 16px; margin: 16px 0; font-size: 13px; color: #64748b;">
+          Timestamp: ${new Date().toUTCString()}
+        </div>
+        <p style="color: #94a3b8; font-size: 12px; margin-bottom: 0;">
+          Sent via MuscleOS Notification Engine
+        </p>
+      </div>
+    `;
+    const result = await this.email.send(recipientEmail, subject, html);
+    if (!result.success) {
+      throw new BadRequestException(result.error || 'Failed to deliver test email');
+    }
+    return { success: true, message: `Test email successfully delivered to ${recipientEmail}` };
   }
 
   private async dispatch(notificationId: string) {
@@ -176,6 +210,13 @@ export class NotificationsService {
       if (member?.firstName) recipientName = member.firstName;
       if (member?.userId) {
         targetUserId = member.userId;
+      }
+    } else if (notification.variables) {
+      const vars = notification.variables as Record<string, any>;
+      if (notification.channel === 'EMAIL' && vars.directRecipientEmail) {
+        recipient = vars.directRecipientEmail;
+      } else if ((notification.channel === 'SMS' || notification.channel === 'WHATSAPP') && vars.directRecipientPhone) {
+        recipient = vars.directRecipientPhone;
       }
     }
 

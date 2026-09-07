@@ -1,13 +1,13 @@
 import { randomUUID, randomBytes } from 'crypto';
 
+import { CurrentUserPayload } from '@common/decorators/current-user.decorator';
 import { PrismaService } from '@database/prisma.service';
 import { Optional, Injectable, NotFoundException, BadRequestException, ForbiddenException, ConflictException } from '@nestjs/common';
 import { UserStatus, MembershipStatus, Prisma } from '@prisma/client';
+import { AccessScopeService } from '@shared/services/access-scope.service';
 import { AuditService } from '@shared/services/audit.service';
 import { EncryptionService } from '@shared/services/encryption.service';
 import { SequenceService } from '@shared/services/sequence.service';
-import { AccessScopeService } from '@shared/services/access-scope.service';
-import { CurrentUserPayload } from '@common/decorators/current-user.decorator';
 
 import { CreateMemberDto, UpdateMemberDto, QueryMemberDto } from './dto';
 
@@ -74,9 +74,12 @@ export class MembersService {
   }
 
   /** Export the filtered member list as flat rows ready for PDF/Excel/CSV generation. */
-  async exportData(gymId: string, query: QueryMemberDto) {
+  async exportData(gymId: string, query: QueryMemberDto, user?: CurrentUserPayload) {
     const { search, status, batchId, trainerId } = query;
     const where: Prisma.MemberWhereInput = { gymId, deletedAt: null };
+    if (this.accessScope?.isBranchScoped(user)) {
+      where.branchId = user!.branchId;
+    }
     if (search) {
       where.OR = [
         { firstName: { contains: search, mode: 'insensitive' } },
@@ -115,7 +118,7 @@ export class MembersService {
     }));
   }
 
-  async findOne(id: string, gymId: string, requester?: { role?: string; permissions?: string[] }) {
+  async findOne(id: string, gymId: string, requester?: CurrentUserPayload | { role?: string; permissions?: string[] }) {
     const member = await this.prisma.member.findFirst({
       where: { id, gymId, deletedAt: null },
       include: {
@@ -126,6 +129,9 @@ export class MembersService {
       },
     });
     if (!member) throw new NotFoundException('Member not found');
+    if (this.accessScope && (requester as CurrentUserPayload)?.userId) {
+      this.accessScope.assertBranchAccess(requester as CurrentUserPayload, member.branchId);
+    }
     return this.sanitizeMemberSensitiveData(member, requester);
   }
 
@@ -161,7 +167,7 @@ export class MembersService {
    * per the spec's "Owner/Staff Member 360" profile requirement. Read-only
    * aggregation; does not create or mutate anything.
    */
-  async getMember360(id: string, gymId: string, requester?: { role?: string; permissions?: string[] }) {
+  async getMember360(id: string, gymId: string, requester?: CurrentUserPayload | { role?: string; permissions?: string[] }) {
     const member = await this.prisma.member.findFirst({
       where: { id, gymId, deletedAt: null },
       include: {
@@ -174,8 +180,15 @@ export class MembersService {
       },
     });
     if (!member) throw new NotFoundException('Member not found');
+    if (this.accessScope && (requester as CurrentUserPayload)?.userId) {
+      this.accessScope.assertBranchAccess(requester as CurrentUserPayload, member.branchId);
+    }
 
-    const [attendance, payments, lastPayment, activeDietPlan, activeWorkoutPlan] = await Promise.all([
+    const now = new Date();
+    const oneWeekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+    const [attendance, payments, lastPayment, activeDietPlan, activeWorkoutPlan, totalVisits, thisWeekVisits, thisMonthVisits] = await Promise.all([
       this.prisma.attendance.findMany({
         where: { memberId: id, gymId },
         orderBy: { checkInAt: 'desc' },
@@ -211,7 +224,19 @@ export class MembersService {
             include: { days: { include: { exercises: { orderBy: { order: 'asc' } } }, orderBy: { order: 'asc' } } },
           })
         : Promise.resolve(null),
+      this.prisma.attendance.count({ where: { memberId: id, gymId } }),
+      this.prisma.attendance.count({ where: { memberId: id, gymId, checkInAt: { gte: oneWeekAgo } } }),
+      this.prisma.attendance.count({ where: { memberId: id, gymId, checkInAt: { gte: startOfMonth } } }),
     ]);
+
+    const attendanceStats = {
+      totalVisits,
+      thisWeek: thisWeekVisits,
+      thisMonth: thisMonthVisits,
+      currentStreak: member.currentStreak || 0,
+      longestStreak: member.longestStreak || 0,
+      lastCheckIn: attendance[0]?.checkInAt ?? null,
+    };
 
     const accountState = !member.userId
       ? 'NOT_LINKED'
@@ -224,6 +249,7 @@ export class MembersService {
       accountState,
       lastVisit: attendance[0]?.checkInAt ?? null,
       lastPayment: lastPayment ?? null,
+      attendanceStats,
       attendance,
       payments,
       activeDietPlan,
@@ -231,12 +257,23 @@ export class MembersService {
     };
   }
 
-  async create(gymId: string, dto: CreateMemberDto) {
+  async create(gymId: string, dto: CreateMemberDto, user?: CurrentUserPayload) {
     if (dto.mobile) {
       const duplicate = await this.prisma.member.findFirst({
         where: { gymId, mobile: dto.mobile, deletedAt: null },
       });
       if (duplicate) throw new BadRequestException('A member with this mobile number already exists');
+    }
+
+    if (this.accessScope?.isBranchScoped(user)) {
+      dto.branchId = user!.branchId;
+    }
+    if (dto.branchId) {
+      const branch = await this.prisma.branch.findFirst({ where: { id: dto.branchId, gymId, deletedAt: null } });
+      if (!branch) throw new BadRequestException('Branch not found in this gym');
+      if (this.accessScope?.isBranchScoped(user)) {
+        this.accessScope.assertBranchAccess(user, dto.branchId);
+      }
     }
 
     // Cross-tenant integrity: a batchId/trainerId from another gym must never
@@ -286,6 +323,7 @@ export class MembersService {
         medications: dto.medications ?? [],
         trainerId: dto.trainerId,
         batchId: dto.batchId,
+        branchId: dto.branchId,
         referredBy: dto.referredBy,
         referralCode,
         qrCode,
@@ -305,8 +343,16 @@ export class MembersService {
     return member;
   }
 
-  async update(id: string, gymId: string, dto: UpdateMemberDto) {
-    const existing = await this.findOne(id, gymId);
+  async update(id: string, gymId: string, dto: UpdateMemberDto, user?: CurrentUserPayload) {
+    const existing = await this.findOne(id, gymId, user);
+
+    if (dto.branchId && dto.branchId !== existing.branchId) {
+      const branch = await this.prisma.branch.findFirst({ where: { id: dto.branchId, gymId, deletedAt: null } });
+      if (!branch) throw new BadRequestException('Branch not found in this gym');
+      if (this.accessScope && user) {
+        this.accessScope.assertBranchAccess(user, dto.branchId);
+      }
+    }
 
     if (dto.batchId && dto.batchId !== existing.batchId) {
       const batch = await this.prisma.batch.findFirst({ where: { id: dto.batchId, gymId } });
@@ -351,8 +397,8 @@ export class MembersService {
   }
 
   /** Soft-deactivates a member (e.g. cancelled/left the gym) without losing history. */
-  async deactivate(id: string, gymId: string, reason?: string) {
-    await this.findOne(id, gymId);
+  async deactivate(id: string, gymId: string, reason?: string, user?: CurrentUserPayload) {
+    await this.findOne(id, gymId, user);
     const member = await this.prisma.member.update({
       where: { id },
       data: { status: UserStatus.INACTIVE },
@@ -367,8 +413,8 @@ export class MembersService {
     return member;
   }
 
-  async reactivate(id: string, gymId: string) {
-    await this.findOne(id, gymId);
+  async reactivate(id: string, gymId: string, user?: CurrentUserPayload) {
+    await this.findOne(id, gymId, user);
     const member = await this.prisma.member.update({
       where: { id },
       data: { status: UserStatus.ACTIVE },
@@ -378,8 +424,8 @@ export class MembersService {
   }
 
   /** Soft delete — keeps attendance/payment history intact for reporting/audit purposes. */
-  async remove(id: string, gymId: string) {
-    const existing = await this.findOne(id, gymId);
+  async remove(id: string, gymId: string, user?: CurrentUserPayload) {
+    const existing = await this.findOne(id, gymId, user);
     await this.prisma.member.update({
       where: { id },
       data: { deletedAt: new Date(), status: UserStatus.INACTIVE },
@@ -395,8 +441,8 @@ export class MembersService {
   }
 
   /** Regenerates the member's QR (e.g. suspected leak / lost ID card) without changing memberCode. */
-  async regenerateQr(id: string, gymId: string) {
-    await this.findOne(id, gymId);
+  async regenerateQr(id: string, gymId: string, user?: CurrentUserPayload) {
+    await this.findOne(id, gymId, user);
     const qrCodeData = this.encryption.generateQRCodeData(id, gymId);
     const qrCode = this.encryption.hash(qrCodeData);
     const member = await this.prisma.member.update({
@@ -421,8 +467,8 @@ export class MembersService {
   }
 
   /** Generates a one-time activation token for member self-claim onboarding. */
-  async generateClaimToken(id: string, gymId: string) {
-    const member = await this.findOne(id, gymId);
+  async generateClaimToken(id: string, gymId: string, user?: CurrentUserPayload) {
+    const member = await this.findOne(id, gymId, user);
     if (member.userId) {
       const user = await this.prisma.user.findUnique({ where: { id: member.userId } });
       if (user && user.status === UserStatus.ACTIVE && user.password) {
@@ -482,12 +528,15 @@ export class MembersService {
   }
 
   /** Approves a pending self-registration, optionally assigning/changing their batch, and activates their trial membership. */
-  async approveRegistration(id: string, gymId: string, batchId?: string, reviewerId?: string) {
+  async approveRegistration(id: string, gymId: string, batchId?: string, reviewerId?: string, user?: CurrentUserPayload) {
     const member = await this.prisma.member.findFirst({
       where: { id, gymId, deletedAt: null },
       include: { currentMembership: true },
     });
     if (!member) throw new NotFoundException('Member not found');
+    if (this.accessScope && user) {
+      this.accessScope.assertBranchAccess(user, member.branchId);
+    }
     if (member.status !== UserStatus.PENDING && (member as any).registrationStatus !== 'PENDING') {
       throw new BadRequestException(`Member is not in PENDING status (current: ${member.status})`);
     }
@@ -547,11 +596,14 @@ export class MembersService {
   }
 
   /** Rejects a pending self-registration, marking the profile INACTIVE and cancelling any pending membership. */
-  async rejectRegistration(id: string, gymId: string, reason?: string, reviewerId?: string) {
+  async rejectRegistration(id: string, gymId: string, reason?: string, reviewerId?: string, user?: CurrentUserPayload) {
     const member = await this.prisma.member.findFirst({
       where: { id, gymId, deletedAt: null },
     });
     if (!member) throw new NotFoundException('Member not found');
+    if (this.accessScope && user) {
+      this.accessScope.assertBranchAccess(user, member.branchId);
+    }
     if (member.status !== UserStatus.PENDING && (member as any).registrationStatus !== 'PENDING') {
       throw new BadRequestException(`Member is not in PENDING status (current: ${member.status})`);
     }
@@ -587,11 +639,14 @@ export class MembersService {
   }
 
   /** Assigns or updates a member's batch. */
-  async assignBatch(id: string, gymId: string, batchId: string, reviewerId?: string) {
+  async assignBatch(id: string, gymId: string, batchId: string, reviewerId?: string, user?: CurrentUserPayload) {
     const member = await this.prisma.member.findFirst({
       where: { id, gymId, deletedAt: null },
     });
     if (!member) throw new NotFoundException('Member not found');
+    if (this.accessScope && user) {
+      this.accessScope.assertBranchAccess(user, member.branchId);
+    }
 
     return this.prisma.$transaction(async (tx) => {
       const batch = await tx.batch.findFirst({

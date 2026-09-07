@@ -138,7 +138,7 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     redis.on('error', (err) => {
       this.isRedisUp = false;
       if (!outageReported) {
-        this.logger.warn(`Redis ${label} unavailable: ${(err as Error).message}`);
+        this.logger.warn(`Redis ${label} unavailable: ${(err).message}`);
         outageReported = true;
       }
     });

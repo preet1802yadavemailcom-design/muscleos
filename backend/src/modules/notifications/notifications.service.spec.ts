@@ -1,16 +1,17 @@
-import { BadRequestException, NotFoundException } from '@nestjs/common';
-import { Test } from '@nestjs/testing';
 import { PrismaService } from '@database/prisma.service';
 import { RedisService } from '@database/redis.service';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { Test } from '@nestjs/testing';
+import { NotificationChannel, NotificationType } from '@prisma/client';
 import { AuditService } from '@shared/services/audit.service';
 import { LoggerService } from '@shared/services/logger.service';
+
+import { AnnouncementTargetType } from './dto/send-notification.dto';
 import { NotificationsService } from './notifications.service';
 import { EmailProvider } from './providers/email.provider';
 import { PushProvider } from './providers/push.provider';
 import { SmsProvider } from './providers/sms.provider';
 import { WhatsappProvider } from './providers/whatsapp.provider';
-import { AnnouncementTargetType } from './dto/send-notification.dto';
-import { NotificationChannel, NotificationType } from '@prisma/client';
 
 describe('NotificationsService', () => {
   let service: NotificationsService;

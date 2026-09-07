@@ -4,10 +4,10 @@ import { GymOwnerGuard } from '@common/guards/gym-owner.guard';
 import { JwtAuthGuard } from '@common/guards/jwt-auth.guard';
 import { PermissionsGuard } from '@common/guards/permissions.guard';
 import { RolesGuard } from '@common/guards/roles.guard';
+import { IdempotencyInterceptor } from '@common/interceptors/idempotency.interceptor';
 import { Controller, Get, Post, Body, Param, Query, UseGuards, UseInterceptors, ParseIntPipe, DefaultValuePipe } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiQuery } from '@nestjs/swagger';
 import { UserRole, NotificationStatus, NotificationType } from '@prisma/client';
-import { IdempotencyInterceptor } from '@common/interceptors/idempotency.interceptor';
 
 import { SendNotificationDto, CreateAnnouncementDto, UpsertTemplateDto } from './dto/send-notification.dto';
 import { NotificationsService } from './notifications.service';
@@ -70,6 +70,13 @@ export class NotificationsController {
   @ApiOperation({ summary: 'Send a single notification (template-based or raw)' })
   async send(@Body() dto: SendNotificationDto, @GymId() gymId: string) {
     return this.service.send(gymId, dto);
+  }
+
+  @Post('test-email')
+  @Roles(UserRole.GYM_OWNER, UserRole.SUPER_ADMIN)
+  @ApiOperation({ summary: 'Send a test email to verify mail delivery configuration' })
+  async testEmail(@Body('email') email: string, @GymId() gymId: string) {
+    return this.service.sendTestEmail(gymId, email);
   }
 
   @Post('announcements')

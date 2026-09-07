@@ -1,6 +1,6 @@
+import { CurrentUser, CurrentUserPayload } from '@common/decorators/current-user.decorator';
 import { GymId } from '@common/decorators/gym-id.decorator';
 import { Permissions } from '@common/decorators/permissions.decorator';
-import { CurrentUser, CurrentUserPayload } from '@common/decorators/current-user.decorator';
 import { GymOwnerGuard } from '@common/guards/gym-owner.guard';
 import { JwtAuthGuard } from '@common/guards/jwt-auth.guard';
 import { PermissionsGuard } from '@common/guards/permissions.guard';

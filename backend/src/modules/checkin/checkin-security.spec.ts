@@ -1,16 +1,17 @@
+import { PrismaService } from '@database/prisma.service';
+import { RedisService } from '@database/redis.service';
+import { AttendanceCoreService } from '@modules/attendance/attendance-core.service';
+import { NotificationsService } from '@modules/notifications/notifications.service';
+import { QrService } from '@modules/qr/qr.service';
 import { BadRequestException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Test } from '@nestjs/testing';
-import { PrismaService } from '@database/prisma.service';
-import { RedisService } from '@database/redis.service';
 import { AuditService } from '@shared/services/audit.service';
 import { EncryptionService } from '@shared/services/encryption.service';
 import { LoggerService } from '@shared/services/logger.service';
 import { SequenceService } from '@shared/services/sequence.service';
-import { AttendanceCoreService } from '@modules/attendance/attendance-core.service';
-import { QrService } from '@modules/qr/qr.service';
-import { NotificationsService } from '@modules/notifications/notifications.service';
+
 import { CheckinService } from './checkin.service';
 
 describe('CheckinService - Security', () => {

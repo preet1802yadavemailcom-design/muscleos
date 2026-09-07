@@ -1,8 +1,9 @@
+import { PrismaService } from '@database/prisma.service';
+import { RedisService } from '@database/redis.service';
 import { UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Test } from '@nestjs/testing';
-import { PrismaService } from '@database/prisma.service';
-import { RedisService } from '@database/redis.service';
+
 import { JwtStrategy } from './strategies/jwt.strategy';
 
 describe('JwtStrategy — Token Revocation Gate', () => {

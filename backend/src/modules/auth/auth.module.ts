@@ -1,20 +1,22 @@
+import { TwoFactorSetupGuard } from '@common/guards/two-factor-setup.guard';
+import { NotificationsModule } from '@modules/notifications/notifications.module';
 import { UsersModule } from '@modules/users/users.module';
 import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 
-import { NotificationsModule } from '@modules/notifications/notifications.module';
 
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
-import { TwoFactorService } from './two-factor.service';
-import { StepUpService } from './step-up.service';
 import { StepUpGuard } from './guards/step-up.guard';
-import { TwoFactorSetupGuard } from '@common/guards/two-factor-setup.guard';
+import { StepUpService } from './step-up.service';
+import { GoogleStrategy } from './strategies/google.strategy';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { LocalStrategy } from './strategies/local.strategy';
-import { GoogleStrategy } from './strategies/google.strategy';
+import { TwoFactorService } from './two-factor.service';
+
+
 
 @Module({
   imports: [

@@ -1,6 +1,6 @@
+import { CurrentUserPayload } from '@common/decorators/current-user.decorator';
 import { CanActivate, ExecutionContext, Injectable, UnauthorizedException } from '@nestjs/common';
 import { Request } from 'express';
-import { CurrentUserPayload } from '@common/decorators/current-user.decorator';
 
 import { StepUpService } from '../step-up.service';
 

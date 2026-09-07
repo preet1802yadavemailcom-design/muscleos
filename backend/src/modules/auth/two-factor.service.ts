@@ -1,11 +1,11 @@
 import { randomBytes } from 'crypto';
 
+import { PrismaService } from '@database/prisma.service';
 import { Injectable, BadRequestException, UnauthorizedException } from '@nestjs/common';
+import { AuditService } from '@shared/services/audit.service';
+import * as bcrypt from 'bcryptjs';
 import { authenticator } from 'otplib';
 import * as qrcode from 'qrcode';
-import * as bcrypt from 'bcryptjs';
-import { PrismaService } from '@database/prisma.service';
-import { AuditService } from '@shared/services/audit.service';
 
 const RECOVERY_CODE_COUNT = 10;
 

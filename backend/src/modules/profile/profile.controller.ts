@@ -1,14 +1,14 @@
-import { Body, Controller, Get, Patch, Post, Delete, UseGuards } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { CurrentUser } from '@common/decorators/current-user.decorator';
+import { Permissions } from '@common/decorators/permissions.decorator';
 import { JwtAuthGuard } from '@common/guards/jwt-auth.guard';
 import { PermissionsGuard } from '@common/guards/permissions.guard';
-import { Permissions } from '@common/decorators/permissions.decorator';
-import { CurrentUser } from '@common/decorators/current-user.decorator';
+import { Body, Controller, Get, Patch, Post, Delete, UseGuards } from '@nestjs/common';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 
-import { ProfileService } from './profile.service';
-import { UpdateMyProfileDto } from './dto/update-my-profile.dto';
 import { LinkMemberDto } from './dto/link-member.dto';
 import { RegisterPushTokenDto } from './dto/register-push-token.dto';
+import { UpdateMyProfileDto } from './dto/update-my-profile.dto';
+import { ProfileService } from './profile.service';
 
 /** Deliberately NOT gated by GymOwnerGuard/@Roles — every authenticated
  *  role (including MEMBER) has profile:read/profile:update per

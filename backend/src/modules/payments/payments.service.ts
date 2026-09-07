@@ -1,22 +1,23 @@
+import { CurrentUserPayload } from '@common/decorators/current-user.decorator';
 import { PrismaService } from '@database/prisma.service';
 import { RedisService } from '@database/redis.service';
+import { NotificationsService } from '@modules/notifications/notifications.service';
 import { BadRequestException, Injectable, NotFoundException, ForbiddenException, ConflictException, Optional } from '@nestjs/common';
 import { PaymentGateway, PaymentMethod, PaymentStatus, Prisma } from '@prisma/client';
+import { AccessScopeService } from '@shared/services/access-scope.service';
 import { AuditService } from '@shared/services/audit.service';
 import { LoggerService } from '@shared/services/logger.service';
 import { SequenceService } from '@shared/services/sequence.service';
-import { AccessScopeService } from '@shared/services/access-scope.service';
-import { CurrentUserPayload } from '@common/decorators/current-user.decorator';
 
-import { CreatePaymentDto } from './dto/create-payment.dto';
 import { AllocateMonthsDto } from './dto/allocate-months.dto';
+import { CreatePaymentDto } from './dto/create-payment.dto';
 import { QueryPaymentDto } from './dto/query-payment.dto';
 import { RefundPaymentDto } from './dto/refund-payment.dto';
 import { VerifyRazorpayPaymentDto } from './dto/verify-payment.dto';
 import { RazorpayGateway } from './gateways/razorpay.gateway';
 import { StripeGateway } from './gateways/stripe.gateway';
 import { InvoiceGenerator } from './invoice.generator';
-import { NotificationsService } from '@modules/notifications/notifications.service';
+
 
 @Injectable()
 export class PaymentsService {
@@ -318,8 +319,32 @@ export class PaymentsService {
   }
 
   /** Step 1: create a pending payment record + gateway order for online payments. */
-  async initiate(dto: CreatePaymentDto, gymId: string, collectedById: string) {
+  async initiate(dto: CreatePaymentDto, gymId: string, collectedById: string, user?: CurrentUserPayload) {
     this.assertGatewayMethodCompatible(dto.gateway, dto.method);
+
+    if (dto.memberId) {
+      const member = await this.prisma.member.findFirst({
+        where: { id: dto.memberId, gymId, deletedAt: null },
+      });
+      if (!member) {
+        throw new NotFoundException('Member not found in this gym');
+      }
+      if (this.accessScope && user) {
+        this.accessScope.assertBranchAccess(user, member.branchId);
+      }
+    }
+
+    if (dto.membershipId) {
+      const membership = await this.prisma.membership.findFirst({
+        where: { id: dto.membershipId, gymId },
+      });
+      if (!membership) {
+        throw new NotFoundException('Membership not found in this gym');
+      }
+      if (dto.memberId && membership.memberId !== dto.memberId) {
+        throw new BadRequestException('Membership does not belong to the specified member');
+      }
+    }
 
     // UTR-bearing gateways (currently only UPI here) can never be marked
     // complete on the strength of a client-supplied UTR alone — see
@@ -391,6 +416,9 @@ export class PaymentsService {
     }
     if (payment.status === PaymentStatus.COMPLETED) {
       return this.prisma.payment.findFirst({ where: { id: payment.id } });
+    }
+    if (payment.status === PaymentStatus.CANCELLED || payment.status === PaymentStatus.REFUNDED) {
+      throw new BadRequestException(`Cannot complete a payment with status ${payment.status}`);
     }
     if (payment.gatewayOrderId && dto.razorpayOrderId !== payment.gatewayOrderId) {
       throw new BadRequestException('Order ID mismatch — this signature does not belong to this payment.');
@@ -494,6 +522,9 @@ export class PaymentsService {
       return null;
     }
     if (payment.status === PaymentStatus.COMPLETED) return payment;
+    if (payment.status === PaymentStatus.CANCELLED || payment.status === PaymentStatus.REFUNDED) {
+      throw new BadRequestException(`Cannot complete a payment with status ${payment.status}`);
+    }
 
     if (expectedAmountPaise !== undefined) {
       const localPaise = Math.round(Number(payment.total) * 100);

@@ -1,6 +1,5 @@
 import { CurrentUser, CurrentUserPayload } from '@common/decorators/current-user.decorator';
 import { GymId } from '@common/decorators/gym-id.decorator';
-import { AllocateMonthsDto } from './dto/allocate-months.dto';
 import { Permissions } from '@common/decorators/permissions.decorator';
 import { Public } from '@common/decorators/public.decorator';
 import { Roles } from '@common/decorators/roles.decorator';
@@ -8,6 +7,7 @@ import { GymOwnerGuard } from '@common/guards/gym-owner.guard';
 import { JwtAuthGuard } from '@common/guards/jwt-auth.guard';
 import { PermissionsGuard } from '@common/guards/permissions.guard';
 import { RolesGuard } from '@common/guards/roles.guard';
+import { IdempotencyInterceptor } from '@common/interceptors/idempotency.interceptor';
 import {
   Controller,
   Get,
@@ -24,9 +24,10 @@ import {
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiExcludeEndpoint } from '@nestjs/swagger';
 import { UserRole, PaymentGateway, PaymentMethod } from '@prisma/client';
+import { LoggerService } from '@shared/services/logger.service';
 import { Request, Response } from 'express';
-import { IdempotencyInterceptor } from '@common/interceptors/idempotency.interceptor';
 
+import { AllocateMonthsDto } from './dto/allocate-months.dto';
 import { CreatePaymentDto } from './dto/create-payment.dto';
 import { QueryPaymentDto } from './dto/query-payment.dto';
 import { RefundPaymentDto } from './dto/refund-payment.dto';
@@ -34,7 +35,6 @@ import { VerifyRazorpayPaymentDto } from './dto/verify-payment.dto';
 import { RazorpayGateway } from './gateways/razorpay.gateway';
 import { StripeGateway } from './gateways/stripe.gateway';
 import { PaymentsService } from './payments.service';
-import { LoggerService } from '@shared/services/logger.service';
 
 @ApiTags('Payments')
 @UseInterceptors(IdempotencyInterceptor)
@@ -168,8 +168,8 @@ export class PaymentsController {
   @ApiBearerAuth('access-token')
   @Roles(UserRole.GYM_OWNER, UserRole.SUPER_ADMIN, UserRole.RECEPTIONIST)
   @ApiOperation({ summary: 'Initiate a payment (cash is completed instantly, online creates a gateway order)' })
-  async initiate(@Body() dto: CreatePaymentDto, @GymId() gymId: string, @CurrentUser('userId') userId: string) {
-    return this.service.initiate(dto, gymId, userId);
+  async initiate(@Body() dto: CreatePaymentDto, @GymId() gymId: string, @CurrentUser() user: CurrentUserPayload) {
+    return this.service.initiate(dto, gymId, user?.userId, user);
   }
 
   @Post('razorpay/verify')

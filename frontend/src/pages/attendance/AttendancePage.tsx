@@ -4,11 +4,19 @@ import { QRCodeCanvas } from 'qrcode.react';
 import {
   QrCode, XCircle, Camera, CameraOff, LogIn, LogOut, ArrowRight,
   AlertTriangle, ChevronLeft, ChevronRight, Users, Printer, RefreshCw, Plus,
+  UserCheck, Search, Calendar, RotateCcw,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
 import { useAuthStore } from '@store/auth.store';
 import { printQrCode } from '@/lib/qr-print';
@@ -58,6 +66,34 @@ export function AttendancePage() {
   const [cameraError, setCameraError] = useState('');
   const [historyPage, setHistoryPage] = useState(1);
   const [now, setNow] = useState(() => new Date());
+
+  // Manual Check-in state
+  const [manualModalOpen, setManualModalOpen] = useState(false);
+  const [manualSearch, setManualSearch] = useState('');
+  const [debouncedManualSearch, setDebouncedManualSearch] = useState('');
+
+  // History Filter state
+  const [filterPeriod, setFilterPeriod] = useState<'ALL' | 'DAY' | 'WEEK' | 'CUSTOM'>('ALL');
+  const [filterDate, setFilterDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [filterCustomFrom, setFilterCustomFrom] = useState('');
+  const [filterCustomTo, setFilterCustomTo] = useState('');
+  const [filterBatchId, setFilterBatchId] = useState('ALL');
+  const [filterTimeSlot, setFilterTimeSlot] = useState<'ALL' | 'MORNING' | 'LATE_MORNING' | 'EVENING' | 'NIGHT'>('ALL');
+  const [filterSearch, setFilterSearch] = useState('');
+  const [debouncedFilterSearch, setDebouncedFilterSearch] = useState('');
+
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedManualSearch(manualSearch.trim()), 300);
+    return () => clearTimeout(t);
+  }, [manualSearch]);
+
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setDebouncedFilterSearch(filterSearch.trim());
+      setHistoryPage(1);
+    }, 300);
+    return () => clearTimeout(t);
+  }, [filterSearch]);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -125,10 +161,96 @@ export function AttendancePage() {
     refetchInterval: 10000,
   });
 
-  // Staff: full attendance history.
+  // Staff: batches query for batch-wise filtering
+  const batchesQuery = useQuery({
+    queryKey: ['attendance-batches-list'],
+    queryFn: () => api.get('/batches'),
+    enabled: isStaff,
+  });
+  const batchesList: any[] = (batchesQuery.data as any)?.data?.data ?? (batchesQuery.data as any)?.data ?? [];
+
+  // Staff: member search query for manual check-in dialog
+  const memberSearchQuery = useQuery({
+    queryKey: ['members-for-manual-checkin', debouncedManualSearch],
+    queryFn: () => api.get(`/members?search=${encodeURIComponent(debouncedManualSearch)}&limit=10`),
+    enabled: isStaff && manualModalOpen && debouncedManualSearch.length > 0,
+  });
+  const memberResults: any[] = (memberSearchQuery.data as any)?.data?.data ?? (memberSearchQuery.data as any)?.data ?? [];
+
+  // Staff: manual check-in / check-out mutation
+  const manualCheckInMutation = useMutation({
+    mutationFn: (memberId: string) => api.post('/attendance/manual', { memberId }),
+    onSuccess: (res: any) => {
+      const data = res.data;
+      queryClient.invalidateQueries({ queryKey: ['attendance-live'] });
+      queryClient.invalidateQueries({ queryKey: ['attendance-history'] });
+      queryClient.invalidateQueries({ queryKey: ['attendance-my-history'] });
+      toast({
+        title: data?.type === 'CHECK_OUT' ? 'Checked Out' : 'Checked In',
+        description: data?.member ? `${data.member.firstName} ${data.member.lastName}` : 'Attendance recorded',
+      });
+      setManualModalOpen(false);
+      setManualSearch('');
+    },
+    onError: (err: any) => {
+      toast({
+        title: 'Manual action failed',
+        description: err.response?.data?.message || 'Could not record attendance',
+        variant: 'destructive',
+      });
+    },
+  });
+
+  // Staff: full attendance history with comprehensive filters
   const history = useQuery({
-    queryKey: ['attendance-history', historyPage],
-    queryFn: () => api.get(`/attendance?page=${historyPage}&limit=${HISTORY_PAGE_SIZE}`),
+    queryKey: [
+      'attendance-history',
+      historyPage,
+      filterPeriod,
+      filterDate,
+      filterCustomFrom,
+      filterCustomTo,
+      filterBatchId,
+      filterTimeSlot,
+      debouncedFilterSearch,
+    ],
+    queryFn: () => {
+      const params = new URLSearchParams();
+      params.append('page', String(historyPage));
+      params.append('limit', String(HISTORY_PAGE_SIZE));
+      if (debouncedFilterSearch) params.append('search', debouncedFilterSearch);
+      if (filterBatchId && filterBatchId !== 'ALL') params.append('batchId', filterBatchId);
+      if (filterPeriod === 'DAY' && filterDate) {
+        params.append('fromDate', filterDate);
+        params.append('toDate', filterDate);
+      } else if (filterPeriod === 'WEEK' && filterDate) {
+        const d = new Date(filterDate);
+        const day = d.getDay();
+        const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+        const mon = new Date(d.setDate(diff));
+        const sun = new Date(mon);
+        sun.setDate(mon.getDate() + 6);
+        params.append('fromDate', mon.toISOString().slice(0, 10));
+        params.append('toDate', sun.toISOString().slice(0, 10));
+      } else if (filterPeriod === 'CUSTOM') {
+        if (filterCustomFrom) params.append('fromDate', filterCustomFrom);
+        if (filterCustomTo) params.append('toDate', filterCustomTo);
+      }
+      if (filterTimeSlot === 'MORNING') {
+        params.append('timeFrom', '06:00');
+        params.append('timeTo', '09:00');
+      } else if (filterTimeSlot === 'LATE_MORNING') {
+        params.append('timeFrom', '09:00');
+        params.append('timeTo', '12:00');
+      } else if (filterTimeSlot === 'EVENING') {
+        params.append('timeFrom', '16:00');
+        params.append('timeTo', '19:00');
+      } else if (filterTimeSlot === 'NIGHT') {
+        params.append('timeFrom', '19:00');
+        params.append('timeTo', '22:00');
+      }
+      return api.get(`/attendance?${params.toString()}`);
+    },
     enabled: isStaff,
   });
 
@@ -303,13 +425,27 @@ export function AttendancePage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-3xl font-bold tracking-tight">Attendance</h2>
-        <p className="text-muted-foreground">
-          {isStaff
-            ? 'Display this QR at the entrance — members scan it to check in'
-            : 'Scan the gym QR at the entrance to check in / out'}
-        </p>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <h2 className="text-3xl font-bold tracking-tight">Attendance</h2>
+          <p className="text-muted-foreground">
+            {isStaff
+              ? 'Display this QR at the entrance, track live attendance, or record manual check-ins'
+              : 'Scan the gym QR at the entrance to check in / out'}
+          </p>
+        </div>
+        {isStaff && (
+          <Button
+            onClick={() => {
+              setManualModalOpen(true);
+              setManualSearch('');
+            }}
+            className="flex items-center gap-2"
+          >
+            <UserCheck className="h-4 w-4" />
+            Manual Check-in
+          </Button>
+        )}
       </div>
 
       {isStaff ? (
@@ -428,14 +564,171 @@ export function AttendancePage() {
           </Card>
 
           <Card>
-            <CardHeader>
-              <CardTitle>Attendance History</CardTitle>
+            <CardHeader className="space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                <CardTitle className="flex items-center gap-2">
+                  <Calendar className="h-5 w-5" />
+                  Attendance History
+                </CardTitle>
+                <span className="text-xs text-muted-foreground">
+                  Total: <strong className="text-foreground">{historyMeta.total}</strong> records (Page {historyMeta.page || historyPage} of {historyMeta.totalPages || 1})
+                </span>
+              </div>
+
+              {/* Comprehensive Filter Toolbar */}
+              <div className="grid gap-3 pt-1 border-t">
+                <div className="flex flex-wrap items-center gap-2">
+                  {/* Period Mode Selector */}
+                  <div className="inline-flex rounded-md border bg-muted p-0.5 text-xs">
+                    {(['ALL', 'DAY', 'WEEK', 'CUSTOM'] as const).map((mode) => (
+                      <button
+                        key={mode}
+                        type="button"
+                        onClick={() => {
+                          setFilterPeriod(mode);
+                          setHistoryPage(1);
+                        }}
+                        className={`rounded px-2.5 py-1 font-medium transition-all ${
+                          filterPeriod === mode
+                            ? 'bg-background text-foreground shadow-sm'
+                            : 'text-muted-foreground hover:text-foreground'
+                        }`}
+                      >
+                        {mode === 'ALL' ? 'All Time' : mode === 'DAY' ? 'Day-wise' : mode === 'WEEK' ? 'Week-wise' : 'Custom Range'}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Period-specific date pickers */}
+                  {filterPeriod === 'DAY' && (
+                    <div className="flex items-center gap-1.5">
+                      <Calendar className="h-4 w-4 text-muted-foreground" />
+                      <Input
+                        type="date"
+                        value={filterDate}
+                        onChange={(e) => {
+                          setFilterDate(e.target.value);
+                          setHistoryPage(1);
+                        }}
+                        className="h-8 w-36 text-xs"
+                      />
+                    </div>
+                  )}
+
+                  {filterPeriod === 'WEEK' && (
+                    <div className="flex items-center gap-1.5">
+                      <Calendar className="h-4 w-4 text-muted-foreground" />
+                      <Input
+                        type="date"
+                        value={filterDate}
+                        onChange={(e) => {
+                          setFilterDate(e.target.value);
+                          setHistoryPage(1);
+                        }}
+                        className="h-8 w-36 text-xs"
+                      />
+                      <span className="text-xs text-muted-foreground">(Week containing date)</span>
+                    </div>
+                  )}
+
+                  {filterPeriod === 'CUSTOM' && (
+                    <div className="flex items-center gap-2">
+                      <Input
+                        type="date"
+                        placeholder="From Date"
+                        value={filterCustomFrom}
+                        onChange={(e) => {
+                          setFilterCustomFrom(e.target.value);
+                          setHistoryPage(1);
+                        }}
+                        className="h-8 w-36 text-xs"
+                      />
+                      <span className="text-xs text-muted-foreground">to</span>
+                      <Input
+                        type="date"
+                        placeholder="To Date"
+                        value={filterCustomTo}
+                        onChange={(e) => {
+                          setFilterCustomTo(e.target.value);
+                          setHistoryPage(1);
+                        }}
+                        className="h-8 w-36 text-xs"
+                      />
+                    </div>
+                  )}
+                </div>
+
+                <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                  {/* Search member */}
+                  <div className="relative">
+                    <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
+                    <Input
+                      placeholder="Search member name, code, phone..."
+                      value={filterSearch}
+                      onChange={(e) => setFilterSearch(e.target.value)}
+                      className="h-8 pl-8 text-xs"
+                    />
+                  </div>
+
+                  {/* Batch filter */}
+                  <select
+                    value={filterBatchId}
+                    onChange={(e) => {
+                      setFilterBatchId(e.target.value);
+                      setHistoryPage(1);
+                    }}
+                    className="h-8 rounded-md border border-input bg-background px-2.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+                  >
+                    <option value="ALL">All Batches</option>
+                    {batchesList.map((b: any) => (
+                      <option key={b.id} value={b.id}>{b.name}</option>
+                    ))}
+                  </select>
+
+                  {/* Time slot filter */}
+                  <select
+                    value={filterTimeSlot}
+                    onChange={(e) => {
+                      setFilterTimeSlot(e.target.value as any);
+                      setHistoryPage(1);
+                    }}
+                    className="h-8 rounded-md border border-input bg-background px-2.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+                  >
+                    <option value="ALL">All Day Timings</option>
+                    <option value="MORNING">Morning (06:00 - 09:00)</option>
+                    <option value="LATE_MORNING">Late Morning (09:00 - 12:00)</option>
+                    <option value="EVENING">Evening (16:00 - 19:00)</option>
+                    <option value="NIGHT">Night (19:00 - 22:00)</option>
+                  </select>
+
+                  {/* Reset Filters */}
+                  {(filterPeriod !== 'ALL' || filterBatchId !== 'ALL' || filterTimeSlot !== 'ALL' || filterSearch) && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 text-xs flex items-center gap-1.5"
+                      onClick={() => {
+                        setFilterPeriod('ALL');
+                        setFilterBatchId('ALL');
+                        setFilterTimeSlot('ALL');
+                        setFilterSearch('');
+                        setFilterCustomFrom('');
+                        setFilterCustomTo('');
+                        setHistoryPage(1);
+                      }}
+                    >
+                      <RotateCcw className="h-3 w-3" />
+                      Reset Filters
+                    </Button>
+                  )}
+                </div>
+              </div>
             </CardHeader>
             <CardContent>
               {history.isLoading ? (
-                <div className="py-8 text-center text-muted-foreground">Loading...</div>
+                <div className="py-8 text-center text-muted-foreground">Loading attendance history...</div>
               ) : historyRecords.length === 0 ? (
-                <div className="py-8 text-center text-muted-foreground">No attendance records yet</div>
+                <div className="py-8 text-center text-muted-foreground">No attendance records found matching filters</div>
               ) : (
                 <div className="rounded-md border">
                   <div className="overflow-x-auto">
@@ -443,22 +736,31 @@ export function AttendancePage() {
                     <thead>
                       <tr className="border-b bg-muted/50">
                         <th className="h-12 px-4 text-left font-medium">Member</th>
+                        <th className="h-12 px-4 text-left font-medium">Batch</th>
                         <th className="h-12 px-4 text-left font-medium">Check-in</th>
                         <th className="h-12 px-4 text-left font-medium">Check-out</th>
                         <th className="h-12 px-4 text-left font-medium">Duration</th>
+                        <th className="h-12 px-4 text-left font-medium">Source</th>
                         <th className="h-12 px-4 text-left font-medium">Status</th>
                       </tr>
                     </thead>
                     <tbody>
                       {historyRecords.map((a: any) => (
-                        <tr key={a.id} className="border-b last:border-0">
+                        <tr key={a.id} className="border-b last:border-0 hover:bg-muted/30 transition-colors">
                           <td className="p-4">
                             <div className="flex items-center gap-2">
-                              {a.member ? `${a.member.firstName} ${a.member.lastName}` : '—'}
+                              <span className="font-medium">
+                                {a.member ? `${a.member.firstName} ${a.member.lastName}` : '—'}
+                              </span>
                               {a.member?.memberCode && (
-                                <span className="text-xs text-muted-foreground">{a.member.memberCode}</span>
+                                <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+                                  {a.member.memberCode}
+                                </span>
                               )}
                             </div>
+                          </td>
+                          <td className="p-4 text-muted-foreground text-xs">
+                            {a.batch?.name ?? a.member?.batch?.name ?? '—'}
                           </td>
                           <td className="p-4 text-muted-foreground">
                             {new Date(a.checkInAt).toLocaleString()}
@@ -468,6 +770,11 @@ export function AttendancePage() {
                           </td>
                           <td className="p-4 text-muted-foreground">
                             {a.duration != null ? `${a.duration} min` : '—'}
+                          </td>
+                          <td className="p-4">
+                            <span className="rounded bg-muted/60 px-1.5 py-0.5 text-xs text-muted-foreground">
+                              {a.source || 'QR'}
+                            </span>
                           </td>
                           <td className="p-4">
                             <Badge
@@ -489,7 +796,7 @@ export function AttendancePage() {
               {historyMeta.totalPages > 1 && (
                 <div className="flex items-center justify-between pt-4">
                   <p className="text-sm text-muted-foreground">
-                    Page {historyMeta.page} of {historyMeta.totalPages} &middot; {historyMeta.total} records
+                    Page {historyMeta.page || historyPage} of {historyMeta.totalPages} &middot; {historyMeta.total} records
                   </p>
                   <div className="flex gap-2">
                     <Button
@@ -777,6 +1084,82 @@ export function AttendancePage() {
           </Card>
         </>
       )}
+
+      {/* Manual Check-in Modal */}
+      <Dialog open={manualModalOpen} onOpenChange={setManualModalOpen}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <UserCheck className="h-5 w-5 text-primary" />
+              Manual Check-in / Check-out
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="relative">
+              <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search member by name, phone, or code..."
+                className="pl-9"
+                value={manualSearch}
+                onChange={(e) => setManualSearch(e.target.value)}
+                autoFocus
+              />
+            </div>
+
+            <div className="max-h-72 overflow-y-auto space-y-2">
+              {manualSearch.trim().length === 0 ? (
+                <p className="py-6 text-center text-sm text-muted-foreground">
+                  Type member name, phone number, or member code to search.
+                </p>
+              ) : memberSearchQuery.isLoading ? (
+                <p className="py-6 text-center text-sm text-muted-foreground">Searching members...</p>
+              ) : memberResults.length === 0 ? (
+                <p className="py-6 text-center text-sm text-muted-foreground">No members found.</p>
+              ) : (
+                memberResults.map((m: any) => {
+                  const memberName = `${m.firstName || ''} ${m.lastName || ''}`.trim() || m.name || 'Member';
+                  return (
+                    <div
+                      key={m.id}
+                      className="flex items-center justify-between p-3 rounded-lg border hover:bg-muted/40 transition-colors"
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        {m.photo ? (
+                          <img src={m.photo} alt={memberName} className="h-10 w-10 rounded-full object-cover" />
+                        ) : (
+                          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-primary font-semibold text-sm">
+                            {initials(memberName)}
+                          </div>
+                        )}
+                        <div className="min-w-0">
+                          <p className="font-medium truncate text-sm">{memberName}</p>
+                          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                            {m.memberCode && <span className="font-mono bg-muted px-1 rounded">{m.memberCode}</span>}
+                            {m.phone && <span>{m.phone}</span>}
+                            {m.batch?.name && <span>• {m.batch.name}</span>}
+                          </div>
+                        </div>
+                      </div>
+                      <Button
+                        size="sm"
+                        disabled={manualCheckInMutation.isPending}
+                        onClick={() => manualCheckInMutation.mutate(m.id)}
+                      >
+                        Check In / Out
+                      </Button>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setManualModalOpen(false)}>
+              Cancel
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

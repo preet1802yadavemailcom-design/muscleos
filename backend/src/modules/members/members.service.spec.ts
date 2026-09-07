@@ -4,9 +4,9 @@ import { Test } from '@nestjs/testing';
 import { UserStatus } from '@prisma/client';
 import { AuditService } from '@shared/services/audit.service';
 import { EncryptionService } from '@shared/services/encryption.service';
+import { SequenceService } from '@shared/services/sequence.service';
 
 import { MembersService } from './members.service';
-import { SequenceService } from '@shared/services/sequence.service';
 
 
 describe('MembersService', () => {

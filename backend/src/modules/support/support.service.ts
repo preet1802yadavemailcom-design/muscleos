@@ -1,9 +1,12 @@
-import { Injectable, BadRequestException, ForbiddenException, ConflictException, Optional } from '@nestjs/common';
-import { PrismaService } from '@database/prisma.service';
-import { AuditService } from '@shared/services/audit.service';
-import { RedisService } from '@database/redis.service';
-import { EmailProvider } from '../notifications/providers/email.provider';
 import { randomUUID } from 'crypto';
+
+import { PrismaService } from '@database/prisma.service';
+import { RedisService } from '@database/redis.service';
+import { Injectable, BadRequestException, ForbiddenException, ConflictException, Optional } from '@nestjs/common';
+import { AuditService } from '@shared/services/audit.service';
+
+import { EmailProvider } from '../notifications/providers/email.provider';
+
 
 import { CreateSupportTicketDto } from './dto/create-ticket.dto';
 

@@ -1,13 +1,12 @@
-﻿import { Test } from '@nestjs/testing';
-import { JwtService } from '@nestjs/jwt';
+﻿import { PrismaService } from '@database/prisma.service';
 import { ConfigService } from '@nestjs/config';
-
-import { PrismaService } from '@database/prisma.service';
+import { JwtService } from '@nestjs/jwt';
+import { Test } from '@nestjs/testing';
 
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
-import { TwoFactorService } from './two-factor.service';
 import { StepUpService } from './step-up.service';
+import { TwoFactorService } from './two-factor.service';
 
 describe('AuthController', () => {
   let controller: AuthController;

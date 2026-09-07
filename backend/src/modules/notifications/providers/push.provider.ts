@@ -1,6 +1,6 @@
+import { PrismaService } from '@database/prisma.service';
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { PrismaService } from '@database/prisma.service';
 import { LoggerService } from '@shared/services/logger.service';
 import * as jwt from 'jsonwebtoken';
 

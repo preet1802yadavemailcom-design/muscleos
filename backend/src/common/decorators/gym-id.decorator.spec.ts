@@ -1,6 +1,7 @@
 import { BadRequestException, ExecutionContext, ForbiddenException } from '@nestjs/common';
 import { ROUTE_ARGS_METADATA } from '@nestjs/common/constants';
 import { UserRole } from '@prisma/client';
+
 import { GymId } from './gym-id.decorator';
 
 function getParamDecoratorFactory(decorator: Function) {

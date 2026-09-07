@@ -1,5 +1,5 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '@database/prisma.service';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { AuditService } from '@shared/services/audit.service';
 
 import { CreateBranchDto, UpdateBranchDto } from './dto';

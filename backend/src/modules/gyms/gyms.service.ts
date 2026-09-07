@@ -1,3 +1,4 @@
+import { getGymStartOfDay, getGymStartOfMonth } from '@common/utils/timezone.util';
 import { PrismaService } from '@database/prisma.service';
 import { AuthService } from '@modules/auth/auth.service';
 import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
@@ -6,7 +7,6 @@ import { AuditService } from '@shared/services/audit.service';
 import * as bcrypt from 'bcryptjs';
 
 import { RegisterGymDto, UpdateGymProfileDto } from './dto';
-import { getGymStartOfDay, getGymStartOfMonth } from '@common/utils/timezone.util';
 
 
 @Injectable()

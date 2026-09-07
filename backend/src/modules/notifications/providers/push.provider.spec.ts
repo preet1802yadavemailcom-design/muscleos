@@ -1,7 +1,8 @@
-import { PushProvider } from './push.provider';
-import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '@database/prisma.service';
+import { ConfigService } from '@nestjs/config';
 import { LoggerService } from '@shared/services/logger.service';
+
+import { PushProvider } from './push.provider';
 
 describe('PushProvider', () => {
   let provider: PushProvider;

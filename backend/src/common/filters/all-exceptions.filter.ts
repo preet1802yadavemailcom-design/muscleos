@@ -30,7 +30,12 @@ export class AllExceptionsFilter implements ExceptionFilter {
         code = `HTTP_${status}`;
       }
     } else if (exception instanceof Error) {
-      message = exception.message;
+      // Do NOT surface exception.message to the client here -- this branch
+      // catches unexpected/unhandled errors (DB errors, null-pointer bugs,
+      // etc.), not intentional HttpExceptions. Their raw message can contain
+      // SQL fragments, file paths, or internal details. Keep the generic
+      // "Internal server error" for the response; the real message and
+      // stack still go to the server log (and Sentry) below.
       code = exception.name || 'UNKNOWN_ERROR';
     }
 

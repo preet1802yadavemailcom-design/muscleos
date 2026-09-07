@@ -1,5 +1,5 @@
-import { Injectable } from '@nestjs/common';
 import { PrismaService } from '@database/prisma.service';
+import { Injectable } from '@nestjs/common';
 
 /**
  * Atomic, gym-scoped number generator for member codes, receipt numbers,

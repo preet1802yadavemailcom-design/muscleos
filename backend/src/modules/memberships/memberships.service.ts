@@ -1,4 +1,6 @@
+import { CurrentUserPayload } from '@common/decorators/current-user.decorator';
 import { PrismaService } from '@database/prisma.service';
+import { NotificationsService } from '@modules/notifications/notifications.service';
 import {
   Injectable,
   NotFoundException,
@@ -7,9 +9,8 @@ import {
   Optional,
 } from '@nestjs/common';
 import { NotificationType, NotificationChannel } from '@prisma/client';
-import { AuditService } from '@shared/services/audit.service';
 import { AccessScopeService } from '@shared/services/access-scope.service';
-import { CurrentUserPayload } from '@common/decorators/current-user.decorator';
+import { AuditService } from '@shared/services/audit.service';
 
 import {
   CreateMembershipDto,
@@ -50,7 +51,6 @@ function withComputed(m: any) {
   return { ...m, remainingDays };
 }
 
-import { NotificationsService } from '@modules/notifications/notifications.service';
 
 /**
  * Generates the month-by-month payment ledger (MembershipMonth rows) for a

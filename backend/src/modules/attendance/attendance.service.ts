@@ -1,19 +1,28 @@
 import { randomUUID } from 'crypto';
 
+import { CurrentUserPayload } from '@common/decorators/current-user.decorator';
+import { distanceMeters } from '@common/utils/geo.util';
 import { PrismaService } from '@database/prisma.service';
-import { Decimal } from '@prisma/client/runtime/library';
+import { QrService } from '@modules/qr/qr.service';
 import { Injectable, BadRequestException, NotFoundException, ForbiddenException, UnauthorizedException, Optional } from '@nestjs/common';
 import { MembershipPlan, MembershipStatus, UserStatus, UserRole, Prisma } from '@prisma/client';
+import { Decimal } from '@prisma/client/runtime/library';
+import { AccessScopeService } from '@shared/services/access-scope.service';
 import { AuditService } from '@shared/services/audit.service';
 import { EncryptionService } from '@shared/services/encryption.service';
 import { SequenceService } from '@shared/services/sequence.service';
-import { AccessScopeService } from '@shared/services/access-scope.service';
-import { CurrentUserPayload } from '@common/decorators/current-user.decorator';
-import { distanceMeters } from '@common/utils/geo.util';
-import { QrService } from '@modules/qr/qr.service';
 
-import { ScanQrDto, QueryAttendanceDto } from './dto';
+import {
+  DEFAULT_TIMEZONE,
+  getGymStartOfDay,
+  getGymEndOfDay,
+  getGymStartOfWeek,
+  getGymStartOfMonth,
+  parseGymTimeToDate,
+} from '@common/utils/timezone.util';
+
 import { AttendanceCoreService } from './attendance-core.service';
+import { ScanQrDto, QueryAttendanceDto } from './dto';
 
 @Injectable()
 export class AttendanceService {
@@ -426,8 +435,27 @@ export class AttendanceService {
     };
   }
 
+  async getGymTimezone(gymId: string): Promise<string> {
+    const setting = await this.prisma.gymSetting.findUnique({
+      where: { gymId_category_key: { gymId, category: 'business', key: 'timezone' } },
+    });
+    return setting?.value || DEFAULT_TIMEZONE;
+  }
+
   async findAll(gymId: string, query: QueryAttendanceDto, user?: CurrentUserPayload) {
-    const { page = 1, limit = 20, memberId, batchId, fromDate, toDate } = query;
+    const {
+      page = 1,
+      limit = 20,
+      memberId,
+      batchId,
+      fromDate,
+      toDate,
+      search,
+      timeFrom,
+      timeTo,
+      status,
+      period,
+    } = query;
     const skip = (page - 1) * limit;
 
     const where: Prisma.AttendanceWhereInput = { gymId };
@@ -437,10 +465,54 @@ export class AttendanceService {
     }
     if (memberId) where.memberId = memberId;
     if (batchId) where.batchId = batchId;
-    if (fromDate || toDate) {
+    if (status) where.status = status as any;
+
+    const tz = await this.getGymTimezone(gymId);
+
+    // Period / Date Range resolution in gym timezone
+    if (period === 'DAY' && fromDate) {
+      const d = new Date(fromDate);
       where.checkInAt = {
-        ...(fromDate ? { gte: new Date(fromDate) } : {}),
-        ...(toDate ? { lte: new Date(toDate) } : {}),
+        gte: getGymStartOfDay(d, tz),
+        lte: getGymEndOfDay(d, tz),
+      };
+    } else if (period === 'WEEK' && fromDate) {
+      const d = new Date(fromDate);
+      const start = getGymStartOfWeek(d, tz);
+      const end = getGymEndOfDay(new Date(start.getTime() + 6 * 24 * 60 * 60 * 1000), tz);
+      where.checkInAt = { gte: start, lte: end };
+    } else if (fromDate || toDate) {
+      const start = fromDate ? getGymStartOfDay(new Date(fromDate), tz) : undefined;
+      const end = toDate ? getGymEndOfDay(new Date(toDate), tz) : undefined;
+      where.checkInAt = {
+        ...(start ? { gte: start } : {}),
+        ...(end ? { lte: end } : {}),
+      };
+    }
+
+    // Time-of-day filter (e.g. 06:00 to 09:00)
+    if (timeFrom && timeTo) {
+      const baseDate = fromDate ? new Date(fromDate) : new Date();
+      const timeStart = parseGymTimeToDate(timeFrom, baseDate, tz);
+      const timeEnd = parseGymTimeToDate(timeTo, baseDate, tz);
+      where.checkInAt = {
+        ...(where.checkInAt as any ?? {}),
+        gte: timeStart,
+        lte: timeEnd,
+      };
+    }
+
+    // Member search filter (by name, member code, phone, or email)
+    if (search && search.trim()) {
+      const s = search.trim();
+      where.member = {
+        OR: [
+          { firstName: { contains: s, mode: 'insensitive' } },
+          { lastName: { contains: s, mode: 'insensitive' } },
+          { memberCode: { contains: s, mode: 'insensitive' } },
+          { mobile: { contains: s } },
+          { email: { contains: s, mode: 'insensitive' } },
+        ],
       };
     }
 
@@ -451,8 +523,19 @@ export class AttendanceService {
         take: limit,
         orderBy: { checkInAt: 'desc' },
         include: {
-          member: { select: { id: true, firstName: true, lastName: true, memberCode: true, photo: true } },
-          batch: { select: { id: true, name: true } },
+          member: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              memberCode: true,
+              mobile: true,
+              email: true,
+              photo: true,
+            },
+          },
+          batch: { select: { id: true, name: true, startTime: true, endTime: true } },
+          branch: { select: { id: true, name: true } },
         },
       }),
       this.prisma.attendance.count({ where }),
@@ -460,7 +543,100 @@ export class AttendanceService {
 
     return {
       data,
-      meta: { total, page, limit, totalPages: Math.ceil(total / limit) },
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit) || 1,
+        hasNextPage: page * limit < total,
+        hasPrevPage: page > 1,
+      },
+    };
+  }
+
+  /** Paginated historical attendance for a specific member profile. */
+  async getMemberAttendanceHistory(
+    gymId: string,
+    memberId: string,
+    query: { page?: number; limit?: number },
+    user?: CurrentUserPayload,
+  ) {
+    const member = await this.prisma.member.findUnique({
+      where: { id: memberId, gymId, deletedAt: null },
+      select: { id: true, branchId: true },
+    });
+    if (!member) throw new NotFoundException('Member not found');
+    if (user && this.accessScope?.isBranchScoped(user)) {
+      this.accessScope.assertBranchAccess(user, member.branchId);
+    }
+
+    const page = Math.max(1, query.page ?? 1);
+    const limit = Math.min(100, Math.max(1, query.limit ?? 20));
+    const skip = (page - 1) * limit;
+
+    const where: Prisma.AttendanceWhereInput = { memberId, gymId };
+
+    const [data, total] = await Promise.all([
+      this.prisma.attendance.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: { checkInAt: 'desc' },
+        include: {
+          batch: { select: { id: true, name: true, startTime: true, endTime: true } },
+          branch: { select: { id: true, name: true } },
+        },
+      }),
+      this.prisma.attendance.count({ where }),
+    ]);
+
+    return {
+      data,
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit) || 1,
+        hasNextPage: page * limit < total,
+        hasPrevPage: page > 1,
+      },
+    };
+  }
+
+  /** Summary attendance metrics for Member 360 profile. */
+  async getMemberAttendanceStats(gymId: string, memberId: string, user?: CurrentUserPayload) {
+    const member = await this.prisma.member.findUnique({
+      where: { id: memberId, gymId, deletedAt: null },
+      select: { id: true, branchId: true, currentStreak: true, longestStreak: true },
+    });
+    if (!member) throw new NotFoundException('Member not found');
+    if (user && this.accessScope?.isBranchScoped(user)) {
+      this.accessScope.assertBranchAccess(user, member.branchId);
+    }
+
+    const tz = await this.getGymTimezone(gymId);
+    const now = new Date();
+    const startOfWeek = getGymStartOfWeek(now, tz);
+    const startOfMonth = getGymStartOfMonth(now, tz);
+
+    const [totalVisits, thisWeek, thisMonth, lastRecord] = await Promise.all([
+      this.prisma.attendance.count({ where: { memberId, gymId } }),
+      this.prisma.attendance.count({ where: { memberId, gymId, checkInAt: { gte: startOfWeek } } }),
+      this.prisma.attendance.count({ where: { memberId, gymId, checkInAt: { gte: startOfMonth } } }),
+      this.prisma.attendance.findFirst({
+        where: { memberId, gymId },
+        orderBy: { checkInAt: 'desc' },
+        select: { checkInAt: true, checkOutAt: true },
+      }),
+    ]);
+
+    return {
+      totalVisits,
+      thisWeek,
+      thisMonth,
+      currentStreak: member.currentStreak ?? 0,
+      longestStreak: member.longestStreak ?? 0,
+      lastCheckIn: lastRecord?.checkInAt ?? null,
     };
   }
 

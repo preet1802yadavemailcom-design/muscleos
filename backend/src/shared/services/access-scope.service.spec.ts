@@ -1,5 +1,6 @@
 import { ForbiddenException } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
+
 import { AccessScopeService } from './access-scope.service';
 
 describe('AccessScopeService', () => {

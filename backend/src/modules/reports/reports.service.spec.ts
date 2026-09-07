@@ -1,11 +1,13 @@
+import { PrismaService } from '@database/prisma.service';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
-import { PrismaService } from '@database/prisma.service';
+import { ReportType, ReportPeriod, PaymentStatus, PaymentGateway, PaymentMethod } from '@prisma/client';
+import { AccessScopeService } from '@shared/services/access-scope.service';
 import { AuditService } from '@shared/services/audit.service';
 import { ExportService } from '@shared/services/export.service';
-import { AccessScopeService } from '@shared/services/access-scope.service';
+
 import { ReportsService } from './reports.service';
-import { ReportType, ReportPeriod, PaymentStatus, PaymentGateway, PaymentMethod } from '@prisma/client';
+
 
 describe('ReportsService', () => {
   let service: ReportsService;

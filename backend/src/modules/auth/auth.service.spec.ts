@@ -1,5 +1,7 @@
 import { PrismaService } from '@database/prisma.service';
 import { RedisService } from '@database/redis.service';
+import { EmailProvider } from '@modules/notifications/providers/email.provider';
+import { WhatsappProvider } from '@modules/notifications/providers/whatsapp.provider';
 import { ForbiddenException, UnauthorizedException, BadRequestException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
@@ -7,14 +9,13 @@ import { Test } from '@nestjs/testing';
 import { UserRole, UserStatus } from '@prisma/client';
 import { AuditService } from '@shared/services/audit.service';
 import { EncryptionService } from '@shared/services/encryption.service';
-import { LoggerService } from '@shared/services/logger.service';
-import { EmailProvider } from '@modules/notifications/providers/email.provider';
-import { WhatsappProvider } from '@modules/notifications/providers/whatsapp.provider';
 import { FirebaseAdminService } from '@shared/services/firebase-admin.service';
-import { TwoFactorService } from './two-factor.service';
+import { LoggerService } from '@shared/services/logger.service';
 import * as bcrypt from 'bcryptjs';
 
 import { AuthService } from './auth.service';
+import { TwoFactorService } from './two-factor.service';
+
 
 describe('AuthService', () => {
   let service: AuthService;

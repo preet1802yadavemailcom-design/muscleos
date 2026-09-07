@@ -1,8 +1,8 @@
-import { Prisma } from '@prisma/client';
-import { Test } from '@nestjs/testing';
 import { PrismaService } from '@database/prisma.service';
-import { AuditService } from '@shared/services/audit.service';
 import { RedisService } from '@database/redis.service';
+import { Test } from '@nestjs/testing';
+import { Prisma } from '@prisma/client';
+import { AuditService } from '@shared/services/audit.service';
 
 import { AttendanceCoreService } from './attendance-core.service';
 

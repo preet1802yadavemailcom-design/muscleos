@@ -1,7 +1,7 @@
 import { randomBytes } from 'crypto';
 
-import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '@database/prisma.service';
+import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { AuditService } from '@shared/services/audit.service';
 
 /**

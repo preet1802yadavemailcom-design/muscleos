@@ -1,8 +1,8 @@
-import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '@database/prisma.service';
 import { RedisService } from '@database/redis.service';
-import { AuditService } from '@shared/services/audit.service';
 import { PushProvider } from '@modules/notifications/providers/push.provider';
+import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
+import { AuditService } from '@shared/services/audit.service';
 
 import { UpdateMyProfileDto } from './dto/update-my-profile.dto';
 

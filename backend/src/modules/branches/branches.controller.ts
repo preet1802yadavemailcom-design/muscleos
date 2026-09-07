@@ -1,14 +1,14 @@
+import { CurrentUser } from '@common/decorators/current-user.decorator';
+import { GymId } from '@common/decorators/gym-id.decorator';
+import { Roles } from '@common/decorators/roles.decorator';
+import { GymOwnerGuard } from '@common/guards/gym-owner.guard';
+import { JwtAuthGuard } from '@common/guards/jwt-auth.guard';
+import { RolesGuard } from '@common/guards/roles.guard';
 import {
   Body, Controller, Delete, Get, Param, Patch, Post, UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { UserRole } from '@prisma/client';
-import { JwtAuthGuard } from '@common/guards/jwt-auth.guard';
-import { RolesGuard } from '@common/guards/roles.guard';
-import { GymOwnerGuard } from '@common/guards/gym-owner.guard';
-import { Roles } from '@common/decorators/roles.decorator';
-import { GymId } from '@common/decorators/gym-id.decorator';
-import { CurrentUser } from '@common/decorators/current-user.decorator';
 
 import { BranchesService } from './branches.service';
 import { CreateBranchDto, UpdateBranchDto } from './dto';

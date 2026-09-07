@@ -1,7 +1,8 @@
+import { PrismaService } from '@database/prisma.service';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
-import { PrismaService } from '@database/prisma.service';
 import { AuditService } from '@shared/services/audit.service';
+
 import { FitnessService } from './fitness.service';
 
 describe('FitnessService', () => {

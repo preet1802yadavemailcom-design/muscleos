@@ -1,5 +1,5 @@
-import { Module } from '@nestjs/common';
 import { NotificationsModule } from '@modules/notifications/notifications.module';
+import { Module } from '@nestjs/common';
 
 import { RazorpayGateway } from './gateways/razorpay.gateway';
 import { StripeGateway } from './gateways/stripe.gateway';

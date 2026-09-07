@@ -1,3 +1,6 @@
+import { createHash } from 'crypto';
+
+import { RedisService } from '@database/redis.service';
 import {
   BadRequestException,
   CallHandler,
@@ -6,8 +9,6 @@ import {
   Injectable,
   NestInterceptor,
 } from '@nestjs/common';
-import { RedisService } from '@database/redis.service';
-import { createHash } from 'crypto';
 import { Request, Response } from 'express';
 import { Observable, of, throwError } from 'rxjs';
 import { catchError, tap } from 'rxjs/operators';

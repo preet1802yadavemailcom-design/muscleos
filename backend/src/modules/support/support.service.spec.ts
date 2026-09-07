@@ -1,9 +1,11 @@
+import { PrismaService } from '@database/prisma.service';
+import { RedisService } from '@database/redis.service';
 import { BadRequestException, ForbiddenException, ConflictException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
-import { PrismaService } from '@database/prisma.service';
 import { AuditService } from '@shared/services/audit.service';
-import { RedisService } from '@database/redis.service';
+
 import { EmailProvider } from '../notifications/providers/email.provider';
+
 import { SupportTicketsService } from './support.service';
 
 describe('SupportTicketsService', () => {

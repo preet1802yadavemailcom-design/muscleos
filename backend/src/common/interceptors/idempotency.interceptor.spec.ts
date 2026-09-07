@@ -1,7 +1,8 @@
+import { RedisService } from '@database/redis.service';
 import { ExecutionContext, ConflictException } from '@nestjs/common';
 import { of, throwError, lastValueFrom } from 'rxjs';
+
 import { IdempotencyInterceptor } from './idempotency.interceptor';
-import { RedisService } from '@database/redis.service';
 
 describe('IdempotencyInterceptor', () => {
   let interceptor: IdempotencyInterceptor;

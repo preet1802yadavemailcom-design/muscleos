@@ -22,22 +22,22 @@ export class MembersController {
   @Get()
   @Permissions('members:read')
   @ApiOperation({ summary: 'List members (search, filter, paginate)' })
-  async findAll(@GymId() gymId: string, @Query() query: QueryMemberDto) {
-    return this.service.findAll(gymId, query);
+  async findAll(@GymId() gymId: string, @Query() query: QueryMemberDto, @CurrentUser() user: CurrentUserPayload) {
+    return this.service.findAll(gymId, query, user);
   }
 
   @Get('export')
   @Permissions('members:read')
   @ApiOperation({ summary: 'Export the (filtered) member list — rows for PDF/Excel/CSV' })
-  async export(@GymId() gymId: string, @Query() query: QueryMemberDto) {
-    return this.service.exportData(gymId, query);
+  async export(@GymId() gymId: string, @Query() query: QueryMemberDto, @CurrentUser() user: CurrentUserPayload) {
+    return this.service.exportData(gymId, query, user);
   }
 
   @Get('pending')
   @Permissions('members:read')
   @ApiOperation({ summary: 'List all pending member registrations awaiting approval' })
-  async findPendingRegistrations(@GymId() gymId: string) {
-    return this.service.findPendingRegistrations(gymId);
+  async findPendingRegistrations(@GymId() gymId: string, @CurrentUser() user: CurrentUserPayload) {
+    return this.service.findPendingRegistrations(gymId, user);
   }
 
   @Get(':id/360')
@@ -57,43 +57,53 @@ export class MembersController {
   @Post()
   @Permissions('members:create')
   @ApiOperation({ summary: 'Register a new member (auto-generates member code + encrypted QR)' })
-  async create(@Body() dto: CreateMemberDto, @GymId() gymId: string) {
-    return this.service.create(gymId, dto);
+  async create(@Body() dto: CreateMemberDto, @GymId() gymId: string, @CurrentUser() user: CurrentUserPayload) {
+    return this.service.create(gymId, dto, user);
   }
 
   @Put(':id')
   @Permissions('members:update')
   @ApiOperation({ summary: 'Update member details' })
-  async update(@Param('id') id: string, @Body() dto: UpdateMemberDto, @GymId() gymId: string) {
-    return this.service.update(id, gymId, dto);
+  async update(
+    @Param('id') id: string,
+    @Body() dto: UpdateMemberDto,
+    @GymId() gymId: string,
+    @CurrentUser() user: CurrentUserPayload,
+  ) {
+    return this.service.update(id, gymId, dto, user);
   }
 
   @Post(':id/deactivate')
   @Permissions('members:update')
   @ApiOperation({ summary: 'Deactivate a member (keeps history)' })
-  async deactivate(@Param('id') id: string, @GymId() gymId: string, @Body('reason') reason?: string) {
-    return this.service.deactivate(id, gymId, reason);
+  async deactivate(
+    @Param('id') id: string,
+    @GymId() gymId: string,
+    @Body('reason') reason?: string,
+    @CurrentUser() user?: CurrentUserPayload,
+  ) {
+    return this.service.deactivate(id, gymId, reason, user);
   }
 
   @Post(':id/reactivate')
   @Permissions('members:update')
   @ApiOperation({ summary: 'Reactivate a previously deactivated member' })
-  async reactivate(@Param('id') id: string, @GymId() gymId: string) {
-    return this.service.reactivate(id, gymId);
+  async reactivate(@Param('id') id: string, @GymId() gymId: string, @CurrentUser() user?: CurrentUserPayload) {
+    return this.service.reactivate(id, gymId, user);
   }
 
   @Post(':id/regenerate-qr')
   @Permissions('members:update')
   @ApiOperation({ summary: 'Regenerate a member\'s encrypted QR (e.g. lost card)' })
-  async regenerateQr(@Param('id') id: string, @GymId() gymId: string) {
-    return this.service.regenerateQr(id, gymId);
+  async regenerateQr(@Param('id') id: string, @GymId() gymId: string, @CurrentUser() user?: CurrentUserPayload) {
+    return this.service.regenerateQr(id, gymId, user);
   }
 
   @Post(':id/claim-token')
   @Permissions('members:update')
   @ApiOperation({ summary: 'Generate a one-time activation token for member self-claim' })
-  async generateClaimToken(@Param('id') id: string, @GymId() gymId: string) {
-    return this.service.generateClaimToken(id, gymId);
+  async generateClaimToken(@Param('id') id: string, @GymId() gymId: string, @CurrentUser() user?: CurrentUserPayload) {
+    return this.service.generateClaimToken(id, gymId, user);
   }
 
   @Post(':id/approve')
@@ -105,7 +115,7 @@ export class MembersController {
     @Body('batchId') batchId?: string,
     @CurrentUser() user?: CurrentUserPayload,
   ) {
-    return this.service.approveRegistration(id, gymId, batchId, user?.userId);
+    return this.service.approveRegistration(id, gymId, batchId, user?.userId, user);
   }
 
   @Post(':id/reject')
@@ -117,7 +127,7 @@ export class MembersController {
     @Body('reason') reason?: string,
     @CurrentUser() user?: CurrentUserPayload,
   ) {
-    return this.service.rejectRegistration(id, gymId, reason, user?.userId);
+    return this.service.rejectRegistration(id, gymId, reason, user?.userId, user);
   }
 
   @Put(':id/batch')
@@ -129,13 +139,13 @@ export class MembersController {
     @Body('batchId') batchId: string,
     @CurrentUser() user?: CurrentUserPayload,
   ) {
-    return this.service.assignBatch(id, gymId, batchId, user?.userId);
+    return this.service.assignBatch(id, gymId, batchId, user?.userId, user);
   }
 
   @Delete(':id')
   @Permissions('members:delete')
   @ApiOperation({ summary: 'Soft-delete a member' })
-  async remove(@Param('id') id: string, @GymId() gymId: string) {
-    return this.service.remove(id, gymId);
+  async remove(@Param('id') id: string, @GymId() gymId: string, @CurrentUser() user: CurrentUserPayload) {
+    return this.service.remove(id, gymId, user);
   }
 }

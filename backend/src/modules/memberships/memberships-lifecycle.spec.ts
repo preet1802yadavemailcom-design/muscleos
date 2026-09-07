@@ -1,7 +1,8 @@
-import { Test } from '@nestjs/testing';
 import { PrismaService } from '@database/prisma.service';
-import { AuditService } from '@shared/services/audit.service';
 import { NotificationsService } from '@modules/notifications/notifications.service';
+import { Test } from '@nestjs/testing';
+import { AuditService } from '@shared/services/audit.service';
+
 import { MembershipsService } from './memberships.service';
 
 describe('MembershipsService — lifecycle and ghost ledger integrity', () => {

@@ -26,13 +26,15 @@ export class AuditService {
 
   async log(data: AuditLogData): Promise<void> {
     try {
+      const sanitizedOld = data.oldValue ? this.redactSensitive(data.oldValue) : undefined;
+      const sanitizedNew = data.newValue ? this.redactSensitive(data.newValue) : undefined;
       await this.prisma.auditLog.create({
         data: {
           action: data.action,
           entity: data.entity,
           entityId: data.entityId,
-          oldValue: data.oldValue ? JSON.stringify(data.oldValue) : undefined,
-          newValue: data.newValue ? JSON.stringify(data.newValue) : undefined,
+          oldValue: sanitizedOld ? JSON.stringify(sanitizedOld) : undefined,
+          newValue: sanitizedNew ? JSON.stringify(sanitizedNew) : undefined,
           userId: data.userId,
           gymId: data.gymId,
           ipAddress: data.ipAddress,
@@ -48,13 +50,15 @@ export class AuditService {
 
   /** Transactional audit logging: ensures the audit record is committed atomically with the business mutation. */
   async logTx(tx: any, data: AuditLogData): Promise<void> {
+    const sanitizedOld = data.oldValue ? this.redactSensitive(data.oldValue) : undefined;
+    const sanitizedNew = data.newValue ? this.redactSensitive(data.newValue) : undefined;
     await tx.auditLog.create({
       data: {
         action: data.action,
         entity: data.entity,
         entityId: data.entityId,
-        oldValue: data.oldValue ? JSON.stringify(data.oldValue) : undefined,
-        newValue: data.newValue ? JSON.stringify(data.newValue) : undefined,
+        oldValue: sanitizedOld ? JSON.stringify(sanitizedOld) : undefined,
+        newValue: sanitizedNew ? JSON.stringify(sanitizedNew) : undefined,
         userId: data.userId,
         gymId: data.gymId,
         ipAddress: data.ipAddress,
@@ -63,6 +67,40 @@ export class AuditService {
         method: data.method,
       },
     });
+  }
+
+  private redactSensitive(data: any): any {
+    if (!data) return data;
+    if (typeof data !== 'object') return data;
+    if (Array.isArray(data)) return data.map((item) => this.redactSensitive(item));
+
+    const sensitiveFields = new Set([
+      'password',
+      'currentPassword',
+      'newPassword',
+      'confirmPassword',
+      'accessToken',
+      'refreshToken',
+      'token',
+      'otp',
+      'secret',
+      'twoFactorSecret',
+      'twoFactorRecoveryCodes',
+      'claimToken',
+      'qrCodeData',
+    ]);
+
+    const sanitized: Record<string, any> = {};
+    for (const [key, value] of Object.entries(data)) {
+      if (sensitiveFields.has(key)) {
+        sanitized[key] = '[REDACTED]';
+      } else if (value && typeof value === 'object') {
+        sanitized[key] = this.redactSensitive(value);
+      } else {
+        sanitized[key] = value;
+      }
+    }
+    return sanitized;
   }
 
   async getAuditLogs(gymId: string | null, options: {

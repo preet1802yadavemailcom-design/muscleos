@@ -1,10 +1,10 @@
+import { CurrentUser } from '@common/decorators/current-user.decorator';
+import { JwtAuthGuard } from '@common/guards/jwt-auth.guard';
 import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { JwtAuthGuard } from '@common/guards/jwt-auth.guard';
-import { CurrentUser } from '@common/decorators/current-user.decorator';
 
-import { SupportTicketsService } from './support.service';
 import { CreateSupportTicketDto } from './dto/create-ticket.dto';
+import { SupportTicketsService } from './support.service';
 
 /** Self-service support tickets for members, owners, trainers, and
  *  reception — previously tickets could only be viewed/updated from the

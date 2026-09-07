@@ -3,15 +3,15 @@ import { Public } from '@common/decorators/public.decorator';
 import { JwtAuthGuard } from '@common/guards/jwt-auth.guard';
 import { TwoFactorSetupGuard } from '@common/guards/two-factor-setup.guard';
 import { Controller, Post, Body, HttpCode, HttpStatus, Ip, Headers, UseGuards, Get, Delete, Param, Req, Res } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { AuthGuard } from '@nestjs/passport';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
-import { ConfigService } from '@nestjs/config';
 
 import { AuthService } from './auth.service';
-import { TwoFactorService } from './two-factor.service';
-import { StepUpService } from './step-up.service';
 import { LoginDto, RegisterDto, RefreshTokenDto, ForgotPasswordDto, ResetPasswordDto, VerifyEmailDto, ChangePasswordDto, ClaimAccountDto } from './dto';
+import { StepUpService } from './step-up.service';
+import { TwoFactorService } from './two-factor.service';
 
 @ApiTags('Authentication')
 @Controller('auth')

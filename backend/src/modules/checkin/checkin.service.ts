@@ -1,7 +1,12 @@
 import { randomUUID } from 'crypto';
 
+import { distanceMeters } from '@common/utils/geo.util';
+import { getGymStartOfDay, getGymEndOfDay } from '@common/utils/timezone.util';
 import { PrismaService } from '@database/prisma.service';
 import { RedisService } from '@database/redis.service';
+import { AttendanceCoreService } from '@modules/attendance/attendance-core.service';
+import { NotificationsService } from '@modules/notifications/notifications.service';
+import { QrService } from '@modules/qr/qr.service';
 import {
   Injectable, BadRequestException, NotFoundException, ForbiddenException, UnauthorizedException,
 } from '@nestjs/common';
@@ -11,21 +16,16 @@ import {
   AttendanceType, MembershipPlan, MembershipStatus,
   UserStatus,
 } from '@prisma/client';
+import { Decimal } from '@prisma/client/runtime/library';
 import { AuditService } from '@shared/services/audit.service';
 import { EncryptionService } from '@shared/services/encryption.service';
 import { LoggerService } from '@shared/services/logger.service';
 import { SequenceService } from '@shared/services/sequence.service';
-import { Decimal } from '@prisma/client/runtime/library';
 
 import {
   ScanCheckinDto, IdentifyMemberDto, SendOtpDto, VerifyOtpDto,
   RegisterMemberDto, CheckinActionDto,
 } from './dto';
-import { distanceMeters } from '@common/utils/geo.util';
-import { getGymStartOfDay, getGymEndOfDay } from '@common/utils/timezone.util';
-import { AttendanceCoreService } from '@modules/attendance/attendance-core.service';
-import { QrService } from '@modules/qr/qr.service';
-import { NotificationsService } from '@modules/notifications/notifications.service';
 
 const KIOSK_TOKEN_TTL = 10 * 60; // seconds
 const SESSION_TOKEN_TTL = 5 * 60; // 5 minutes — short-lived for kiosk check-in action only

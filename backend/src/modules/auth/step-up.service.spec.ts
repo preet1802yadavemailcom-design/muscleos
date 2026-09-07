@@ -1,9 +1,10 @@
-import { UnauthorizedException } from '@nestjs/common';
-import { Test } from '@nestjs/testing';
 import { PrismaService } from '@database/prisma.service';
 import { RedisService } from '@database/redis.service';
+import { UnauthorizedException } from '@nestjs/common';
+import { Test } from '@nestjs/testing';
 import { AuditService } from '@shared/services/audit.service';
 import * as bcrypt from 'bcryptjs';
+
 import { StepUpService } from './step-up.service';
 import { TwoFactorService } from './two-factor.service';
 

@@ -1,12 +1,13 @@
+import { PrismaService } from '@database/prisma.service';
+import { QrService } from '@modules/qr/qr.service';
 import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { UserRole, UserStatus } from '@prisma/client';
-import { PrismaService } from '@database/prisma.service';
 import { AuditService } from '@shared/services/audit.service';
 import { EncryptionService } from '@shared/services/encryption.service';
 import { SequenceService } from '@shared/services/sequence.service';
+
 import { AttendanceCoreService } from './attendance-core.service';
-import { QrService } from '@modules/qr/qr.service';
 import { AttendanceService } from './attendance.service';
 
 describe('AttendanceService - Role Isolation', () => {

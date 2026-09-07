@@ -795,8 +795,19 @@ export class AuthService {
   }
 
   async resetPassword(dto: ResetPasswordDto) {
+    const attemptsKey = `otp_attempts:${dto.email}`;
+    const attempts = Number((await this.redis.get(attemptsKey)) || 0);
+    if (attempts >= 5) {
+      throw new ForbiddenException('Too many incorrect attempts. Please request a new OTP.');
+    }
+
     const storedOtp = await this.redis.get(`otp:${dto.email}`);
-    if (!storedOtp || storedOtp !== dto.otp) throw new BadRequestException('Invalid or expired OTP');
+    if (!storedOtp || storedOtp !== dto.otp) {
+      await this.redis.set(attemptsKey, String(attempts + 1), 600);
+      throw new BadRequestException('Invalid or expired OTP');
+    }
+    await this.redis.del(attemptsKey);
+
     const user = await this.prisma.user.findFirst({ where: { email: dto.email } });
     if (!user) throw new BadRequestException('No account found for this email');
     const hashedPassword = await bcrypt.hash(dto.newPassword, 12);
@@ -827,6 +838,13 @@ export class AuthService {
 
   private async revokeAllUserTokensAndSessions(userId: string) {
     const now = new Date();
+    const activeSessions = await this.prisma.userSession.findMany({
+      where: { userId, isActive: true },
+      select: { id: true },
+    });
+    for (const s of activeSessions) {
+      await this.redis.set(`session_revoked:${s.id}`, '1', 86400).catch(() => undefined);
+    }
     await Promise.all([
       this.prisma.refreshToken.updateMany({
         where: { userId, revokedAt: null },

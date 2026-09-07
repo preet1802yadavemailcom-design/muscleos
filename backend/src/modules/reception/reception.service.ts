@@ -1,3 +1,4 @@
+import { getGymStartOfDay, getGymEndOfDay } from '@common/utils/timezone.util';
 import { PrismaService } from '@database/prisma.service';
 import { AttendanceService } from '@modules/attendance/attendance.service';
 import { CreateMemberDto } from '@modules/members/dto/create-member.dto';
@@ -7,7 +8,6 @@ import { MembershipsService } from '@modules/memberships/memberships.service';
 import { CreatePaymentDto } from '@modules/payments/dto/create-payment.dto';
 import { PaymentsService } from '@modules/payments/payments.service';
 import { Injectable } from '@nestjs/common';
-import { getGymStartOfDay, getGymEndOfDay } from '@common/utils/timezone.util';
 
 /**
  * Reception facade (Module 10).

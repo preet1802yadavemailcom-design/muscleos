@@ -9,10 +9,11 @@ import { RenewMembershipDto } from '@modules/memberships/dto/renew-membership.dt
 import { CreatePaymentDto } from '@modules/payments/dto/create-payment.dto';
 import { Controller, Get, Post, Body, Param, Query, UseGuards, Res } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiQuery } from '@nestjs/swagger';
+import { UserRole } from '@prisma/client';
 import type { Response } from 'express';
+
 import { ReceptionService } from './reception.service';
 
-import { UserRole } from '@prisma/client';
 
 /**
  * Front-desk endpoints only: registration, payment collection, attendance

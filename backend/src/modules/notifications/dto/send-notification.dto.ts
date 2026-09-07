@@ -21,6 +21,16 @@ export class SendNotificationDto {
   @IsString()
   memberId?: string;
 
+  @ApiPropertyOptional({ description: 'Direct recipient email (used if no userId/memberId provided)' })
+  @IsOptional()
+  @IsString()
+  recipientEmail?: string;
+
+  @ApiPropertyOptional({ description: 'Direct recipient phone number' })
+  @IsOptional()
+  @IsString()
+  recipientPhone?: string;
+
   @ApiPropertyOptional({ description: 'Notification template name to render, e.g. membership_expiry' })
   @IsOptional()
   @IsString()

@@ -1,6 +1,7 @@
+import * as crypto from 'crypto';
+
 import { BadRequestException, ForbiddenException, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { MembershipStatus, AttendanceType, AttendanceStatus, UserRole, UserStatus } from '@prisma/client';
-import * as crypto from 'crypto';
 
 describe('MuscleOS Master E2E Business Flows', () => {
   // Common multi-tenant test IDs
@@ -98,7 +99,7 @@ describe('MuscleOS Master E2E Business Flows', () => {
 
   describe('Flow 4 & 5: QR Scan → Attendance → QR Regenerate Invalidation', () => {
     it('scans branch QR to check-in/check-out, then invalidates old QR on regenerate', async () => {
-      let activeBranchToken = 'TOKEN_ACTIVE_1234567890';
+      const activeBranchToken = 'TOKEN_ACTIVE_1234567890';
       const branchTokens = new Map<string, { token: string; isActive: boolean }>();
       branchTokens.set(activeBranchToken, { token: activeBranchToken, isActive: true });
 

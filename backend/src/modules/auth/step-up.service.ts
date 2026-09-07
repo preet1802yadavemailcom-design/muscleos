@@ -1,8 +1,8 @@
 import { randomUUID } from 'crypto';
 
-import { Injectable, UnauthorizedException } from '@nestjs/common';
-import { RedisService } from '@database/redis.service';
 import { PrismaService } from '@database/prisma.service';
+import { RedisService } from '@database/redis.service';
+import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { AuditService } from '@shared/services/audit.service';
 import * as bcrypt from 'bcryptjs';
 

@@ -1,10 +1,12 @@
-import { Test } from '@nestjs/testing';
 import { PrismaService } from '@database/prisma.service';
-import { MembersService } from './members.service';
-import { AuditService } from '@shared/services/audit.service';
-import { SequenceService } from '@shared/services/sequence.service';
-import { EncryptionService } from '@shared/services/encryption.service';
+import { Test } from '@nestjs/testing';
 import { UserRole } from '@prisma/client';
+import { AuditService } from '@shared/services/audit.service';
+import { EncryptionService } from '@shared/services/encryption.service';
+import { SequenceService } from '@shared/services/sequence.service';
+
+import { MembersService } from './members.service';
+
 
 describe('MembersService — Field-Level Privacy Protection', () => {
   let service: MembersService;

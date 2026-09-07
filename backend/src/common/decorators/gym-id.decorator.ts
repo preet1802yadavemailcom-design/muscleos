@@ -1,7 +1,8 @@
 import { createParamDecorator, ExecutionContext, ForbiddenException, BadRequestException } from '@nestjs/common';
-import { Request } from 'express';
-import { CurrentUserPayload } from './current-user.decorator';
 import { UserRole } from '@prisma/client';
+import { Request } from 'express';
+
+import { CurrentUserPayload } from './current-user.decorator';
 
 /**
  * SECURITY: resolves the tenant (gym) id from the AUTHENTICATED JWT user,

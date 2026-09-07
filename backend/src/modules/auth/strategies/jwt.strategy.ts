@@ -1,7 +1,7 @@
 import { getPermissionsForRole } from '@common/constants/role-permissions.constant';
 import { PrismaService } from '@database/prisma.service';
 import { RedisService } from '@database/redis.service';
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { Injectable, Optional, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
@@ -11,25 +11,14 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
   constructor(
     private readonly configService: ConfigService,
     private readonly prisma: PrismaService,
-    private readonly redis: RedisService,
+    @Optional() private readonly redis?: RedisService,
   ) {
     super({
-      // SSE (attendance-stream.controller.ts) can't attach an Authorization
-      // header — browser EventSource has no API for custom headers — so it
-      // sends the access token as ?access_token=... instead. Every other
-      // route keeps using the Bearer header; this fallback only kicks in
-      // when no Bearer header is present, so it doesn't change behavior
-      // for the rest of the API.
-      jwtFromRequest: ExtractJwt.fromExtractors([
-        ExtractJwt.fromAuthHeaderAsBearerToken(),
-        (req) => {
-          // Restrict query parameter token extraction exclusively to SSE/stream paths
-          if (req?.path?.includes('/stream') || req?.path?.includes('/sse')) {
-            return (req?.query?.access_token as string) ?? null;
-          }
-          return null;
-        },
-      ]),
+      // SSE now authenticates via a short-lived one-time ticket (see
+      // attendance-stream.controller.ts), not a raw JWT in the query
+      // string, so the real access token is never accepted from anywhere
+      // but the Authorization header.
+      jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
       secretOrKey: configService.get('app.jwtSecret'),
     });
@@ -41,18 +30,6 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
     if (!payload?.sub) {
       throw new UnauthorizedException('Invalid token');
     }
-
-    // Check if token was issued prior to a user password change or global revocation
-    if (payload.iat) {
-      const revokedAtStr = await this.redis.get(`user_revoked_at:${payload.sub}`);
-      if (revokedAtStr) {
-        const revokedAtMs = Number(revokedAtStr);
-        const tokenIssuedAtMs = payload.iat * 1000;
-        if (tokenIssuedAtMs < revokedAtMs) {
-          throw new UnauthorizedException('Token has been revoked');
-        }
-      }
-    }
     // Special-purpose tokens (setupToken for '2fa-setup-required', pendingToken
     // for '2fa-pending') are also signed with this same secret and DO carry a
     // sub, but they must only ever be usable by their own narrow endpoint —
@@ -63,14 +40,25 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
     if (payload.purpose) {
       throw new UnauthorizedException('Invalid token');
     }
-    // Check if specific device session has been revoked
-    if (payload.sessionId) {
-      const sessionRevoked = await this.redis.get(`session_revoked:${payload.sessionId}`);
-      if (sessionRevoked) {
-        throw new UnauthorizedException('Session has been revoked');
+
+    if (this.redis) {
+      if (payload.sessionId) {
+        const isSessionRevoked = await this.redis.get(`session_revoked:${payload.sessionId}`);
+        if (isSessionRevoked) {
+          throw new UnauthorizedException('Session has been revoked');
+        }
+      }
+      if (payload.iat) {
+        const revokedAtStr = await this.redis.get(`user_revoked_at:${payload.sub}`);
+        if (revokedAtStr) {
+          const revokedAtMs = parseInt(revokedAtStr, 10);
+          const tokenIatMs = payload.iat * 1000;
+          if (tokenIatMs <= revokedAtMs) {
+            throw new UnauthorizedException('Token has been revoked');
+          }
+        }
       }
     }
-
     const user = await this.prisma.user.findUnique({
       where: { id: payload.sub },
       select: {
@@ -80,31 +68,17 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
         lastName: true,
         role: true,
         gymId: true,
-        branchId: true,
         status: true,
       },
     });
     if (!user || user.status !== 'ACTIVE') {
       throw new UnauthorizedException('User not found or inactive');
     }
-
-    if (user.gymId && user.role !== 'SUPER_ADMIN') {
-      const gym = await this.prisma.gym.findFirst({
-        where: { id: user.gymId, deletedAt: null },
-        select: { status: true },
-      });
-      if (!gym || gym.status !== 'ACTIVE') {
-        throw new UnauthorizedException('Gym account is suspended or inactive');
-      }
-    }
-
     return {
       userId: user.id,
       email: user.email,
       role: user.role,
       gymId: user.gymId,
-      branchId: user.branchId ?? undefined,
-      sessionId: payload.sessionId ?? undefined,
       permissions: getPermissionsForRole(user.role),
     };
   }

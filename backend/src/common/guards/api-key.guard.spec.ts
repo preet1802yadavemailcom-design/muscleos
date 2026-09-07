@@ -1,7 +1,9 @@
 import * as crypto from 'crypto';
+
+import { PrismaService } from '@database/prisma.service';
 import { UnauthorizedException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
-import { PrismaService } from '@database/prisma.service';
+
 import { ApiKeyGuard } from './api-key.guard';
 
 describe('ApiKeyGuard', () => {

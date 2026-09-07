@@ -1,9 +1,10 @@
+import { PrismaService } from '@database/prisma.service';
+import { RedisService } from '@database/redis.service';
 import { ForbiddenException, BadRequestException } from '@nestjs/common';
 import { MembershipStatus, AttendanceType, AttendanceStatus, Prisma } from '@prisma/client';
-import { AttendanceCoreService } from './attendance-core.service';
-import { PrismaService } from '@database/prisma.service';
 import { AuditService } from '@shared/services/audit.service';
-import { RedisService } from '@database/redis.service';
+
+import { AttendanceCoreService } from './attendance-core.service';
 
 describe('AttendanceCoreService Concurrency & Safety', () => {
   let core: AttendanceCoreService;

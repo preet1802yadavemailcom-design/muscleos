@@ -111,4 +111,10 @@ export class CreateMemberDto {
   @IsOptional()
   @IsString()
   photo?: string;
+
+  @ApiPropertyOptional({ description: 'Branch ID the member belongs to' })
+  @IsOptional()
+  @ValidateIf((o) => o.branchId !== undefined && o.branchId !== '')
+  @IsUUID()
+  branchId?: string;
 }
