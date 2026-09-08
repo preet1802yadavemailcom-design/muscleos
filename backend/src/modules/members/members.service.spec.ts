@@ -1,5 +1,5 @@
 ﻿import { PrismaService } from '@database/prisma.service';
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, NotFoundException, ConflictException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { UserStatus } from '@prisma/client';
 import { AuditService } from '@shared/services/audit.service';
@@ -59,7 +59,15 @@ describe('MembersService', () => {
   describe('create', () => {
     it('rejects registration when the mobile number is already used at this gym', async () => {
       prisma.member.findFirst.mockResolvedValue({ id: 'existing-member' });
-      await expect(service.create(gymId, baseDto)).rejects.toBeInstanceOf(BadRequestException);
+      await expect(service.create(gymId, baseDto)).rejects.toBeInstanceOf(ConflictException);
+      expect(prisma.member.create).not.toHaveBeenCalled();
+    });
+
+    it('rejects registration when the email address is already used (case-insensitive)', async () => {
+      prisma.member.findFirst
+        .mockResolvedValueOnce(null) // mobile check passes
+        .mockResolvedValueOnce({ id: 'existing-email-member' }); // email duplicate detected
+      await expect(service.create(gymId, { ...baseDto, email: 'ROHIT@example.com' })).rejects.toBeInstanceOf(ConflictException);
       expect(prisma.member.create).not.toHaveBeenCalled();
     });
 
@@ -96,7 +104,7 @@ describe('MembersService', () => {
 
       await expect(
         service.update('member-1', gymId, { mobile: '+919999999999' } as any),
-      ).rejects.toBeInstanceOf(BadRequestException);
+      ).rejects.toBeInstanceOf(ConflictException);
     });
   });
 

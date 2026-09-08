@@ -2,16 +2,13 @@ import { Link, useLocation } from 'react-router-dom';
 import { Dumbbell, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@store/auth.store';
-import { navigation } from './navigation';
+import { navigation, isRouteActive } from './navigation';
 
 interface MobileDrawerProps {
   open: boolean;
   onClose: () => void;
 }
 
-/** Companion to Sidebar for viewports below `lg` (1024px) — the sidebar is
- *  `hidden` there entirely, so without this there was NO way to navigate
- *  on a phone/tablet at all except by editing the URL bar. */
 export function MobileDrawer({ open, onClose }: MobileDrawerProps) {
   const location = useLocation();
   const { user } = useAuthStore();
@@ -49,23 +46,26 @@ export function MobileDrawer({ open, onClose }: MobileDrawerProps) {
         </div>
         <nav className="flex-1 overflow-y-auto px-4 py-4">
           <ul className="flex flex-col gap-y-1">
-            {visibleNavigation.map((item) => (
-              <li key={item.name}>
-                <Link
-                  to={item.href}
-                  onClick={onClose}
-                  className={cn(
-                    'flex items-center gap-x-3 rounded-md p-3 text-base font-semibold leading-6 transition-colors min-h-[44px]',
-                    location.pathname === item.href
-                      ? 'bg-primary text-primary-foreground'
-                      : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
-                  )}
-                >
-                  <item.icon className="h-5 w-5 shrink-0" aria-hidden="true" />
-                  {item.name}
-                </Link>
-              </li>
-            ))}
+            {visibleNavigation.map((item) => {
+              const active = isRouteActive(location.pathname, item.href);
+              return (
+                <li key={item.name}>
+                  <Link
+                    to={item.href}
+                    onClick={onClose}
+                    className={cn(
+                      'flex items-center gap-x-3 rounded-md p-3 text-base font-semibold leading-6 transition-colors min-h-[44px]',
+                      active
+                        ? 'bg-primary text-primary-foreground'
+                        : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
+                    )}
+                  >
+                    <item.icon className="h-5 w-5 shrink-0" aria-hidden="true" />
+                    {item.name}
+                  </Link>
+                </li>
+              );
+            })}
           </ul>
         </nav>
       </div>

@@ -2,7 +2,7 @@ import { Link, useLocation } from 'react-router-dom';
 import { Dumbbell } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@store/auth.store';
-import { navigation } from './navigation';
+import { navigation, isRouteActive } from './navigation';
 
 export function Sidebar() {
   const location = useLocation();
@@ -21,22 +21,25 @@ export function Sidebar() {
         </div>
         <nav className="flex flex-1 flex-col">
           <ul role="list" className="flex flex-1 flex-col gap-y-1">
-            {visibleNavigation.map((item) => (
-              <li key={item.name}>
-                <Link
-                  to={item.href}
-                  className={cn(
-                    'group flex gap-x-3 rounded-md p-3 text-sm font-semibold leading-6 transition-colors',
-                    location.pathname === item.href
-                      ? 'bg-primary text-primary-foreground'
-                      : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
-                  )}
-                >
-                  <item.icon className="h-5 w-5 shrink-0" aria-hidden="true" />
-                  {item.name}
-                </Link>
-              </li>
-            ))}
+            {visibleNavigation.map((item) => {
+              const active = isRouteActive(location.pathname, item.href);
+              return (
+                <li key={item.name}>
+                  <Link
+                    to={item.href}
+                    className={cn(
+                      'group flex gap-x-3 rounded-md p-3 text-sm font-semibold leading-6 transition-colors',
+                      active
+                        ? 'bg-primary text-primary-foreground'
+                        : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
+                    )}
+                  >
+                    <item.icon className="h-5 w-5 shrink-0" aria-hidden="true" />
+                    {item.name}
+                  </Link>
+                </li>
+              );
+            })}
           </ul>
         </nav>
       </div>

@@ -735,6 +735,7 @@ model Attendance {
   checkInAt        DateTime
   checkOutAt       DateTime?
   isAutoClosed     Boolean          @default(false) // true when checkOutAt was force-set by the missed-checkout cleanup job, not a real scan
+  autoCloseReason  String?
   duration         Int?
   isLate           Boolean          @default(false)
   lateMinutes      Int?             @default(0)

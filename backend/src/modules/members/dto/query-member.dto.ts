@@ -42,4 +42,9 @@ export class QueryMemberDto {
   @ApiPropertyOptional({ description: 'Filter members whose active membership has expired' })
   @IsOptional()
   expired?: boolean;
+
+  @ApiPropertyOptional({ description: 'Filter members by batch status: NONE or ASSIGNED' })
+  @IsOptional()
+  @IsString()
+  batchStatus?: 'NONE' | 'ASSIGNED';
 }

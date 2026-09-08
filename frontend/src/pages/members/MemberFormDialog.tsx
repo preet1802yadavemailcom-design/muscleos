@@ -70,6 +70,7 @@ export function MemberFormDialog({ open, onOpenChange, member }: MemberFormDialo
     handleSubmit,
     control,
     reset,
+    setError,
     formState: { errors, isSubmitting },
   } = useForm<MemberFormValues>({
     resolver: zodResolver(memberSchema),
@@ -97,11 +98,21 @@ export function MemberFormDialog({ open, onOpenChange, member }: MemberFormDialo
       onOpenChange(false);
     },
     onError: (error: any) => {
+      const msg = error.response?.data?.message || 'Please check the form and try again';
+      const isConflict = error.response?.status === 409;
       toast({
-        title: 'Something went wrong',
-        description: error.response?.data?.message || 'Please check the form and try again',
+        title: isConflict ? 'Duplicate Record' : 'Something went wrong',
+        description: msg,
         variant: 'destructive',
       });
+      if (typeof msg === 'string') {
+        const lower = msg.toLowerCase();
+        if (lower.includes('mobile')) {
+          setError('mobile', { message: msg });
+        } else if (lower.includes('email')) {
+          setError('email', { message: msg });
+        }
+      }
     },
   });
 

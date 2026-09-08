@@ -76,16 +76,8 @@ export function PaymentsPage() {
   if (statusFilter !== 'ALL') queryParams.status = statusFilter;
   if (gatewayFilter !== 'ALL') queryParams.gateway = gatewayFilter;
 
-  if (dateRangeFilter === 'today') {
-    const today = new Date().toISOString().slice(0, 10);
-    queryParams.fromDate = today;
-    queryParams.toDate = today;
-  } else if (dateRangeFilter === 'this_month') {
-    const now = new Date();
-    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
-    const today = now.toISOString().slice(0, 10);
-    queryParams.fromDate = startOfMonth;
-    queryParams.toDate = today;
+  if (dateRangeFilter && dateRangeFilter !== 'ALL') {
+    queryParams.period = dateRangeFilter;
   }
 
   const { data: paymentsRes, isLoading } = useQuery({
@@ -96,6 +88,7 @@ export function PaymentsPage() {
   const rawPayments = paymentsRes?.data ?? paymentsRes;
   const paymentsList = unwrapArray(rawPayments);
   const meta = rawPayments?.meta ?? { total: paymentsList.length, page: 1, totalPages: 1 };
+  const summary = rawPayments?.summary;
 
   const getMethodForGateway = (gw: string) => {
     if (gw === 'CASH') return 'CASH';
@@ -308,6 +301,33 @@ export function PaymentsPage() {
         </Card>
       )}
 
+      {/* Filtered Summary Metrics */}
+      {summary && (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <Card className="p-3.5 bg-card">
+            <p className="text-xs text-muted-foreground font-medium">Total Collected</p>
+            <p className="text-xl font-bold text-emerald-600 mt-1">₹{summary.totalCollected.toLocaleString('en-IN')}</p>
+            {summary.totalRefunded > 0 && (
+              <p className="text-[10px] text-muted-foreground mt-0.5">₹{summary.totalRefunded.toLocaleString('en-IN')} refunded</p>
+            )}
+          </Card>
+          <Card className="p-3.5 bg-card">
+            <p className="text-xs text-muted-foreground font-medium">Net Revenue</p>
+            <p className="text-xl font-bold mt-1">₹{summary.netAmount.toLocaleString('en-IN')}</p>
+          </Card>
+          <Card className="p-3.5 bg-card">
+            <p className="text-xs text-muted-foreground font-medium">Successful</p>
+            <p className="text-xl font-bold text-emerald-600 mt-1">{summary.successfulTransactions}</p>
+            <p className="text-[10px] text-muted-foreground mt-0.5">of {summary.totalTransactions} transactions</p>
+          </Card>
+          <Card className="p-3.5 bg-card">
+            <p className="text-xs text-muted-foreground font-medium">Pending / Failed</p>
+            <p className="text-xl font-bold text-amber-600 mt-1">{summary.pendingTransactions + summary.failedTransactions}</p>
+            <p className="text-[10px] text-muted-foreground mt-0.5">{summary.pendingTransactions} pending, {summary.failedTransactions} failed</p>
+          </Card>
+        </div>
+      )}
+
       {/* Transactions Table with Filters */}
       <Card>
         <CardHeader className="pb-3">
@@ -327,13 +347,18 @@ export function PaymentsPage() {
               </div>
 
               <Select value={dateRangeFilter} onValueChange={(v) => { setDateRangeFilter(v); setPage(1); }}>
-                <SelectTrigger className="w-[115px] h-8 text-xs">
+                <SelectTrigger className="w-[125px] h-8 text-xs">
                   <SelectValue placeholder="Date Range" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="ALL">All Time</SelectItem>
                   <SelectItem value="today">Today</SelectItem>
+                  <SelectItem value="yesterday">Yesterday</SelectItem>
+                  <SelectItem value="this_week">This Week</SelectItem>
+                  <SelectItem value="last_week">Last Week</SelectItem>
                   <SelectItem value="this_month">This Month</SelectItem>
+                  <SelectItem value="last_month">Last Month</SelectItem>
+                  <SelectItem value="this_year">This Year</SelectItem>
                 </SelectContent>
               </Select>
 

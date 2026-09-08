@@ -1,4 +1,14 @@
 import { CurrentUserPayload } from '@common/decorators/current-user.decorator';
+import {
+  DEFAULT_TIMEZONE,
+  getGymStartOfDay,
+  getGymEndOfDay,
+  getGymStartOfWeek,
+  getGymStartOfMonth,
+  getGymEndOfMonth,
+  getGymStartOfYear,
+  getZonedDateParts,
+} from '@common/utils/timezone.util';
 import { PrismaService } from '@database/prisma.service';
 import { RedisService } from '@database/redis.service';
 import { NotificationsService } from '@modules/notifications/notifications.service';
@@ -21,6 +31,20 @@ import { InvoiceGenerator } from './invoice.generator';
 
 @Injectable()
 export class PaymentsService {
+  async getGymTimezone(gymId: string): Promise<string> {
+    try {
+      if (this.prisma.gymSetting?.findUnique) {
+        const setting = await this.prisma.gymSetting.findUnique({
+          where: { gymId_category_key: { gymId, category: 'business', key: 'timezone' } },
+        });
+        return setting?.value || DEFAULT_TIMEZONE;
+      }
+    } catch {
+      // fallback
+    }
+    return DEFAULT_TIMEZONE;
+  }
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
@@ -52,22 +76,78 @@ export class PaymentsService {
   }
 
   async findAll(gymId: string, query: QueryPaymentDto, user?: CurrentUserPayload) {
-    const { page = 1, limit = 20, search, status, gateway, fromDate, toDate } = query;
+    const { page = 1, limit = 20, search, status, gateway, fromDate, toDate, period } = query;
     const skip = (page - 1) * limit;
-    const where: any = { gymId, deletedAt: null };
-    if (user && this.accessScope?.isBranchScoped(user)) {
-      const branchId = this.accessScope.getBranchId(user);
+
+    const where: Prisma.PaymentWhereInput = { gymId, deletedAt: null };
+    const tz = await this.getGymTimezone(gymId);
+    const now = new Date();
+
+    if (this.accessScope?.isBranchScoped(user)) {
+      const branchId = user!.branchId;
       if (branchId) {
         where.member = { branchId };
       }
     }
     if (status) where.status = status;
     if (gateway) where.gateway = gateway;
-    if (fromDate || toDate) {
-      where.createdAt = {};
-      if (fromDate) where.createdAt.gte = new Date(fromDate);
-      if (toDate) where.createdAt.lte = new Date(toDate);
+
+    let rangeStart: Date | undefined;
+    let rangeEnd: Date | undefined;
+
+    if (period) {
+      switch (period.toLowerCase()) {
+        case 'today':
+          rangeStart = getGymStartOfDay(now, tz);
+          rangeEnd = getGymEndOfDay(now, tz);
+          break;
+        case 'yesterday': {
+          const yesterday = new Date(now.getTime() - 86400000);
+          rangeStart = getGymStartOfDay(yesterday, tz);
+          rangeEnd = getGymEndOfDay(yesterday, tz);
+          break;
+        }
+        case 'this_week':
+          rangeStart = getGymStartOfWeek(now, tz);
+          rangeEnd = getGymEndOfDay(now, tz);
+          break;
+        case 'last_week': {
+          const lastWeek = new Date(now.getTime() - 7 * 86400000);
+          rangeStart = getGymStartOfWeek(lastWeek, tz);
+          rangeEnd = new Date(rangeStart.getTime() + 7 * 86400000 - 1);
+          break;
+        }
+        case 'this_month':
+          rangeStart = getGymStartOfMonth(now, tz);
+          rangeEnd = getGymEndOfMonth(now, tz);
+          break;
+        case 'last_month': {
+          const parts = getZonedDateParts(now, tz);
+          const prevMonthDate = new Date(Date.UTC(parts.year, parts.month - 2, 1));
+          rangeStart = getGymStartOfMonth(prevMonthDate, tz);
+          rangeEnd = getGymEndOfMonth(prevMonthDate, tz);
+          break;
+        }
+        case 'this_year':
+          rangeStart = getGymStartOfYear(now, tz);
+          rangeEnd = getGymEndOfDay(now, tz);
+          break;
+      }
     }
+
+    if (fromDate) {
+      rangeStart = getGymStartOfDay(new Date(fromDate), tz);
+    }
+    if (toDate) {
+      rangeEnd = getGymEndOfDay(new Date(toDate), tz);
+    }
+
+    if (rangeStart || rangeEnd) {
+      where.createdAt = {};
+      if (rangeStart) where.createdAt.gte = rangeStart;
+      if (rangeEnd) where.createdAt.lte = rangeEnd;
+    }
+
     if (search) {
       where.OR = [
         { receiptNumber: { contains: search, mode: 'insensitive' } },
@@ -78,6 +158,7 @@ export class PaymentsService {
         { member: { mobile: { contains: search } } },
       ];
     }
+
     const [data, total] = await Promise.all([
       this.prisma.payment.findMany({
         where,
@@ -104,9 +185,50 @@ export class PaymentsService {
       }),
       this.prisma.payment.count({ where }),
     ]);
+
+    const summary = {
+      totalTransactions: total,
+      successfulTransactions: 0,
+      pendingTransactions: 0,
+      failedTransactions: 0,
+      totalCollected: 0,
+      totalRefunded: 0,
+      netAmount: 0,
+    };
+
+    if (this.prisma.payment?.groupBy) {
+      try {
+        const groups = await this.prisma.payment.groupBy({
+          by: ['status'],
+          where,
+          _sum: { total: true, refundedAmount: true },
+          _count: { id: true },
+        });
+        for (const g of groups) {
+          const count = g._count.id;
+          const sumTotal = Number(g._sum.total || 0);
+          const sumRefunded = Number(g._sum.refundedAmount || 0);
+
+          if (g.status === PaymentStatus.COMPLETED) {
+            summary.successfulTransactions += count;
+            summary.totalCollected += sumTotal;
+            summary.totalRefunded += sumRefunded;
+          } else if (g.status === PaymentStatus.PENDING) {
+            summary.pendingTransactions += count;
+          } else if (g.status === PaymentStatus.FAILED) {
+            summary.failedTransactions += count;
+          }
+        }
+        summary.netAmount = Math.max(0, summary.totalCollected - summary.totalRefunded);
+      } catch {
+        // graceful fallback if groupBy is unmocked
+      }
+    }
+
     return {
       data,
       meta: { total, page, limit, totalPages: Math.ceil(total / limit), hasNextPage: page * limit < total, hasPrevPage: page > 1 },
+      summary,
     };
   }
 

@@ -1,10 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { QRCodeCanvas } from 'qrcode.react';
 import {
-  QrCode, XCircle, Camera, CameraOff, LogIn, LogOut, ArrowRight,
-  AlertTriangle, ChevronLeft, ChevronRight, Users, Printer, RefreshCw, Plus,
+  QrCode, XCircle, Camera, CameraOff, LogIn, LogOut,
+  AlertTriangle, ChevronLeft, ChevronRight, Users,
   UserCheck, Search, Calendar, RotateCcw,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -20,7 +19,6 @@ import {
 } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
 import { useAuthStore } from '@store/auth.store';
-import { printQrCode } from '@/lib/qr-print';
 import api from '@services/api';
 
 const HISTORY_PAGE_SIZE = 20;
@@ -49,8 +47,6 @@ export function AttendancePage() {
   const { user } = useAuthStore();
   const role = user?.role;
   const isStaff = !!role && STAFF_ROLES.includes(role);
-  // Only the gym owner (or super admin) can create/regenerate the QR.
-  const canManageQr = role === 'GYM_OWNER' || role === 'SUPER_ADMIN';
 
   const [qrData, setQrData] = useState('');
   const [scanResult, setScanResult] = useState<ScanResult | null>(null);
@@ -138,42 +134,7 @@ export function AttendancePage() {
   // Clean up the camera stream on unmount.
   useEffect(() => stopCamera, [stopCamera]);
 
-  // Staff: the persisted gym QR they display at the entrance.
-  const gymQr = useQuery({
-    queryKey: ['attendance-gym-qr'],
-    queryFn: () => api.get('/branches/default/qr'),
-    enabled: canManageQr,
-  });
 
-  const createQr = useMutation({
-    mutationFn: () => api.get('/branches/default/qr'),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['attendance-gym-qr'] });
-      toast({ title: 'QR code created', description: 'Members can now scan it to check in.' });
-    },
-    onError: (err: any) => {
-      toast({
-        title: 'Could not create QR',
-        description: err.response?.data?.message || 'Please try again.',
-        variant: 'destructive',
-      });
-    },
-  });
-
-  const regenerateQr = useMutation({
-    mutationFn: () => api.post('/branches/default/qr/regenerate'),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['attendance-gym-qr'] });
-      toast({ title: 'QR regenerated', description: 'Old printed copies will no longer work.' });
-    },
-    onError: (err: any) => {
-      toast({
-        title: 'Could not regenerate QR',
-        description: err.response?.data?.message || 'Please try again.',
-        variant: 'destructive',
-      });
-    },
-  });
 
   // Staff: live feed of who's currently in the gym.
   const liveFeed = useQuery({
@@ -411,9 +372,7 @@ export function AttendancePage() {
     return () => { cancelled = true; cancelAnimationFrame(raf); };
   }, [cameraOn, handleScan, stopCamera]);
 
-  const gymQrBody = gymQr.data as any;
-  const gymQrData: string | null = gymQrBody?.data?.qrCodeData ?? null;
-  const gymQrWrapRef = useRef<HTMLDivElement>(null);
+
 
   const live = liveFeed.data as any;
   const liveRecords: any[] = live?.data ?? [];
@@ -452,7 +411,7 @@ export function AttendancePage() {
           <h2 className="text-3xl font-bold tracking-tight">Attendance</h2>
           <p className="text-muted-foreground">
             {isStaff
-              ? 'Display this QR at the entrance, track live attendance, or record manual check-ins'
+              ? 'Track live attendance, monitor gym capacity, and record manual check-ins'
               : 'Scan the gym QR at the entrance to check in / out'}
           </p>
         </div>
@@ -471,84 +430,8 @@ export function AttendancePage() {
       </div>
 
       {isStaff ? (
-        /* ---------- STAFF: gym QR to display + live feed + history ---------- */
+        /* ---------- STAFF: live feed + history ---------- */
         <>
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <QrCode className="h-5 w-5" />
-                Gym Check-in QR
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="flex flex-col items-center gap-4 py-6">
-              {gymQr.isLoading ? (
-                <div className="py-12 text-muted-foreground">Loading...</div>
-              ) : gymQrData ? (
-                <>
-                  <div ref={gymQrWrapRef} className="rounded-2xl border-4 border-primary/20 bg-white p-6">
-                    <QRCodeCanvas value={gymQrData} size={220} level="H" includeMargin />
-                  </div>
-                  <div className="max-w-md text-center">
-                    <p className="text-sm text-muted-foreground">
-                      Put this on a screen at the entrance. Any logged-in member of this gym
-                      who scans it will be checked in or out automatically.
-                    </p>
-                    <p className="mt-2 text-xs text-muted-foreground">
-                      This code is saved to your gym — it stays the same until you regenerate it.
-                    </p>
-                    <a
-                      href="/checkin"
-                      target="_blank"
-                      rel="noreferrer"
-                      className="mt-3 inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline"
-                    >
-                      Open public check-in page <ArrowRight className="h-4 w-4" />
-                    </a>
-                  </div>
-                  <div className="flex gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        const canvas = gymQrWrapRef.current?.querySelector('canvas');
-                        if (canvas) printQrCode(canvas);
-                      }}
-                    >
-                      <Printer className="h-4 w-4 mr-2" /> Print
-                    </Button>
-                    {canManageQr && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => regenerateQr.mutate()}
-                        disabled={regenerateQr.isPending}
-                      >
-                        <RefreshCw className="h-4 w-4 mr-2" />
-                        {regenerateQr.isPending ? 'Regenerating...' : 'Regenerate'}
-                      </Button>
-                    )}
-                  </div>
-                </>
-              ) : canManageQr ? (
-                <div className="flex flex-col items-center gap-3 py-8 text-center">
-                  <QrCode className="h-10 w-10 text-muted-foreground" />
-                  <p className="max-w-sm text-sm text-muted-foreground">
-                    Your gym doesn't have a check-in QR yet. Create one to let members
-                    self check-in by scanning it.
-                  </p>
-                  <Button onClick={() => createQr.mutate()} disabled={createQr.isPending}>
-                    <Plus className="h-4 w-4 mr-2" />
-                    {createQr.isPending ? 'Creating...' : 'Create QR'}
-                  </Button>
-                </div>
-              ) : (
-                <div className="py-8 text-center text-sm text-muted-foreground">
-                  The gym owner hasn't created a check-in QR yet.
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
           <Card id="attendance-live-section">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -799,13 +682,24 @@ export function AttendancePage() {
                             </span>
                           </td>
                           <td className="p-4">
-                            <Badge
-                              variant={
-                                a.isLate ? 'destructive' : a.checkOutAt ? 'secondary' : 'success'
-                              }
-                            >
-                              {a.isLate ? 'Late' : a.checkOutAt ? 'Completed' : 'In gym'}
-                            </Badge>
+                            {a.isAutoClosed ? (
+                              <div className="flex flex-col gap-0.5">
+                                <Badge variant="outline" className="border-amber-500 text-amber-600 bg-amber-50 dark:bg-amber-950/30 text-[11px] w-fit">
+                                  Auto Checkout
+                                </Badge>
+                                <span className="text-[10px] text-muted-foreground">
+                                  {a.autoCloseReason === 'BATCH_END' ? 'Batch ended' : a.autoCloseReason === 'SCHEDULE_END' ? 'Schedule ended' : 'Stale auto-close'}
+                                </span>
+                              </div>
+                            ) : (
+                              <Badge
+                                variant={
+                                  a.isLate ? 'destructive' : a.checkOutAt ? 'secondary' : 'success'
+                                }
+                              >
+                                {a.isLate ? 'Late' : a.checkOutAt ? 'Completed' : 'In gym'}
+                              </Badge>
+                            )}
                           </td>
                         </tr>
                       ))}

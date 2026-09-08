@@ -71,6 +71,7 @@ export function MembersPage() {
 
   const [searchParams, setSearchParams] = useSearchParams();
   const [statusFilter, setStatusFilter] = useState<string>(() => searchParams.get('status') || 'ALL');
+  const [batchFilter, setBatchFilter] = useState<string>('ALL');
 
   useEffect(() => {
     const s = searchParams.get('status');
@@ -84,7 +85,7 @@ export function MembersPage() {
   const { toast } = useToast();
 
   const { data, isLoading } = useQuery({
-    queryKey: ['members', search, page, statusFilter],
+    queryKey: ['members', search, page, statusFilter, batchFilter],
     queryFn: () => {
       const params = new URLSearchParams();
       if (search) params.append('search', search);
@@ -94,6 +95,13 @@ export function MembersPage() {
         params.append('expired', 'true');
       } else if (statusFilter && statusFilter !== 'ALL') {
         params.append('status', statusFilter);
+      }
+      if (batchFilter === 'NONE') {
+        params.append('batchStatus', 'NONE');
+      } else if (batchFilter === 'ASSIGNED') {
+        params.append('batchStatus', 'ASSIGNED');
+      } else if (batchFilter && batchFilter !== 'ALL') {
+        params.append('batchId', batchFilter);
       }
       return api.get(`/members?${params.toString()}`);
     },
@@ -286,6 +294,27 @@ export function MembersPage() {
                     </SelectContent>
                   </Select>
                 </div>
+                <div className="w-48">
+                  <Select
+                    value={batchFilter}
+                    onValueChange={(val) => {
+                      setBatchFilter(val);
+                      setPage(1);
+                    }}
+                  >
+                    <SelectTrigger className="text-sm">
+                      <SelectValue placeholder="All Batches" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="ALL">All Batches</SelectItem>
+                      <SelectItem value="NONE">No Batch (Unassigned)</SelectItem>
+                      <SelectItem value="ASSIGNED">Has Batch</SelectItem>
+                      {batches.map((b: any) => (
+                        <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
             </CardHeader>
             <CardContent>
@@ -324,7 +353,14 @@ export function MembersPage() {
                               {member.batch ? (
                                 <Badge variant="outline">{member.batch.name}</Badge>
                               ) : (
-                                <span className="text-muted-foreground">—</span>
+                                <Badge
+                                  variant="destructive"
+                                  className="cursor-pointer hover:opacity-80 transition-opacity"
+                                  onClick={() => { setEditingMember(member as any); setFormOpen(true); }}
+                                  title="No batch assigned — click to assign batch"
+                                >
+                                  No Batch
+                                </Badge>
                               )}
                             </td>
                             <td className="p-4">

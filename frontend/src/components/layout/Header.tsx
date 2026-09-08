@@ -1,13 +1,22 @@
+import { useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 import { useAuthStore } from '@store/auth.store';
 import { Button } from '@/components/ui/button';
 import { LogOut, User, Bell, Menu } from 'lucide-react';
+import { getRouteTitle, updateDocumentTitle } from '@/lib/route-metadata';
 
 interface HeaderProps {
   onMenuClick: () => void;
 }
 
 export function Header({ onMenuClick }: HeaderProps) {
+  const location = useLocation();
   const { user, logout } = useAuthStore();
+  const title = getRouteTitle(location.pathname);
+
+  useEffect(() => {
+    updateDocumentTitle(title);
+  }, [title]);
 
   return (
     <header className="sticky top-0 z-40 border-b bg-background px-4 sm:px-6 py-3">
@@ -22,10 +31,10 @@ export function Header({ onMenuClick }: HeaderProps) {
           >
             <Menu className="h-5 w-5" />
           </Button>
-          <h1 className="text-xl sm:text-2xl font-bold tracking-tight truncate">Dashboard</h1>
+          <h1 className="text-xl sm:text-2xl font-bold tracking-tight truncate">{title}</h1>
         </div>
         <div className="flex items-center gap-2 sm:gap-4 shrink-0">
-          <Button variant="ghost" size="icon">
+          <Button variant="ghost" size="icon" aria-label="Notifications">
             <Bell className="h-5 w-5" />
           </Button>
           <div className="flex items-center gap-2">
@@ -37,7 +46,7 @@ export function Header({ onMenuClick }: HeaderProps) {
               <p className="text-xs text-muted-foreground capitalize">{user?.role}</p>
             </div>
           </div>
-          <Button variant="ghost" size="icon" onClick={logout}>
+          <Button variant="ghost" size="icon" onClick={logout} aria-label="Sign out">
             <LogOut className="h-5 w-5" />
           </Button>
         </div>

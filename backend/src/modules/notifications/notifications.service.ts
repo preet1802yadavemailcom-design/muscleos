@@ -548,7 +548,7 @@ export class NotificationsService {
       // eslint-disable-next-line no-await-in-loop
       await this.prisma.attendance.update({
         where: { id: session.id },
-        data: { checkOutAt: staleCutoff, duration: durationMinutes, isAutoClosed: true },
+        data: { checkOutAt: staleCutoff, duration: durationMinutes, isAutoClosed: true, autoCloseReason: 'STALE_SESSION' },
       });
     }
     this.logger.log(`Force-closed ${stale.length} stale attendance session(s) (missed checkout)`, 'NotificationsService');

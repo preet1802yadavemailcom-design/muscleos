@@ -1,3 +1,19 @@
+
+function normalizeMobile(mobile?: string | null): string | null {
+  if (!mobile) return null;
+  const digits = mobile.replace(/\D/g, '');
+  if (digits.length === 12 && digits.startsWith('91')) {
+    return digits.slice(2);
+  }
+  return digits.length > 0 ? digits : null;
+}
+
+function normalizeEmail(email?: string | null): string | null {
+  if (!email) return null;
+  const trimmed = email.trim().toLowerCase();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
 import { randomUUID, randomBytes } from 'crypto';
 
 import { CurrentUserPayload } from '@common/decorators/current-user.decorator';
@@ -40,6 +56,11 @@ export class MembersService {
     }
     if (status) where.status = status;
     if (batchId) where.batchId = batchId;
+    if (query.batchStatus === 'NONE') {
+      where.batchId = null;
+    } else if (query.batchStatus === 'ASSIGNED') {
+      where.batchId = { not: null };
+    }
     if (trainerId) where.trainerId = trainerId;
     if (expired) {
       where.currentMembership = { is: { endDate: { lt: new Date() } } };
@@ -258,11 +279,36 @@ export class MembersService {
   }
 
   async create(gymId: string, dto: CreateMemberDto, user?: CurrentUserPayload) {
-    if (dto.mobile) {
-      const duplicate = await this.prisma.member.findFirst({
-        where: { gymId, mobile: dto.mobile, deletedAt: null },
+    const cleanMobile = normalizeMobile(dto.mobile);
+    if (cleanMobile) {
+      const duplicateMobile = await this.prisma.member.findFirst({
+        where: {
+          gymId,
+          deletedAt: null,
+          OR: [
+            { mobile: cleanMobile },
+            { mobile: dto.mobile },
+            { mobile: `+91${cleanMobile}` },
+          ],
+        },
       });
-      if (duplicate) throw new BadRequestException('A member with this mobile number already exists');
+      if (duplicateMobile) {
+        throw new ConflictException('Mobile number is already registered.');
+      }
+    }
+
+    const cleanEmail = normalizeEmail(dto.email);
+    if (cleanEmail) {
+      const duplicateEmail = await this.prisma.member.findFirst({
+        where: {
+          gymId,
+          deletedAt: null,
+          email: { equals: cleanEmail, mode: 'insensitive' },
+        },
+      });
+      if (duplicateEmail) {
+        throw new ConflictException('Email address is already registered.');
+      }
     }
 
     if (this.accessScope?.isBranchScoped(user)) {
@@ -369,11 +415,38 @@ export class MembersService {
       if (!trainer) throw new ForbiddenException('This trainer does not belong to your gym.');
     }
 
-    if (dto.mobile && dto.mobile !== existing.mobile) {
-      const duplicate = await this.prisma.member.findFirst({
-        where: { gymId, mobile: dto.mobile, deletedAt: null, id: { not: id } },
+    const cleanMobile = normalizeMobile(dto.mobile);
+    if (cleanMobile && dto.mobile !== existing.mobile) {
+      const duplicateMobile = await this.prisma.member.findFirst({
+        where: {
+          gymId,
+          deletedAt: null,
+          id: { not: id },
+          OR: [
+            { mobile: cleanMobile },
+            { mobile: dto.mobile },
+            { mobile: `+91${cleanMobile}` },
+          ],
+        },
       });
-      if (duplicate) throw new BadRequestException('A member with this mobile number already exists');
+      if (duplicateMobile) {
+        throw new ConflictException('Mobile number is already registered.');
+      }
+    }
+
+    const cleanEmail = normalizeEmail(dto.email);
+    if (cleanEmail && dto.email !== existing.email) {
+      const duplicateEmail = await this.prisma.member.findFirst({
+        where: {
+          gymId,
+          deletedAt: null,
+          id: { not: id },
+          email: { equals: cleanEmail, mode: 'insensitive' },
+        },
+      });
+      if (duplicateEmail) {
+        throw new ConflictException('Email address is already registered.');
+      }
     }
 
     const member = await this.prisma.member.update({

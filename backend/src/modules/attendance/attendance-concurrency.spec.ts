@@ -87,6 +87,44 @@ describe('AttendanceCoreService Concurrency & Safety', () => {
       expect(prisma.attendance.create).not.toHaveBeenCalled();
     });
 
+    it('allows check-in to a different batch on the same day after previous batch session is completed', async () => {
+      prisma.attendance.findFirst
+        .mockResolvedValueOnce({
+          id: 'completed-morning-1',
+          memberId: validMember.id,
+          batchId: 'batch-morning',
+          checkInAt: new Date(Date.now() - 4 * 3600000),
+          checkOutAt: new Date(Date.now() - 2 * 3600000),
+        })
+        .mockResolvedValueOnce(null);
+
+      prisma.attendance.create.mockResolvedValueOnce({
+        id: 'new-evening-att-1',
+        memberId: validMember.id,
+        batchId: 'batch-evening',
+        type: 'CHECK_IN',
+        status: 'PRESENT',
+        checkInAt: new Date(),
+        checkOutAt: null,
+      });
+
+      const eveningMember = {
+        ...validMember,
+        batchId: 'batch-evening',
+        batch: { id: 'batch-evening', name: 'Evening Batch', days: [] },
+      };
+
+      const input: any = {
+        member: eveningMember,
+        gymId: 'gym-1',
+        source: 'SELF',
+      };
+
+      const result = await core.recordScan(input);
+      expect(result.id).toBe('new-evening-att-1');
+      expect(prisma.attendance.create).toHaveBeenCalled();
+    });
+
     it('rejects check-in immediately if member has no currentMembership', async () => {
       const input: any = {
         member: { ...validMember, currentMembership: null },

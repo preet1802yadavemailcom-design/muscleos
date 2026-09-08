@@ -13,6 +13,7 @@ export interface NavItem {
 
 export const navigation: NavItem[] = [
   { name: 'Dashboard', href: '/', icon: LayoutDashboard },
+  { name: 'Reception', href: '/reception', icon: UserCog, roles: ['GYM_OWNER', 'RECEPTIONIST'] },
   { name: 'Platform', href: '/super-admin', icon: Building2, roles: ['SUPER_ADMIN'] },
   { name: 'Organizations', href: '/super-admin/organizations', icon: Building2, roles: ['SUPER_ADMIN'] },
   { name: 'Platform Plans', href: '/super-admin/plans', icon: CreditCard, roles: ['SUPER_ADMIN'] },
@@ -24,7 +25,6 @@ export const navigation: NavItem[] = [
   { name: 'Memberships', href: '/memberships', icon: RefreshCcw, roles: ['SUPER_ADMIN', 'GYM_OWNER', 'RECEPTIONIST'] },
   { name: 'Payments', href: '/payments', icon: CreditCard, roles: ['SUPER_ADMIN', 'GYM_OWNER', 'RECEPTIONIST'] },
   { name: 'Pending UPI', href: '/payments/pending-upi', icon: Wallet, roles: ['GYM_OWNER', 'RECEPTIONIST'] },
-  { name: 'Reception', href: '/reception', icon: UserCog, roles: ['GYM_OWNER', 'RECEPTIONIST'] },
   { name: 'Reports', href: '/reports', icon: BarChart3, roles: ['SUPER_ADMIN', 'GYM_OWNER'] },
   { name: 'Notifications', href: '/notifications', icon: Bell, roles: ['SUPER_ADMIN', 'GYM_OWNER'] },
   { name: 'Support', href: '/support', icon: LifeBuoy, roles: ['SUPER_ADMIN', 'GYM_OWNER', 'TRAINER', 'RECEPTIONIST', 'MEMBER'] },
@@ -33,15 +33,27 @@ export const navigation: NavItem[] = [
   { name: 'My Fitness', href: '/my/fitness', icon: Dumbbell, roles: ['MEMBER'] },
 ];
 
-/** Member-facing PWA gets a focused bottom nav instead of the full admin
- *  sidebar — 4 items max keeps touch targets comfortable at 375px. */
-/** Member-facing PWA gets a focused bottom nav instead of the full admin
- *  sidebar — 4 items keeps touch targets comfortable at 375px. All four
- *  routes now exist and are MEMBER-accessible (see App.tsx): profile is
- *  open to any role, membership/payments are MEMBER-only via RoleRoute. */
 export const memberBottomNav: NavItem[] = [
   { name: 'Home', href: '/', icon: LayoutDashboard },
   { name: 'Scan', href: '/attendance', icon: QrCode },
   { name: 'Membership', href: '/my/membership', icon: RefreshCcw },
   { name: 'Profile', href: '/my/profile', icon: Settings },
 ];
+
+/**
+ * Robust active route detection supporting parent route matching
+ * (e.g. /members/123 highlights Members) and nested subroutes.
+ */
+export function isRouteActive(pathname: string, href: string): boolean {
+  if (href === '/') {
+    return pathname === '/';
+  }
+  if (pathname === href) {
+    return true;
+  }
+  // Sub-route priority: /payments/pending-upi should not activate /payments
+  if (href === '/payments' && pathname.startsWith('/payments/pending-upi')) {
+    return false;
+  }
+  return pathname.startsWith(href + '/');
+}

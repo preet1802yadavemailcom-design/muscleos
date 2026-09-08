@@ -1,4 +1,4 @@
-import { getZonedDateParts, parseGymTimeToDate, getGymStartOfDay, getGymEndOfDay } from '@common/utils/timezone.util';
+import { DEFAULT_TIMEZONE, getZonedDateParts, parseGymTimeToDate, getGymStartOfDay, getGymEndOfDay } from '@common/utils/timezone.util';
 import { PrismaService } from '@database/prisma.service';
 import { RedisService } from '@database/redis.service';
 import { Injectable, BadRequestException, ForbiddenException } from '@nestjs/common';
@@ -49,6 +49,21 @@ export class AttendanceCoreService {
     private readonly audit: AuditService,
     private readonly redis: RedisService,
   ) {}
+
+  async getGymTimezone(gymId: string): Promise<string> {
+    try {
+      if (this.prisma.gymSetting?.findUnique) {
+        const setting = await this.prisma.gymSetting.findUnique({
+          where: { gymId_category_key: { gymId, category: 'business', key: 'timezone' } },
+        });
+        return setting?.value || DEFAULT_TIMEZONE;
+      }
+    } catch {
+      // fallback
+    }
+    return DEFAULT_TIMEZONE;
+  }
+
 
   async recordScan(input: RecordScanInput) {
     const { member } = input;
@@ -109,9 +124,10 @@ export class AttendanceCoreService {
   private async attemptCheckIn(input: RecordScanInput) {
     const { member, gymId, branchId, source, performedBy, deviceType, location, latitude, longitude } = input;
     const now = new Date();
+    const tz = await this.getGymTimezone(gymId);
 
-    const startOfDay = getGymStartOfDay(now);
-    const endOfDay = getGymEndOfDay(now);
+    const startOfDay = getGymStartOfDay(now, tz);
+    const endOfDay = getGymEndOfDay(now, tz);
 
     const latestToday = await this.prisma.attendance.findFirst({
       where: {
@@ -123,17 +139,32 @@ export class AttendanceCoreService {
     });
 
     if (latestToday) {
-      if (latestToday.checkOutAt) {
+      if (latestToday.checkOutAt && (!latestToday.batchId || latestToday.batchId === member.batchId)) {
         throw new BadRequestException('Attendance already completed for today.');
       }
       const secondsSince = (now.getTime() - latestToday.checkInAt.getTime()) / 1000;
-      if (secondsSince < 5) {
+      if (secondsSince < DUPLICATE_SCAN_WINDOW_SECONDS) {
         throw new BadRequestException('Duplicate scan — please wait a moment before scanning again');
       }
     }
 
-    this.assertBatchRunsToday(member, now);
-    const { isLate, lateMinutes } = this.computeLateness(member, now);
+    if (latestToday && latestToday.batchId && latestToday.batchId !== member.batchId) {
+      const sameBatchCompleted = await this.prisma.attendance.findFirst({
+        where: {
+          memberId: member.id,
+          gymId,
+          batchId: member.batchId,
+          checkInAt: { gte: startOfDay, lte: endOfDay },
+          checkOutAt: { not: null },
+        },
+      });
+      if (sameBatchCompleted) {
+        throw new BadRequestException('Attendance already completed for today.');
+      }
+    }
+
+    this.assertBatchRunsToday(member, now, tz);
+    const { isLate, lateMinutes } = this.computeLateness(member, now, tz);
 
     const attendance = await this.prisma.attendance.create({
       data: {
@@ -227,7 +258,8 @@ export class AttendanceCoreService {
 
     const now = new Date();
     const durationMinutes = Math.round((now.getTime() - open.checkInAt.getTime()) / 60000);
-    const isEarlyLeave = this.computeEarlyLeave(member, open.checkInAt, now);
+    const tz = await this.getGymTimezone(gymId);
+    const isEarlyLeave = this.computeEarlyLeave(member, open.checkInAt, now, tz);
 
     // Atomic guard: only succeeds if checkOutAt is STILL null at write time.
     // Prevents two concurrent checkout requests from both updating the same
@@ -264,7 +296,7 @@ export class AttendanceCoreService {
   }
 
   /** Blocks check-in on a day the member's fixed batch doesn't run at all (not just late/early). */
-  private assertBatchRunsToday(member: any, now: Date): void {
+  private assertBatchRunsToday(member: any, now: Date, timeZone: string = DEFAULT_TIMEZONE): void {
     if (!member.batch?.days?.length) return;
     // Days are stored as 3-letter codes (MON, WED, ...) per CreateBatchDto, but
     // getZonedDateParts returns full weekday names (e.g. 'SUNDAY') — normalize both sides.
@@ -272,7 +304,7 @@ export class AttendanceCoreService {
       SUNDAY: 'SUN', MONDAY: 'MON', TUESDAY: 'TUE', WEDNESDAY: 'WED',
       THURSDAY: 'THU', FRIDAY: 'FRI', SATURDAY: 'SAT',
     };
-    const parts = getZonedDateParts(now);
+    const parts = getZonedDateParts(now, timeZone);
     const todayName = parts.weekday;
     const todayCode = DAY_CODES[todayName] || todayName;
     const normalizedDays = (member.batch.days as string[]).map((d) => d.trim().toUpperCase());
@@ -282,18 +314,18 @@ export class AttendanceCoreService {
     }
   }
 
-  private computeLateness(member: any, now: Date): { isLate: boolean; lateMinutes: number } {
+  private computeLateness(member: any, now: Date, timeZone: string = DEFAULT_TIMEZONE): { isLate: boolean; lateMinutes: number } {
     if (!member.batch?.startTime) return { isLate: false, lateMinutes: 0 };
-    const batchStart = parseGymTimeToDate(member.batch.startTime, now);
+    const batchStart = parseGymTimeToDate(member.batch.startTime, now, timeZone);
     const diffMinutes = (now.getTime() - batchStart.getTime()) / 60000;
     return diffMinutes > LATE_GRACE_MINUTES
       ? { isLate: true, lateMinutes: Math.round(diffMinutes) }
       : { isLate: false, lateMinutes: 0 };
   }
 
-  private computeEarlyLeave(member: any, checkInAt: Date, now: Date): boolean {
+  private computeEarlyLeave(member: any, checkInAt: Date, now: Date, timeZone: string = DEFAULT_TIMEZONE): boolean {
     if (!member.batch?.endTime) return false;
-    const batchEnd = parseGymTimeToDate(member.batch.endTime, checkInAt);
+    const batchEnd = parseGymTimeToDate(member.batch.endTime, checkInAt, timeZone);
     return now < batchEnd;
   }
 
@@ -326,6 +358,8 @@ export class AttendanceCoreService {
       isLate: attendance.isLate,
       lateMinutes: attendance.lateMinutes,
       isEarlyLeave: attendance.isEarlyLeave,
+      isAutoClosed: attendance.isAutoClosed,
+      autoCloseReason: attendance.autoCloseReason,
       member: {
         id: member.id,
         name: `${member.firstName} ${member.lastName}`,

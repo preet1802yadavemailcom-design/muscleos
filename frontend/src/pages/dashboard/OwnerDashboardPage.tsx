@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Users, UserCheck, DollarSign, TrendingUp, Download, QrCode } from 'lucide-react';
+import { Users, UserCheck, DollarSign, TrendingUp, Download, QrCode, AlertCircle, RefreshCw } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -60,6 +60,7 @@ export function OwnerDashboardPage() {
   const [batchStats, setBatchStats] = useState<BatchStat[]>([]);
   const [activity, setActivity] = useState<ActivityItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [qrOpen, setQrOpen] = useState(false);
 
   // Drill-down dialog state
@@ -75,6 +76,7 @@ export function OwnerDashboardPage() {
 
   async function fetchDashboard() {
     try {
+      setError(null);
       const [statsRes, analyticsRes, batchRes, activityRes]: any = await Promise.all([
         api.get('/gyms/me/dashboard/stats'),
         api.get('/gyms/me/dashboard/analytics'),
@@ -87,8 +89,8 @@ export function OwnerDashboardPage() {
       setBatchStats(batchRes.data ?? []);
       const activityData = Array.isArray(activityRes.data) ? activityRes.data : [];
       setActivity(activityData.slice(0, 5));
-    } catch (err) {
-      // gracefully render empty state if endpoint/data unavailable
+    } catch (err: any) {
+      setError(err?.response?.data?.message || err?.message || 'Failed to load dashboard metrics. Please check your connection and try again.');
     } finally {
       setLoading(false);
     }
@@ -121,6 +123,18 @@ export function OwnerDashboardPage() {
 
   return (
     <div className="space-y-6">
+      {error && (
+        <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-2 text-destructive font-medium text-sm">
+            <AlertCircle className="h-4 w-4 shrink-0" />
+            <span>{error}</span>
+          </div>
+          <Button variant="outline" size="sm" onClick={() => fetchDashboard()} className="shrink-0 text-xs">
+            <RefreshCw className="h-3.5 w-3.5 mr-1" />
+            Retry
+          </Button>
+        </div>
+      )}
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-3xl font-bold tracking-tight">Gym Overview</h2>

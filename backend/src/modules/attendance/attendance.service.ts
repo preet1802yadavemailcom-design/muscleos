@@ -3,9 +3,11 @@ import { randomUUID } from 'crypto';
 import { CurrentUserPayload } from '@common/decorators/current-user.decorator';
 import { distanceMeters } from '@common/utils/geo.util';
 import { PrismaService } from '@database/prisma.service';
+import { RedisService } from '@database/redis.service';
 import { QrService } from '@modules/qr/qr.service';
+import { Cron } from '@nestjs/schedule';
 import { Injectable, BadRequestException, NotFoundException, ForbiddenException, UnauthorizedException, Optional } from '@nestjs/common';
-import { MembershipPlan, MembershipStatus, UserStatus, UserRole, Prisma } from '@prisma/client';
+import { AttendanceType, MembershipPlan, MembershipStatus, UserStatus, UserRole, Prisma } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
 import { AccessScopeService } from '@shared/services/access-scope.service';
 import { AuditService } from '@shared/services/audit.service';
@@ -34,6 +36,7 @@ export class AttendanceService {
     private readonly qr: QrService,
     private readonly sequence: SequenceService,
     @Optional() private readonly accessScope?: AccessScopeService,
+    @Optional() private readonly redis?: RedisService,
   ) {}
 
   /**
@@ -702,4 +705,130 @@ export class AttendanceService {
       include: { member: { select: { id: true, firstName: true, lastName: true, mobile: true } } },
     });
   }
+
+  /**
+   * Schedule-aware automatic checkout.
+   * Scans open attendance sessions (checkOutAt is null) and automatically checks out:
+   * 1. Sessions whose assigned batch endTime has passed (in gym timezone), setting
+   *    checkOutAt to the scheduled batch endTime with autoCloseReason = 'BATCH_END'.
+   * 2. Stale sessions open for > 12 hours with autoCloseReason = 'STALE_SESSION'.
+   * Uses atomic updateMany to avoid race conditions and publishes Redis SSE events.
+   */
+  async autoCheckoutOpenSessions(targetGymId?: string): Promise<{ closedCount: number }> {
+    const now = new Date();
+    const openSessions = await this.prisma.attendance.findMany({
+      where: {
+        checkOutAt: null,
+        ...(targetGymId ? { gymId: targetGymId } : {}),
+      },
+      include: {
+        batch: true,
+        member: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            memberCode: true,
+            photo: true,
+          },
+        },
+      },
+    });
+
+    if (!openSessions.length) {
+      return { closedCount: 0 };
+    }
+
+    let closedCount = 0;
+    const tzCache = new Map<string, string>();
+
+    for (const session of openSessions) {
+      let tz = tzCache.get(session.gymId);
+      if (!tz) {
+        tz = await this.getGymTimezone(session.gymId);
+        tzCache.set(session.gymId, tz);
+      }
+
+      let shouldClose = false;
+      let checkOutTime: Date | null = null;
+      let reason = 'BATCH_END';
+
+      if (session.batch?.endTime) {
+        const scheduledBatchEnd = parseGymTimeToDate(session.batch.endTime, session.checkInAt, tz);
+        // Handle midnight-crossing batches
+        if (scheduledBatchEnd < session.checkInAt) {
+          scheduledBatchEnd.setDate(scheduledBatchEnd.getDate() + 1);
+        }
+        if (now >= scheduledBatchEnd) {
+          shouldClose = true;
+          checkOutTime = scheduledBatchEnd;
+          reason = 'BATCH_END';
+        }
+      } else {
+        // Fallback for sessions without batch end time: close if open for > 12h
+        const staleCutoffMs = 12 * 60 * 60 * 1000;
+        if (now.getTime() - session.checkInAt.getTime() >= staleCutoffMs) {
+          shouldClose = true;
+          checkOutTime = new Date(session.checkInAt.getTime() + staleCutoffMs);
+          reason = 'STALE_SESSION';
+        }
+      }
+
+      // Secondary stale session sweep: even with batch, if open for > 16 hours
+      if (!shouldClose) {
+        const hardStaleMs = 16 * 60 * 60 * 1000;
+        if (now.getTime() - session.checkInAt.getTime() >= hardStaleMs) {
+          shouldClose = true;
+          checkOutTime = new Date(session.checkInAt.getTime() + 12 * 60 * 60 * 1000);
+          reason = 'STALE_SESSION';
+        }
+      }
+
+      if (shouldClose && checkOutTime) {
+        const durationMinutes = Math.max(0, Math.round((checkOutTime.getTime() - session.checkInAt.getTime()) / 60000));
+        const { count } = await this.prisma.attendance.updateMany({
+          where: { id: session.id, checkOutAt: null },
+          data: {
+            checkOutAt: checkOutTime,
+            duration: durationMinutes,
+            isAutoClosed: true,
+            autoCloseReason: reason,
+            type: AttendanceType.CHECK_OUT,
+          },
+        });
+
+        if (count > 0) {
+          closedCount++;
+          if (this.redis?.publish) {
+            this.redis.publish(`attendance:${session.gymId}`, JSON.stringify({
+              id: session.id,
+              type: 'CHECK_OUT',
+              status: session.status,
+              checkInAt: session.checkInAt,
+              checkOutAt: checkOutTime,
+              duration: durationMinutes,
+              isLate: session.isLate,
+              lateMinutes: session.lateMinutes,
+              isEarlyLeave: false,
+              isAutoClosed: true,
+              autoCloseReason: reason,
+              member: session.member,
+            })).catch(() => undefined);
+          }
+        }
+      }
+    }
+
+    return { closedCount };
+  }
+
+  @Cron('*/10 * * * *')
+  async autoCheckoutOpenSessionsCron() {
+    if (this.redis?.setNx) {
+      const locked = await this.redis.setNx('cron:auto_checkout_open_sessions', 'locked', 300);
+      if (!locked) return;
+    }
+    await this.autoCheckoutOpenSessions();
+  }
+
 }
