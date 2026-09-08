@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { QRCodeCanvas } from 'qrcode.react';
 import {
@@ -81,6 +82,27 @@ export function AttendancePage() {
   const [filterTimeSlot, setFilterTimeSlot] = useState<'ALL' | 'MORNING' | 'LATE_MORNING' | 'EVENING' | 'NIGHT'>('ALL');
   const [filterSearch, setFilterSearch] = useState('');
   const [debouncedFilterSearch, setDebouncedFilterSearch] = useState('');
+
+  const [searchParams] = useSearchParams();
+
+  useEffect(() => {
+    const dateParam = searchParams.get('date');
+    const statusParam = searchParams.get('status');
+
+    if (dateParam === 'today') {
+      setFilterPeriod('DAY');
+      setFilterDate(new Date().toISOString().slice(0, 10));
+      setTimeout(() => {
+        const el = document.getElementById('attendance-history-section');
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 150);
+    } else if (statusParam === 'OPEN') {
+      setTimeout(() => {
+        const el = document.getElementById('attendance-live-section');
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 150);
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedManualSearch(manualSearch.trim()), 300);
@@ -527,7 +549,7 @@ export function AttendancePage() {
             </CardContent>
           </Card>
 
-          <Card>
+          <Card id="attendance-live-section">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Users className="h-5 w-5" />
@@ -563,7 +585,7 @@ export function AttendancePage() {
             </CardContent>
           </Card>
 
-          <Card>
+          <Card id="attendance-history-section">
             <CardHeader className="space-y-4">
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                 <CardTitle className="flex items-center gap-2">

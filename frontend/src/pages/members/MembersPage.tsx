@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useMemo, useState, useEffect } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Plus, Search, Edit, Trash2, QrCode, Download, ChevronLeft, ChevronRight,
@@ -69,12 +69,34 @@ export function MembersPage() {
   const [rejectionReason, setRejectionReason] = useState<string>('');
   const [exporting, setExporting] = useState(false);
 
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [statusFilter, setStatusFilter] = useState<string>(() => searchParams.get('status') || 'ALL');
+
+  useEffect(() => {
+    const s = searchParams.get('status');
+    if (s) {
+      setStatusFilter(s);
+      setPage(1);
+    }
+  }, [searchParams]);
+
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
   const { data, isLoading } = useQuery({
-    queryKey: ['members', search, page],
-    queryFn: () => api.get(`/members?search=${encodeURIComponent(search)}&page=${page}&limit=${PAGE_SIZE}`),
+    queryKey: ['members', search, page, statusFilter],
+    queryFn: () => {
+      const params = new URLSearchParams();
+      if (search) params.append('search', search);
+      params.append('page', String(page));
+      params.append('limit', String(PAGE_SIZE));
+      if (statusFilter === 'EXPIRED') {
+        params.append('expired', 'true');
+      } else if (statusFilter && statusFilter !== 'ALL') {
+        params.append('status', statusFilter);
+      }
+      return api.get(`/members?${params.toString()}`);
+    },
   });
 
   const { data: pendingData, isLoading: pendingLoading } = useQuery({
@@ -228,14 +250,42 @@ export function MembersPage() {
         {activeTab === 'all' ? (
           <>
             <CardHeader>
-              <div className="flex items-center gap-4">
-                <Search className="h-4 w-4 text-muted-foreground" />
-                <Input
-                  placeholder="Search members by name, code, phone..."
-                  value={search}
-                  onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-                  className="max-w-sm"
-                />
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-4">
+                <div className="relative flex-1 max-w-sm">
+                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    placeholder="Search members by name, code, phone..."
+                    value={search}
+                    onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+                    className="pl-9"
+                  />
+                </div>
+                <div className="w-48">
+                  <Select
+                    value={statusFilter}
+                    onValueChange={(val) => {
+                      setStatusFilter(val);
+                      setPage(1);
+                      if (val === 'ALL') {
+                        searchParams.delete('status');
+                      } else {
+                        searchParams.set('status', val);
+                      }
+                      setSearchParams(searchParams, { replace: true });
+                    }}
+                  >
+                    <SelectTrigger className="text-sm">
+                      <SelectValue placeholder="All Statuses" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="ALL">All Statuses</SelectItem>
+                      <SelectItem value="ACTIVE">Active</SelectItem>
+                      <SelectItem value="INACTIVE">Inactive</SelectItem>
+                      <SelectItem value="EXPIRED">Expired Membership</SelectItem>
+                      <SelectItem value="SUSPENDED">Suspended</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
             </CardHeader>
             <CardContent>

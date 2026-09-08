@@ -1,4 +1,4 @@
-import { CurrentUser } from '@common/decorators/current-user.decorator';
+import { CurrentUser, CurrentUserPayload } from '@common/decorators/current-user.decorator';
 import { GymId } from '@common/decorators/gym-id.decorator';
 import { Public } from '@common/decorators/public.decorator';
 import { Roles } from '@common/decorators/roles.decorator';
@@ -8,7 +8,7 @@ import { Controller, Get, Post, Put, Body, Query, UseGuards } from '@nestjs/comm
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiQuery } from '@nestjs/swagger';
 import { UserRole } from '@prisma/client';
 
-import { RegisterGymDto, UpdateGymProfileDto } from './dto';
+import { RegisterGymDto, UpdateGymProfileDto, DashboardDrillDownDto } from './dto';
 import { GymsService } from './gyms.service';
 
 @ApiTags('Gyms')
@@ -25,7 +25,7 @@ export class GymsController {
 
   @Get('me')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.GYM_OWNER)
+  @Roles(UserRole.GYM_OWNER, UserRole.SUPER_ADMIN)
   @ApiBearerAuth('access-token')
   @ApiOperation({ summary: "Get the logged-in owner's gym profile" })
   async getProfile(@GymId() gymId: string) {
@@ -34,7 +34,7 @@ export class GymsController {
 
   @Put('me')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.GYM_OWNER)
+  @Roles(UserRole.GYM_OWNER, UserRole.SUPER_ADMIN)
   @ApiBearerAuth('access-token')
   @ApiOperation({ summary: 'Update gym profile (name, address, facilities, logo, timings, tax details)' })
   async updateProfile(@GymId() gymId: string, @Body() dto: UpdateGymProfileDto, @CurrentUser('userId') userId: string) {
@@ -43,16 +43,29 @@ export class GymsController {
 
   @Get('me/dashboard/stats')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.GYM_OWNER)
+  @Roles(UserRole.GYM_OWNER, UserRole.SUPER_ADMIN, UserRole.RECEPTIONIST, UserRole.TRAINER)
   @ApiBearerAuth('access-token')
   @ApiOperation({ summary: 'Members, attendance, batches, revenue snapshot' })
-  async dashboardStats(@GymId() gymId: string) {
-    return this.service.dashboardStats(gymId);
+  async dashboardStats(@GymId() gymId: string, @CurrentUser() user: CurrentUserPayload) {
+    return this.service.dashboardStats(gymId, user);
+  }
+
+  @Get('me/dashboard/drill-down')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.GYM_OWNER, UserRole.SUPER_ADMIN, UserRole.RECEPTIONIST, UserRole.TRAINER)
+  @ApiBearerAuth('access-token')
+  @ApiOperation({ summary: 'Paginated live drill-down records for any dashboard KPI metric' })
+  async dashboardDrillDown(
+    @GymId() gymId: string,
+    @Query() query: DashboardDrillDownDto,
+    @CurrentUser() user: CurrentUserPayload,
+  ) {
+    return this.service.dashboardDrillDown(gymId, query, user);
   }
 
   @Get('me/dashboard/analytics')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.GYM_OWNER)
+  @Roles(UserRole.GYM_OWNER, UserRole.SUPER_ADMIN, UserRole.RECEPTIONIST)
   @ApiBearerAuth('access-token')
   @ApiOperation({ summary: 'Revenue + attendance trend for dashboard charts' })
   @ApiQuery({ name: 'days', required: false, type: Number })
@@ -62,7 +75,7 @@ export class GymsController {
 
   @Get('me/dashboard/batch-stats')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.GYM_OWNER)
+  @Roles(UserRole.GYM_OWNER, UserRole.SUPER_ADMIN, UserRole.RECEPTIONIST, UserRole.TRAINER)
   @ApiBearerAuth('access-token')
   @ApiOperation({ summary: 'Per-batch member count, seat utilization, and attendance' })
   async batchStats(@GymId() gymId: string) {
@@ -71,9 +84,9 @@ export class GymsController {
 
   @Get('me/dashboard/recent-activity')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.GYM_OWNER)
+  @Roles(UserRole.GYM_OWNER, UserRole.SUPER_ADMIN, UserRole.RECEPTIONIST)
   @ApiBearerAuth('access-token')
-  @ApiOperation({ summary: 'Recent activity feed for this gym' })
+  @ApiOperation({ summary: 'Recent activity feed (latest audit logs)' })
   @ApiQuery({ name: 'limit', required: false, type: Number })
   async recentActivity(@GymId() gymId: string, @Query('limit') limit?: string) {
     return this.service.recentActivity(gymId, limit ? Number(limit) : undefined);

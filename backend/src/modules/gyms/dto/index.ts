@@ -67,3 +67,5 @@ export class UpdateGymProfileDto {
   @ApiPropertyOptional() @IsOptional() @IsString() gstNumber?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() panNumber?: string;
 }
+
+export * from './dashboard-drill-down.dto';

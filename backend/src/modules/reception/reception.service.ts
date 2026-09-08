@@ -52,14 +52,22 @@ export class ReceptionService {
     const memberWhere: any = { gymId, status: 'ACTIVE', deletedAt: null };
     if (batchId) memberWhere.batchId = batchId;
 
-    const [todayCheckIns, expiringSoon, pendingPayments, activeMembers] = await Promise.all([
+    const currentlyInGymWhere: any = {
+      gymId,
+      checkInAt: { gte: startOfDay, lte: endOfDay },
+      checkOutAt: null,
+    };
+    if (batchId) currentlyInGymWhere.batchId = batchId;
+
+    const [todayCheckIns, currentlyInGym, expiringSoon, pendingPayments, activeMembers] = await Promise.all([
       this.prisma.attendance.count({ where: attendanceWhere }),
+      this.prisma.attendance.count({ where: currentlyInGymWhere }),
       this.prisma.membership.count({ where: membershipWhere }),
       this.prisma.payment.count({ where: paymentWhere }),
       this.prisma.member.count({ where: memberWhere }),
     ]);
 
-    return { todayCheckIns, expiringSoon, pendingPayments, activeMembers };
+    return { todayCheckIns, currentlyInGym, expiringSoon, pendingPayments, activeMembers };
   }
 
   /** Lists all active batches for the gym with current member counts and capacity. */

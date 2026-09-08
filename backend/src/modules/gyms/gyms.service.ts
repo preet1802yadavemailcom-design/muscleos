@@ -1,13 +1,14 @@
-import { getGymStartOfDay, getGymStartOfMonth } from '@common/utils/timezone.util';
+import { DEFAULT_TIMEZONE, getGymStartOfDay, getGymEndOfDay, getGymStartOfMonth } from '@common/utils/timezone.util';
+import { CurrentUserPayload } from '@common/decorators/current-user.decorator';
 import { PrismaService } from '@database/prisma.service';
 import { AuthService } from '@modules/auth/auth.service';
-import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
+import { Injectable, BadRequestException, NotFoundException, Optional } from '@nestjs/common';
 import { GymStatus, PlanType, UserRole, UserStatus, MembershipStatus, PaymentStatus, Prisma } from '@prisma/client';
+import { AccessScopeService } from '@shared/services/access-scope.service';
 import { AuditService } from '@shared/services/audit.service';
 import * as bcrypt from 'bcryptjs';
 
-import { RegisterGymDto, UpdateGymProfileDto } from './dto';
-
+import { RegisterGymDto, UpdateGymProfileDto, DashboardDrillDownDto, DashboardDrillMetric } from './dto';
 
 @Injectable()
 export class GymsService {
@@ -15,6 +16,7 @@ export class GymsService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly authService: AuthService,
+    @Optional() private readonly accessScope?: AccessScopeService,
   ) {}
 
   // ---------- Registration (public) ----------
@@ -104,36 +106,94 @@ export class GymsService {
 
   // ---------- Gym Owner Dashboard (spec Module 04) ----------
 
-  async dashboardStats(gymId: string) {
-    const startOfDay = getGymStartOfDay();
-    const startOfMonth = getGymStartOfMonth();
-    const sevenDaysOut = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+  private async getGymTimezone(gymId: string): Promise<string> {
+    const setting = await this.prisma.gymSetting.findUnique({
+      where: { gymId_category_key: { gymId, category: 'business', key: 'timezone' } },
+    });
+    return setting?.value?.replace(/"/g, '') || DEFAULT_TIMEZONE;
+  }
+
+  async dashboardStats(gymId: string, user?: CurrentUserPayload) {
+    const tz = await this.getGymTimezone(gymId);
+    const now = new Date();
+    const startOfDay = getGymStartOfDay(now, tz);
+    const endOfDay = getGymEndOfDay(now, tz);
+    const startOfMonth = getGymStartOfMonth(now, tz);
+    const sevenDaysOut = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+
+    let branchId: string | undefined;
+    if (user && this.accessScope?.isBranchScoped(user)) {
+      branchId = this.accessScope.getBranchId(user);
+    }
+
+    const memberWhere: any = { gymId, deletedAt: null };
+    if (branchId) memberWhere.branchId = branchId;
+
+    const membershipWhere: any = { gymId, deletedAt: null };
+    if (branchId) membershipWhere.member = { branchId };
+
+    const attendanceWhere: any = { gymId };
+    if (branchId) attendanceWhere.branchId = branchId;
+
+    const paymentWhere: any = { gymId, deletedAt: null };
+    if (branchId) paymentWhere.member = { branchId };
 
     const [
       totalMembers, activeMembers, inactiveMembers, expiredMemberships, expiringMemberships,
       todayCheckIns, todayCheckOuts, currentlyCheckedIn, totalBatches, activeBatches,
       revenueAgg, revenueTodayAgg, revenueMonthAgg, pendingPayments,
     ] = await Promise.all([
-      this.prisma.member.count({ where: { gymId, deletedAt: null } }),
-      this.prisma.member.count({ where: { gymId, deletedAt: null, status: UserStatus.ACTIVE } }),
-      this.prisma.member.count({ where: { gymId, deletedAt: null, status: UserStatus.INACTIVE } }),
-      this.prisma.membership.count({ where: { gymId, status: MembershipStatus.ACTIVE, endDate: { lt: new Date() } } }),
-      this.prisma.membership.count({ where: { gymId, status: MembershipStatus.ACTIVE, endDate: { gte: new Date(), lte: sevenDaysOut } } }),
-      this.prisma.attendance.count({ where: { gymId, checkInAt: { gte: startOfDay } } }),
-      this.prisma.attendance.count({ where: { gymId, checkOutAt: { gte: startOfDay } } }),
-      // Scoped to today's check-ins specifically — an attendance row left
-      // open from days ago (missed checkout) shouldn't inflate "currently
-      // inside" forever. Stale sessions like that are force-closed by the
-      // nightly cleanup job (see notifications.service.ts#forceCloseStaleAttendanceSessions);
-      // this scoping is a second, independent safeguard against the same
-      // failure mode showing up as a wrong live metric.
-      this.prisma.attendance.count({ where: { gymId, checkInAt: { gte: startOfDay }, checkOutAt: null } }),
+      this.prisma.member.count({ where: memberWhere }),
+      this.prisma.member.count({ where: { ...memberWhere, status: UserStatus.ACTIVE } }),
+      this.prisma.member.count({ where: { ...memberWhere, status: UserStatus.INACTIVE } }),
+      this.prisma.membership.count({
+        where: {
+          ...membershipWhere,
+          status: MembershipStatus.ACTIVE,
+          endDate: { lt: now },
+        },
+      }),
+      this.prisma.membership.count({
+        where: {
+          ...membershipWhere,
+          status: MembershipStatus.ACTIVE,
+          endDate: { gte: now, lte: sevenDaysOut },
+        },
+      }),
+      this.prisma.attendance.count({
+        where: {
+          ...attendanceWhere,
+          checkInAt: { gte: startOfDay, lte: endOfDay },
+        },
+      }),
+      this.prisma.attendance.count({
+        where: {
+          ...attendanceWhere,
+          checkOutAt: { gte: startOfDay, lte: endOfDay },
+        },
+      }),
+      this.prisma.attendance.count({
+        where: {
+          ...attendanceWhere,
+          checkInAt: { gte: startOfDay, lte: endOfDay },
+          checkOutAt: null,
+        },
+      }),
       this.prisma.batch.count({ where: { gymId, deletedAt: null } }),
       this.prisma.batch.count({ where: { gymId, deletedAt: null, status: 'ACTIVE' as any } }),
-      this.prisma.payment.aggregate({ where: { gymId, status: PaymentStatus.COMPLETED }, _sum: { total: true } }),
-      this.prisma.payment.aggregate({ where: { gymId, status: PaymentStatus.COMPLETED, createdAt: { gte: startOfDay } }, _sum: { total: true } }),
-      this.prisma.payment.aggregate({ where: { gymId, status: PaymentStatus.COMPLETED, createdAt: { gte: startOfMonth } }, _sum: { total: true } }),
-      this.prisma.payment.count({ where: { gymId, status: PaymentStatus.PENDING } }),
+      this.prisma.payment.aggregate({
+        where: { ...paymentWhere, status: PaymentStatus.COMPLETED },
+        _sum: { total: true },
+      }),
+      this.prisma.payment.aggregate({
+        where: { ...paymentWhere, status: PaymentStatus.COMPLETED, createdAt: { gte: startOfDay, lte: endOfDay } },
+        _sum: { total: true },
+      }),
+      this.prisma.payment.aggregate({
+        where: { ...paymentWhere, status: PaymentStatus.COMPLETED, createdAt: { gte: startOfMonth } },
+        _sum: { total: true },
+      }),
+      this.prisma.payment.count({ where: { ...paymentWhere, status: PaymentStatus.PENDING } }),
     ]);
 
     return {
@@ -141,6 +201,413 @@ export class GymsService {
       attendance: { checkInsToday: todayCheckIns, checkOutsToday: todayCheckOuts, currentlyInGym: currentlyCheckedIn },
       batches: { total: totalBatches, active: activeBatches },
       revenue: { total: revenueAgg._sum.total ?? 0, today: revenueTodayAgg._sum.total ?? 0, thisMonth: revenueMonthAgg._sum.total ?? 0, pendingPayments },
+    };
+  }
+
+  /**
+   * Unified, canonical drill-down records for every dashboard KPI card.
+   * Ensures 100% mathematical consistency with dashboardStats.
+   */
+  async dashboardDrillDown(gymId: string, query: DashboardDrillDownDto, user?: CurrentUserPayload) {
+    const tz = await this.getGymTimezone(gymId);
+    const now = new Date();
+    const startOfDay = getGymStartOfDay(now, tz);
+    const endOfDay = getGymEndOfDay(now, tz);
+    const startOfMonth = getGymStartOfMonth(now, tz);
+    const sevenDaysOut = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+
+    const page = Math.max(1, query.page ?? 1);
+    const limit = Math.min(100, Math.max(1, query.limit ?? 20));
+    const skip = (page - 1) * limit;
+    const search = query.search?.trim();
+
+    let branchId: string | undefined;
+    if (user && this.accessScope?.isBranchScoped(user)) {
+      branchId = this.accessScope.getBranchId(user);
+    }
+
+    let data: any[] = [];
+    let total = 0;
+    let title = 'Dashboard Details';
+    let viewAllUrl = '/dashboard';
+
+    switch (query.metric) {
+      case DashboardDrillMetric.ACTIVE_MEMBERS:
+      case DashboardDrillMetric.MEMBERS_ACTIVE: {
+        title = 'Active Members';
+        viewAllUrl = '/members?status=ACTIVE';
+        const where: any = { gymId, deletedAt: null, status: UserStatus.ACTIVE };
+        if (branchId) where.branchId = branchId;
+        if (search) {
+          where.OR = [
+            { firstName: { contains: search, mode: 'insensitive' } },
+            { lastName: { contains: search, mode: 'insensitive' } },
+            { memberCode: { contains: search, mode: 'insensitive' } },
+            { mobile: { contains: search } },
+            { email: { contains: search, mode: 'insensitive' } },
+          ];
+        }
+        [data, total] = await Promise.all([
+          this.prisma.member.findMany({
+            where,
+            skip,
+            take: limit,
+            orderBy: { createdAt: query.sortOrder || 'desc' },
+            include: {
+              batch: { select: { id: true, name: true, startTime: true, endTime: true } },
+              branch: { select: { id: true, name: true } },
+              currentMembership: { select: { id: true, planName: true, endDate: true, status: true } },
+            },
+          }),
+          this.prisma.member.count({ where }),
+        ]);
+        break;
+      }
+
+      case DashboardDrillMetric.MEMBERS_INACTIVE: {
+        title = 'Inactive Members';
+        viewAllUrl = '/members?status=INACTIVE';
+        const where: any = { gymId, deletedAt: null, status: UserStatus.INACTIVE };
+        if (branchId) where.branchId = branchId;
+        if (search) {
+          where.OR = [
+            { firstName: { contains: search, mode: 'insensitive' } },
+            { lastName: { contains: search, mode: 'insensitive' } },
+            { memberCode: { contains: search, mode: 'insensitive' } },
+            { mobile: { contains: search } },
+            { email: { contains: search, mode: 'insensitive' } },
+          ];
+        }
+        [data, total] = await Promise.all([
+          this.prisma.member.findMany({
+            where,
+            skip,
+            take: limit,
+            orderBy: { createdAt: query.sortOrder || 'desc' },
+            include: {
+              batch: { select: { id: true, name: true } },
+              branch: { select: { id: true, name: true } },
+              currentMembership: { select: { id: true, planName: true, endDate: true, status: true } },
+            },
+          }),
+          this.prisma.member.count({ where }),
+        ]);
+        break;
+      }
+
+      case DashboardDrillMetric.MEMBERS_EXPIRED: {
+        title = 'Expired Members';
+        viewAllUrl = '/members?status=EXPIRED';
+        const where: any = {
+          gymId,
+          deletedAt: null,
+          currentMembership: { is: { endDate: { lt: now } } },
+        };
+        if (branchId) where.branchId = branchId;
+        if (search) {
+          where.OR = [
+            { firstName: { contains: search, mode: 'insensitive' } },
+            { lastName: { contains: search, mode: 'insensitive' } },
+            { memberCode: { contains: search, mode: 'insensitive' } },
+            { mobile: { contains: search } },
+          ];
+        }
+        [data, total] = await Promise.all([
+          this.prisma.member.findMany({
+            where,
+            skip,
+            take: limit,
+            orderBy: { createdAt: query.sortOrder || 'desc' },
+            include: {
+              batch: { select: { id: true, name: true } },
+              branch: { select: { id: true, name: true } },
+              currentMembership: { select: { id: true, planName: true, endDate: true, status: true } },
+            },
+          }),
+          this.prisma.member.count({ where }),
+        ]);
+        break;
+      }
+
+      case DashboardDrillMetric.EXPIRED_MEMBERSHIPS: {
+        title = 'Expired Memberships';
+        viewAllUrl = '/memberships?status=EXPIRED';
+        const where: any = {
+          gymId,
+          deletedAt: null,
+          status: MembershipStatus.ACTIVE,
+          endDate: { lt: now },
+        };
+        if (branchId) where.member = { branchId };
+        if (search) {
+          where.member = {
+            ...(where.member || {}),
+            OR: [
+              { firstName: { contains: search, mode: 'insensitive' } },
+              { lastName: { contains: search, mode: 'insensitive' } },
+              { memberCode: { contains: search, mode: 'insensitive' } },
+              { mobile: { contains: search } },
+            ],
+          };
+        }
+        [data, total] = await Promise.all([
+          this.prisma.membership.findMany({
+            where,
+            skip,
+            take: limit,
+            orderBy: { endDate: query.sortOrder || 'desc' },
+            include: {
+              member: {
+                select: { id: true, firstName: true, lastName: true, memberCode: true, mobile: true, photo: true },
+              },
+            },
+          }),
+          this.prisma.membership.count({ where }),
+        ]);
+        break;
+      }
+
+      case DashboardDrillMetric.EXPIRING_SOON: {
+        title = 'Memberships Expiring Soon (Next 7 Days)';
+        viewAllUrl = '/memberships?expiry=within_7_days';
+        const where: any = {
+          gymId,
+          deletedAt: null,
+          status: MembershipStatus.ACTIVE,
+          endDate: { gte: now, lte: sevenDaysOut },
+        };
+        if (branchId) where.member = { branchId };
+        if (search) {
+          where.member = {
+            ...(where.member || {}),
+            OR: [
+              { firstName: { contains: search, mode: 'insensitive' } },
+              { lastName: { contains: search, mode: 'insensitive' } },
+              { memberCode: { contains: search, mode: 'insensitive' } },
+              { mobile: { contains: search } },
+            ],
+          };
+        }
+        [data, total] = await Promise.all([
+          this.prisma.membership.findMany({
+            where,
+            skip,
+            take: limit,
+            orderBy: { endDate: 'asc' },
+            include: {
+              member: {
+                select: { id: true, firstName: true, lastName: true, memberCode: true, mobile: true, photo: true },
+              },
+            },
+          }),
+          this.prisma.membership.count({ where }),
+        ]);
+        break;
+      }
+
+      case DashboardDrillMetric.CHECKINS_TODAY: {
+        title = "Today's Check-ins";
+        viewAllUrl = '/attendance?date=today&event=CHECK_IN';
+        const where: any = {
+          gymId,
+          checkInAt: { gte: startOfDay, lte: endOfDay },
+        };
+        if (branchId) where.branchId = branchId;
+        if (search) {
+          where.member = {
+            OR: [
+              { firstName: { contains: search, mode: 'insensitive' } },
+              { lastName: { contains: search, mode: 'insensitive' } },
+              { memberCode: { contains: search, mode: 'insensitive' } },
+              { mobile: { contains: search } },
+            ],
+          };
+        }
+        [data, total] = await Promise.all([
+          this.prisma.attendance.findMany({
+            where,
+            skip,
+            take: limit,
+            orderBy: { checkInAt: query.sortOrder || 'desc' },
+            include: {
+              member: {
+                select: { id: true, firstName: true, lastName: true, memberCode: true, mobile: true, photo: true },
+              },
+              batch: { select: { id: true, name: true, startTime: true, endTime: true } },
+              branch: { select: { id: true, name: true } },
+            },
+          }),
+          this.prisma.attendance.count({ where }),
+        ]);
+        break;
+      }
+
+      case DashboardDrillMetric.CHECKOUTS_TODAY: {
+        title = "Today's Check-outs";
+        viewAllUrl = '/attendance?date=today&event=CHECK_OUT';
+        const where: any = {
+          gymId,
+          checkOutAt: { gte: startOfDay, lte: endOfDay },
+        };
+        if (branchId) where.branchId = branchId;
+        if (search) {
+          where.member = {
+            OR: [
+              { firstName: { contains: search, mode: 'insensitive' } },
+              { lastName: { contains: search, mode: 'insensitive' } },
+              { memberCode: { contains: search, mode: 'insensitive' } },
+              { mobile: { contains: search } },
+            ],
+          };
+        }
+        [data, total] = await Promise.all([
+          this.prisma.attendance.findMany({
+            where,
+            skip,
+            take: limit,
+            orderBy: { checkOutAt: query.sortOrder || 'desc' },
+            include: {
+              member: {
+                select: { id: true, firstName: true, lastName: true, memberCode: true, mobile: true, photo: true },
+              },
+              batch: { select: { id: true, name: true } },
+              branch: { select: { id: true, name: true } },
+            },
+          }),
+          this.prisma.attendance.count({ where }),
+        ]);
+        break;
+      }
+
+      case DashboardDrillMetric.CURRENTLY_IN_GYM: {
+        title = 'Currently In Gym';
+        viewAllUrl = '/attendance?status=OPEN';
+        const where: any = {
+          gymId,
+          checkInAt: { gte: startOfDay, lte: endOfDay },
+          checkOutAt: null,
+        };
+        if (branchId) where.branchId = branchId;
+        if (search) {
+          where.member = {
+            OR: [
+              { firstName: { contains: search, mode: 'insensitive' } },
+              { lastName: { contains: search, mode: 'insensitive' } },
+              { memberCode: { contains: search, mode: 'insensitive' } },
+              { mobile: { contains: search } },
+            ],
+          };
+        }
+        [data, total] = await Promise.all([
+          this.prisma.attendance.findMany({
+            where,
+            skip,
+            take: limit,
+            orderBy: { checkInAt: query.sortOrder || 'desc' },
+            include: {
+              member: {
+                select: { id: true, firstName: true, lastName: true, memberCode: true, mobile: true, photo: true },
+              },
+              batch: { select: { id: true, name: true } },
+              branch: { select: { id: true, name: true } },
+            },
+          }),
+          this.prisma.attendance.count({ where }),
+        ]);
+        break;
+      }
+
+      case DashboardDrillMetric.REVENUE_TODAY: {
+        title = "Today's Revenue Transactions";
+        viewAllUrl = '/payments?range=today&status=SUCCESS';
+        const where: any = {
+          gymId,
+          status: PaymentStatus.COMPLETED,
+          createdAt: { gte: startOfDay, lte: endOfDay },
+          deletedAt: null,
+        };
+        if (branchId) where.member = { branchId };
+        if (search) {
+          where.OR = [
+            { receiptNumber: { contains: search, mode: 'insensitive' } },
+            { invoiceNumber: { contains: search, mode: 'insensitive' } },
+            { member: { firstName: { contains: search, mode: 'insensitive' } } },
+            { member: { lastName: { contains: search, mode: 'insensitive' } } },
+            { member: { mobile: { contains: search } } },
+          ];
+        }
+        [data, total] = await Promise.all([
+          this.prisma.payment.findMany({
+            where,
+            skip,
+            take: limit,
+            orderBy: { createdAt: query.sortOrder || 'desc' },
+            include: {
+              member: {
+                select: { id: true, firstName: true, lastName: true, memberCode: true, mobile: true },
+              },
+              verifiedBy: { select: { firstName: true, lastName: true } },
+            },
+          }),
+          this.prisma.payment.count({ where }),
+        ]);
+        break;
+      }
+
+      case DashboardDrillMetric.REVENUE_MONTH: {
+        title = 'Revenue This Month';
+        viewAllUrl = '/payments?range=this_month&status=SUCCESS';
+        const where: any = {
+          gymId,
+          status: PaymentStatus.COMPLETED,
+          createdAt: { gte: startOfMonth },
+          deletedAt: null,
+        };
+        if (branchId) where.member = { branchId };
+        if (search) {
+          where.OR = [
+            { receiptNumber: { contains: search, mode: 'insensitive' } },
+            { invoiceNumber: { contains: search, mode: 'insensitive' } },
+            { member: { firstName: { contains: search, mode: 'insensitive' } } },
+            { member: { lastName: { contains: search, mode: 'insensitive' } } },
+            { member: { mobile: { contains: search } } },
+          ];
+        }
+        [data, total] = await Promise.all([
+          this.prisma.payment.findMany({
+            where,
+            skip,
+            take: limit,
+            orderBy: { createdAt: query.sortOrder || 'desc' },
+            include: {
+              member: {
+                select: { id: true, firstName: true, lastName: true, memberCode: true, mobile: true },
+              },
+              verifiedBy: { select: { firstName: true, lastName: true } },
+            },
+          }),
+          this.prisma.payment.count({ where }),
+        ]);
+        break;
+      }
+
+      default:
+        throw new BadRequestException(`Unsupported drilldown metric: ${query.metric}`);
+    }
+
+    return {
+      metric: query.metric,
+      title,
+      viewAllUrl,
+      data,
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit) || 1,
+        hasNextPage: page * limit < total,
+        hasPrevPage: page > 1,
+      },
     };
   }
 

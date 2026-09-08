@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Search, RefreshCcw, Snowflake, PlayCircle, ArrowLeftRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -27,16 +28,35 @@ const statusColor: Record<string, string> = {
 };
 
 export function MembershipsPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [search, setSearch] = useState('');
-  const [status, setStatus] = useState<string>('');
+  const [status, setStatus] = useState<string>(() => searchParams.get('status') || '');
+  const [expiringInDays, setExpiringInDays] = useState<number | undefined>(() => {
+    return searchParams.get('expiry') === 'within_7_days' ? 7 : undefined;
+  });
   const [pendingRenew, setPendingRenew] = useState<{ id: string; memberName: string; plan: string; currentEnd: string } | null>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
+  useEffect(() => {
+    const s = searchParams.get('status');
+    if (s) setStatus(s);
+    const exp = searchParams.get('expiry');
+    if (exp === 'within_7_days') {
+      setExpiringInDays(7);
+    }
+  }, [searchParams]);
+
   const { data, isLoading } = useQuery({
-    queryKey: ['memberships', search, status],
+    queryKey: ['memberships', search, status, expiringInDays],
     queryFn: () =>
-      api.get('/memberships', { params: { search: search || undefined, status: status || undefined } }),
+      api.get('/memberships', {
+        params: {
+          search: search || undefined,
+          status: status || undefined,
+          expiringInDays: expiringInDays || undefined,
+        },
+      }),
   });
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['memberships'] });
@@ -144,17 +164,47 @@ export function MembershipsPage() {
               className="pl-9"
             />
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             {['', 'ACTIVE', 'EXPIRED', 'FROZEN', 'CANCELLED'].map((s) => (
               <Button
                 key={s || 'all'}
-                variant={status === s ? 'default' : 'outline'}
+                variant={status === s && !expiringInDays ? 'default' : 'outline'}
                 size="sm"
-                onClick={() => setStatus(s)}
+                onClick={() => {
+                  setStatus(s);
+                  setExpiringInDays(undefined);
+                  if (s) {
+                    searchParams.set('status', s);
+                    searchParams.delete('expiry');
+                  } else {
+                    searchParams.delete('status');
+                    searchParams.delete('expiry');
+                  }
+                  setSearchParams(searchParams, { replace: true });
+                }}
               >
                 {s || 'All'}
               </Button>
             ))}
+            <Button
+              variant={expiringInDays === 7 ? 'default' : 'outline'}
+              size="sm"
+              className={expiringInDays === 7 ? 'bg-amber-600 hover:bg-amber-700 text-white' : ''}
+              onClick={() => {
+                if (expiringInDays === 7) {
+                  setExpiringInDays(undefined);
+                  searchParams.delete('expiry');
+                } else {
+                  setExpiringInDays(7);
+                  setStatus('ACTIVE');
+                  searchParams.set('expiry', 'within_7_days');
+                  searchParams.delete('status');
+                }
+                setSearchParams(searchParams, { replace: true });
+              }}
+            >
+              Expiring Soon (7d)
+            </Button>
           </div>
         </CardContent>
       </Card>

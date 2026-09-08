@@ -6,6 +6,10 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { GymQrDialog } from '@components/gym/GymQrDialog';
+import {
+  DashboardDrillDownDialog,
+  type DashboardDrillMetric,
+} from '@/components/dashboard/DashboardDrillDownDialog';
 import { useAttendanceStream } from '@/hooks/useAttendanceStream';
 import {
   BarChart,
@@ -58,8 +62,15 @@ export function OwnerDashboardPage() {
   const [loading, setLoading] = useState(true);
   const [qrOpen, setQrOpen] = useState(false);
 
+  // Drill-down dialog state
+  const [drillMetric, setDrillMetric] = useState<DashboardDrillMetric | null>(null);
+  const [drillOpen, setDrillOpen] = useState(false);
+
   useEffect(() => {
     fetchDashboard();
+    // 15-second background refresh interval for resilient auto-sync
+    const interval = setInterval(fetchDashboard, 15000);
+    return () => clearInterval(interval);
   }, []);
 
   async function fetchDashboard() {
@@ -84,18 +95,28 @@ export function OwnerDashboardPage() {
   }
 
   // Live updates: re-fetches dashboard stats whenever any member at this gym
-  // checks in/out, instead of the owner needing to manually refresh.
+  // checks in/out via real-time SSE stream.
   useAttendanceStream(true, fetchDashboard);
 
-  const cards = [
-    { name: 'Active Members', value: stats?.members.active ?? '—', icon: Users },
-    { name: "Today's Check-ins", value: stats?.attendance.checkInsToday ?? '—', icon: UserCheck },
-    { name: "Today's Check-outs", value: stats?.attendance.checkOutsToday ?? '—', icon: UserCheck },
-    { name: 'Currently In Gym', value: stats?.attendance.currentlyInGym ?? '—', icon: TrendingUp },
-    { name: 'Expiring Soon (7d)', value: stats?.members.expiringSoon ?? '—', icon: Users },
-    { name: 'Expired Memberships', value: stats?.members.expired ?? '—', icon: Users },
-    { name: "Today's Revenue", value: stats ? `₹${stats.revenue.today.toLocaleString('en-IN')}` : '—', icon: DollarSign },
-    { name: 'Revenue (This Month)', value: stats ? `₹${stats.revenue.thisMonth.toLocaleString('en-IN')}` : '—', icon: DollarSign },
+  const openDrillDown = (metric: DashboardDrillMetric) => {
+    setDrillMetric(metric);
+    setDrillOpen(true);
+  };
+
+  const cards: Array<{
+    name: string;
+    value: string | number;
+    icon: any;
+    metric: DashboardDrillMetric;
+  }> = [
+    { name: 'Active Members', value: stats?.members.active ?? '—', icon: Users, metric: 'ACTIVE_MEMBERS' },
+    { name: "Today's Check-ins", value: stats?.attendance.checkInsToday ?? '—', icon: UserCheck, metric: 'CHECKINS_TODAY' },
+    { name: "Today's Check-outs", value: stats?.attendance.checkOutsToday ?? '—', icon: UserCheck, metric: 'CHECKOUTS_TODAY' },
+    { name: 'Currently In Gym', value: stats?.attendance.currentlyInGym ?? '—', icon: TrendingUp, metric: 'CURRENTLY_IN_GYM' },
+    { name: 'Expiring Soon (7d)', value: stats?.members.expiringSoon ?? '—', icon: Users, metric: 'EXPIRING_SOON' },
+    { name: 'Expired Memberships', value: stats?.members.expired ?? '—', icon: Users, metric: 'EXPIRED_MEMBERSHIPS' },
+    { name: "Today's Revenue", value: stats ? `₹${stats.revenue.today.toLocaleString('en-IN')}` : '—', icon: DollarSign, metric: 'REVENUE_TODAY' },
+    { name: 'Revenue (This Month)', value: stats ? `₹${stats.revenue.thisMonth.toLocaleString('en-IN')}` : '—', icon: DollarSign, metric: 'REVENUE_MONTH' },
   ];
 
   return (
@@ -103,7 +124,7 @@ export function OwnerDashboardPage() {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-3xl font-bold tracking-tight">Gym Overview</h2>
-          <p className="text-muted-foreground">Owner dashboard — your gym at a glance</p>
+          <p className="text-muted-foreground">Owner dashboard — your gym at a glance (click any metric to drill down)</p>
         </div>
         <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={() => setQrOpen(true)}>
@@ -117,6 +138,12 @@ export function OwnerDashboardPage() {
 
       <GymQrDialog open={qrOpen} onOpenChange={setQrOpen} />
 
+      <DashboardDrillDownDialog
+        open={drillOpen}
+        onOpenChange={setDrillOpen}
+        metric={drillMetric}
+      />
+
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         {cards.map((stat, index) => (
           <motion.div
@@ -125,15 +152,32 @@ export function OwnerDashboardPage() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: index * 0.1 }}
           >
-            <Card>
+            <Card
+              role="button"
+              tabIndex={0}
+              aria-label={`Drill down into ${stat.name}`}
+              onClick={() => openDrillDown(stat.metric)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  openDrillDown(stat.metric);
+                }
+              }}
+              className="cursor-pointer transition-all hover:border-primary/50 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary group"
+            >
               <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">
+                <CardTitle className="text-sm font-medium text-muted-foreground group-hover:text-primary transition-colors">
                   {stat.name}
                 </CardTitle>
-                <stat.icon className="h-4 w-4 text-muted-foreground" />
+                <stat.icon className="h-4 w-4 text-muted-foreground group-hover:text-primary transition-colors" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">{loading ? '...' : stat.value}</div>
+                <div className="text-2xl font-bold flex items-baseline justify-between">
+                  <span>{loading ? '...' : stat.value}</span>
+                  <span className="text-[11px] font-normal text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity">
+                    Click to view →
+                  </span>
+                </div>
               </CardContent>
             </Card>
           </motion.div>
@@ -141,25 +185,78 @@ export function OwnerDashboardPage() {
       </div>
 
       <div className="grid gap-4 md:grid-cols-3">
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm">Active</CardTitle>
+        <Card
+          role="button"
+          tabIndex={0}
+          aria-label="Drill down into Active members"
+          onClick={() => openDrillDown('ACTIVE_MEMBERS')}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              openDrillDown('ACTIVE_MEMBERS');
+            }
+          }}
+          className="cursor-pointer transition-all hover:border-green-500/50 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-500 group"
+        >
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm flex items-center justify-between">
+              <span>Active</span>
+              <span className="text-[11px] font-normal text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity">
+                Click to view →
+              </span>
+            </CardTitle>
           </CardHeader>
           <CardContent className="text-2xl font-bold text-green-600">
             {stats?.members.active ?? '—'}
           </CardContent>
         </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm">Inactive</CardTitle>
+
+        <Card
+          role="button"
+          tabIndex={0}
+          aria-label="Drill down into Inactive members"
+          onClick={() => openDrillDown('INACTIVE_MEMBERS')}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              openDrillDown('INACTIVE_MEMBERS');
+            }
+          }}
+          className="cursor-pointer transition-all hover:border-amber-500/50 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 group"
+        >
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm flex items-center justify-between">
+              <span>Inactive</span>
+              <span className="text-[11px] font-normal text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity">
+                Click to view →
+              </span>
+            </CardTitle>
           </CardHeader>
           <CardContent className="text-2xl font-bold text-amber-600">
             {stats?.members.inactive ?? '—'}
           </CardContent>
         </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm">Expired</CardTitle>
+
+        <Card
+          role="button"
+          tabIndex={0}
+          aria-label="Drill down into Expired members"
+          onClick={() => openDrillDown('EXPIRED_MEMBERS')}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              openDrillDown('EXPIRED_MEMBERS');
+            }
+          }}
+          className="cursor-pointer transition-all hover:border-red-500/50 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 group"
+        >
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm flex items-center justify-between">
+              <span>Expired</span>
+              <span className="text-[11px] font-normal text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity">
+                Click to view →
+              </span>
+            </CardTitle>
           </CardHeader>
           <CardContent className="text-2xl font-bold text-red-600">
             {stats?.members.expired ?? '—'}

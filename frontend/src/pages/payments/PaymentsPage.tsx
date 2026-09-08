@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Plus, CheckCircle2, XCircle, Clock, CreditCard, Search,
@@ -42,11 +42,25 @@ export function PaymentsPage() {
   const [notes, setNotes] = useState('');
   const [utr, setUtr] = useState('');
 
+  const [searchParams] = useSearchParams();
+
   // Table Filters State
   const [tableSearch, setTableSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('ALL');
+  const [statusFilter, setStatusFilter] = useState(() => {
+    const s = searchParams.get('status');
+    return s === 'SUCCESS' ? 'COMPLETED' : s || 'ALL';
+  });
   const [gatewayFilter, setGatewayFilter] = useState('ALL');
+  const [dateRangeFilter, setDateRangeFilter] = useState(() => searchParams.get('range') || 'ALL');
   const [page, setPage] = useState(1);
+
+  useEffect(() => {
+    const s = searchParams.get('status');
+    if (s === 'SUCCESS') setStatusFilter('COMPLETED');
+    else if (s) setStatusFilter(s);
+    const r = searchParams.get('range');
+    if (r) setDateRangeFilter(r);
+  }, [searchParams]);
 
   // Search members for new payment
   const { data: memberSearchRes, isFetching: searchingMembers } = useQuery({
@@ -62,8 +76,20 @@ export function PaymentsPage() {
   if (statusFilter !== 'ALL') queryParams.status = statusFilter;
   if (gatewayFilter !== 'ALL') queryParams.gateway = gatewayFilter;
 
+  if (dateRangeFilter === 'today') {
+    const today = new Date().toISOString().slice(0, 10);
+    queryParams.fromDate = today;
+    queryParams.toDate = today;
+  } else if (dateRangeFilter === 'this_month') {
+    const now = new Date();
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
+    const today = now.toISOString().slice(0, 10);
+    queryParams.fromDate = startOfMonth;
+    queryParams.toDate = today;
+  }
+
   const { data: paymentsRes, isLoading } = useQuery({
-    queryKey: ['payments', tableSearch, statusFilter, gatewayFilter, page],
+    queryKey: ['payments', tableSearch, statusFilter, gatewayFilter, dateRangeFilter, page],
     queryFn: () => api.get('/payments', { params: queryParams }),
   });
 
@@ -299,6 +325,17 @@ export function PaymentsPage() {
                   className="pl-8 h-8 text-xs"
                 />
               </div>
+
+              <Select value={dateRangeFilter} onValueChange={(v) => { setDateRangeFilter(v); setPage(1); }}>
+                <SelectTrigger className="w-[115px] h-8 text-xs">
+                  <SelectValue placeholder="Date Range" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ALL">All Time</SelectItem>
+                  <SelectItem value="today">Today</SelectItem>
+                  <SelectItem value="this_month">This Month</SelectItem>
+                </SelectContent>
+              </Select>
 
               <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v); setPage(1); }}>
                 <SelectTrigger className="w-[120px] h-8 text-xs">

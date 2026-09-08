@@ -662,7 +662,16 @@ export class AttendanceService {
 
   /** Live "who's in the gym right now" dashboard feed. */
   async liveFeed(gymId: string, user?: CurrentUserPayload) {
-    const where: Prisma.AttendanceWhereInput = { gymId, checkOutAt: null };
+    const tz = await this.getGymTimezone(gymId);
+    const now = new Date();
+    const startOfDay = getGymStartOfDay(now, tz);
+    const endOfDay = getGymEndOfDay(now, tz);
+
+    const where: Prisma.AttendanceWhereInput = {
+      gymId,
+      checkInAt: { gte: startOfDay, lte: endOfDay },
+      checkOutAt: null,
+    };
     if (user && this.accessScope?.isBranchScoped(user)) {
       const branchId = this.accessScope.getBranchId(user);
       if (branchId) where.branchId = branchId;
@@ -671,7 +680,12 @@ export class AttendanceService {
       where,
       orderBy: { checkInAt: 'desc' },
       take: 50,
-      include: { member: { select: { id: true, firstName: true, lastName: true, photo: true } } },
+      include: {
+        member: {
+          select: { id: true, firstName: true, lastName: true, memberCode: true, photo: true },
+        },
+        batch: { select: { id: true, name: true } },
+      },
     });
   }
 
