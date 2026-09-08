@@ -116,11 +116,11 @@ export function MemberDetailPage() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
-  const { data, isLoading, isError } = useQuery<Member360Response>({
+  const { data, isLoading, isError, error } = useQuery<Member360Response>({
     queryKey: ['members', id, '360'],
     queryFn: async () => {
-      const res = await api.get(`/members/${id}/360`);
-      return res.data?.data ?? res.data;
+      const res: any = await api.get(`/members/${id}/360`);
+      return res?.data?.data ?? res?.data ?? res;
     },
     enabled: !!id,
   });
@@ -129,8 +129,8 @@ export function MemberDetailPage() {
   const attendanceStatsQuery = useQuery({
     queryKey: ['attendance-member-stats', id],
     queryFn: async () => {
-      const res = await api.get(`/attendance/member/${id}/stats`);
-      return res.data?.data ?? res.data;
+      const res: any = await api.get(`/attendance/member/${id}/stats`);
+      return res?.data?.data ?? res?.data ?? res;
     },
     enabled: !!id && (activeTab === 'attendance' || activeTab === 'overview'),
   });
@@ -139,8 +139,8 @@ export function MemberDetailPage() {
   const attendanceHistoryQuery = useQuery({
     queryKey: ['attendance-member-history', id, attendancePage],
     queryFn: async () => {
-      const res = await api.get(`/attendance/member/${id}?page=${attendancePage}&limit=10`);
-      return res.data?.data ?? res.data;
+      const res: any = await api.get(`/attendance/member/${id}?page=${attendancePage}&limit=10`);
+      return res?.data?.data ?? res?.data ?? res;
     },
     enabled: !!id && activeTab === 'attendance',
   });
@@ -158,32 +158,35 @@ export function MemberDetailPage() {
       queryClient.invalidateQueries({ queryKey: ['attendance-member-history', id] });
     },
     onError: (err: unknown) => {
-      toast({ title: 'Attendance action failed', description: apiErrorMessage(err), variant: 'destructive' });
+      toast({
+        title: 'Check-in failed',
+        description: apiErrorMessage(err),
+        variant: 'destructive',
+      });
     },
   });
 
   const sendEmailMutation = useMutation({
     mutationFn: async () => {
-      if (!data?.member?.email) throw new Error('Member has no email address');
-      return api.post('/notifications/send', {
-        type: 'SYSTEM',
-        channel: 'EMAIL',
+      return api.post(`/communications/email/send`, {
         memberId: id,
-        recipientEmail: data.member.email,
-        title: emailSubject.trim() || 'Message from Gym Management',
-        content: emailMessage.trim(),
+        subject: emailSubject,
+        message: emailMessage,
       });
     },
     onSuccess: () => {
-      toast({ title: 'Email Sent', description: `Message delivered to ${data?.member.email}` });
+      toast({
+        title: 'Email sent',
+        description: 'Your email has been queued and dispatched.',
+      });
       setEmailDialogOpen(false);
       setEmailSubject('');
       setEmailMessage('');
     },
-    onError: (err: any) => {
+    onError: (err: unknown) => {
       toast({
         title: 'Could not send email',
-        description: err.response?.data?.message || err.message || 'Failed to dispatch email',
+        description: apiErrorMessage(err),
         variant: 'destructive',
       });
     },
@@ -193,10 +196,29 @@ export function MemberDetailPage() {
     return <div className="p-6 text-sm text-muted-foreground">Loading member profile…</div>;
   }
   if (isError || !data || !data.member) {
-    return <div className="p-6 text-sm text-destructive">Could not load this member's profile.</div>;
+    return (
+      <div className="p-6 space-y-4 max-w-lg">
+        <div className="text-base font-semibold text-destructive">Could not load this member's profile.</div>
+        <p className="text-sm text-muted-foreground">
+          {error ? apiErrorMessage(error) : 'The member profile could not be loaded. Please ensure the member exists and you have permission to view their details.'}
+        </p>
+        <Button variant="outline" size="sm" onClick={() => navigate(-1)} className="gap-1.5">
+          <ArrowLeft className="h-4 w-4" /> Go Back
+        </Button>
+      </div>
+    );
   }
 
-  const { member, accountState, lastVisit, lastPayment, attendance, payments, activeWorkoutPlan, activeDietPlan } = data;
+  const {
+    member,
+    accountState = 'NOT_LINKED',
+    lastVisit = null,
+    lastPayment = null,
+    attendance = [],
+    payments = [],
+    activeWorkoutPlan = null,
+    activeDietPlan = null,
+  } = data;
   const badge = accountBadge[accountState] ?? accountBadge.NOT_LINKED;
   const isCurrentlyInGym = attendance.length > 0 && attendance[0].checkInAt && !attendance[0].checkOutAt;
 
@@ -266,8 +288,8 @@ export function MemberDetailPage() {
             <img src={member.photo} alt={member.firstName} className="h-20 w-20 rounded-full object-cover ring-2 ring-primary/20" />
           ) : (
             <div className="flex h-20 w-20 items-center justify-center rounded-full bg-primary/10 text-2xl font-bold text-primary">
-              {member.firstName[0]}
-              {member.lastName[0]}
+              {member.firstName?.[0] || 'M'}
+              {member.lastName?.[0] || ''}
             </div>
           )}
           <div className="flex-1 min-w-0 space-y-1">
@@ -627,11 +649,11 @@ export function MemberDetailPage() {
 
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-base">Membership History ({member.memberships.length})</CardTitle>
+              <CardTitle className="text-base">Membership History ({(member.memberships || []).length})</CardTitle>
             </CardHeader>
             <CardContent className="divide-y">
-              {member.memberships.length === 0 && <p className="text-sm text-muted-foreground py-3">No past memberships.</p>}
-              {member.memberships.map((m) => (
+              {(member.memberships || []).length === 0 && <p className="text-sm text-muted-foreground py-3">No past memberships.</p>}
+              {(member.memberships || []).map((m) => (
                 <div key={m.id} className="py-3 flex flex-wrap items-center justify-between gap-2">
                   <div>
                     <p className="text-sm font-medium">{m.plan}</p>

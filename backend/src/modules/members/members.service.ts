@@ -141,7 +141,11 @@ export class MembersService {
 
   async findOne(id: string, gymId: string, requester?: CurrentUserPayload | { role?: string; permissions?: string[] }) {
     const member = await this.prisma.member.findFirst({
-      where: { id, gymId, deletedAt: null },
+      where: {
+        OR: [{ id }, { memberCode: id }],
+        gymId,
+        deletedAt: null,
+      },
       include: {
         batch: true,
         trainer: { select: { id: true, firstName: true, lastName: true } },
@@ -190,7 +194,11 @@ export class MembersService {
    */
   async getMember360(id: string, gymId: string, requester?: CurrentUserPayload | { role?: string; permissions?: string[] }) {
     const member = await this.prisma.member.findFirst({
-      where: { id, gymId, deletedAt: null },
+      where: {
+        OR: [{ id }, { memberCode: id }],
+        gymId,
+        deletedAt: null,
+      },
       include: {
         batch: true,
         branch: { select: { id: true, name: true } },
@@ -211,7 +219,7 @@ export class MembersService {
 
     const [attendance, payments, lastPayment, activeDietPlan, activeWorkoutPlan, totalVisits, thisWeekVisits, thisMonthVisits] = await Promise.all([
       this.prisma.attendance.findMany({
-        where: { memberId: id, gymId },
+        where: { memberId: member.id, gymId },
         orderBy: { checkInAt: 'desc' },
         take: 30,
         include: {
@@ -220,7 +228,7 @@ export class MembersService {
         },
       }),
       this.prisma.payment.findMany({
-        where: { memberId: id, gymId, deletedAt: null },
+        where: { memberId: member.id, gymId, deletedAt: null },
         orderBy: { createdAt: 'desc' },
         take: 30,
         include: {
@@ -229,25 +237,25 @@ export class MembersService {
         },
       }),
       this.prisma.payment.findFirst({
-        where: { memberId: id, gymId, deletedAt: null, status: 'COMPLETED' },
+        where: { memberId: member.id, gymId, deletedAt: null, status: 'COMPLETED' },
         orderBy: { createdAt: 'desc' },
         select: { createdAt: true, total: true },
       }),
       this.prisma.dietPlan?.findFirst
         ? this.prisma.dietPlan.findFirst({
-            where: { memberId: id, gymId, isActive: true },
+            where: { memberId: member.id, gymId, isActive: true },
             include: { meals: { orderBy: { order: 'asc' } } },
           })
         : Promise.resolve(null),
       this.prisma.workoutPlan?.findFirst
         ? this.prisma.workoutPlan.findFirst({
-            where: { memberId: id, gymId, isActive: true },
+            where: { memberId: member.id, gymId, isActive: true },
             include: { days: { include: { exercises: { orderBy: { order: 'asc' } } }, orderBy: { order: 'asc' } } },
           })
         : Promise.resolve(null),
-      this.prisma.attendance.count({ where: { memberId: id, gymId } }),
-      this.prisma.attendance.count({ where: { memberId: id, gymId, checkInAt: { gte: oneWeekAgo } } }),
-      this.prisma.attendance.count({ where: { memberId: id, gymId, checkInAt: { gte: startOfMonth } } }),
+      this.prisma.attendance.count({ where: { memberId: member.id, gymId } }),
+      this.prisma.attendance.count({ where: { memberId: member.id, gymId, checkInAt: { gte: oneWeekAgo } } }),
+      this.prisma.attendance.count({ where: { memberId: member.id, gymId, checkInAt: { gte: startOfMonth } } }),
     ]);
 
     const attendanceStats = {

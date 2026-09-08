@@ -564,8 +564,12 @@ export class AttendanceService {
     query: { page?: number; limit?: number },
     user?: CurrentUserPayload,
   ) {
-    const member = await this.prisma.member.findUnique({
-      where: { id: memberId, gymId, deletedAt: null },
+    const member = await this.prisma.member.findFirst({
+      where: {
+        OR: [{ id: memberId }, { memberCode: memberId }],
+        gymId,
+        deletedAt: null,
+      },
       select: { id: true, branchId: true },
     });
     if (!member) throw new NotFoundException('Member not found');
@@ -577,7 +581,7 @@ export class AttendanceService {
     const limit = Math.min(100, Math.max(1, query.limit ?? 20));
     const skip = (page - 1) * limit;
 
-    const where: Prisma.AttendanceWhereInput = { memberId, gymId };
+    const where: Prisma.AttendanceWhereInput = { memberId: member.id, gymId };
 
     const [data, total] = await Promise.all([
       this.prisma.attendance.findMany({
@@ -608,8 +612,12 @@ export class AttendanceService {
 
   /** Summary attendance metrics for Member 360 profile. */
   async getMemberAttendanceStats(gymId: string, memberId: string, user?: CurrentUserPayload) {
-    const member = await this.prisma.member.findUnique({
-      where: { id: memberId, gymId, deletedAt: null },
+    const member = await this.prisma.member.findFirst({
+      where: {
+        OR: [{ id: memberId }, { memberCode: memberId }],
+        gymId,
+        deletedAt: null,
+      },
       select: { id: true, branchId: true, currentStreak: true, longestStreak: true },
     });
     if (!member) throw new NotFoundException('Member not found');
@@ -623,11 +631,11 @@ export class AttendanceService {
     const startOfMonth = getGymStartOfMonth(now, tz);
 
     const [totalVisits, thisWeek, thisMonth, lastRecord] = await Promise.all([
-      this.prisma.attendance.count({ where: { memberId, gymId } }),
-      this.prisma.attendance.count({ where: { memberId, gymId, checkInAt: { gte: startOfWeek } } }),
-      this.prisma.attendance.count({ where: { memberId, gymId, checkInAt: { gte: startOfMonth } } }),
+      this.prisma.attendance.count({ where: { memberId: member.id, gymId } }),
+      this.prisma.attendance.count({ where: { memberId: member.id, gymId, checkInAt: { gte: startOfWeek } } }),
+      this.prisma.attendance.count({ where: { memberId: member.id, gymId, checkInAt: { gte: startOfMonth } } }),
       this.prisma.attendance.findFirst({
-        where: { memberId, gymId },
+        where: { memberId: member.id, gymId },
         orderBy: { checkInAt: 'desc' },
         select: { checkInAt: true, checkOutAt: true },
       }),
@@ -646,7 +654,10 @@ export class AttendanceService {
   /** A member's own attendance calendar (for the member-facing app/portal). */
   async memberHistory(memberId: string, gymId: string, month?: number, year?: number, user?: CurrentUserPayload) {
     if (user && this.accessScope?.isBranchScoped(user)) {
-      const member = await this.prisma.member.findUnique({ where: { id: memberId }, select: { branchId: true } });
+      const member = await this.prisma.member.findFirst({
+        where: { OR: [{ id: memberId }, { memberCode: memberId }] },
+        select: { branchId: true },
+      });
       if (member) {
         this.accessScope.assertBranchAccess(user, member.branchId);
       }
