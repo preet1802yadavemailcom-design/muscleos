@@ -1,4 +1,4 @@
-import { getGymStartOfDay, getGymEndOfDay } from '@common/utils/timezone.util';
+import { getGymStartOfDay, getGymEndOfDay, DEFAULT_TIMEZONE } from '@common/utils/timezone.util';
 import { PrismaService } from '@database/prisma.service';
 import { AttendanceService } from '@modules/attendance/attendance.service';
 import { CreateMemberDto } from '@modules/members/dto/create-member.dto';
@@ -33,8 +33,11 @@ export class ReceptionService {
 
   /** Front-desk landing snapshot: today's check-ins, expiring memberships, pending payments (with optional batch filter). */
   async dashboard(gymId: string, batchId?: string) {
-    const startOfDay = getGymStartOfDay();
-    const endOfDay = getGymEndOfDay();
+    const tz = await this.attendance.getGymTimezone(gymId);
+    const now = new Date();
+    const startOfDay = getGymStartOfDay(now, tz);
+    const endOfDay = getGymEndOfDay(now, tz);
+    const sevenDaysOut = getGymEndOfDay(new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000), tz);
 
     const attendanceWhere: any = { gymId, checkInAt: { gte: startOfDay, lte: endOfDay } };
     if (batchId) attendanceWhere.batchId = batchId;
@@ -42,7 +45,7 @@ export class ReceptionService {
     const membershipWhere: any = {
       gymId,
       status: 'ACTIVE',
-      endDate: { gte: new Date(), lte: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) },
+      endDate: { gte: now, lte: sevenDaysOut },
     };
     if (batchId) membershipWhere.member = { batchId };
 
@@ -93,8 +96,10 @@ export class ReceptionService {
 
   /** Drill-down: today's check-ins with batch and search filter. */
   async getCheckinsToday(gymId: string, batchId?: string, search?: string) {
-    const startOfDay = getGymStartOfDay();
-    const endOfDay = getGymEndOfDay();
+    const tz = await this.attendance.getGymTimezone(gymId);
+    const now = new Date();
+    const startOfDay = getGymStartOfDay(now, tz);
+    const endOfDay = getGymEndOfDay(now, tz);
 
     const where: any = {
       gymId,
@@ -169,8 +174,9 @@ export class ReceptionService {
 
   /** Drill-down: members whose active membership expires in next N days. */
   async getExpiringMembers(gymId: string, batchId?: string, days = 7) {
+    const tz = await this.attendance.getGymTimezone(gymId);
     const now = new Date();
-    const threshold = new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
+    const threshold = getGymEndOfDay(new Date(now.getTime() + days * 24 * 60 * 60 * 1000), tz);
 
     const where: any = {
       gymId,

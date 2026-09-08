@@ -18,6 +18,7 @@ import {
 } from '@/components/ui/select';
 import { MemberFormDialog, type MemberFormValues } from './MemberFormDialog';
 import { MemberQrDialog } from './MemberQrDialog';
+import { PhoneLink } from '@/components/common/PhoneLink';
 import { useToast } from '@/hooks/use-toast';
 import { useAuthStore } from '@store/auth.store';
 import { apiErrorMessage } from '@/lib/api-error';
@@ -348,7 +349,7 @@ export function MembersPage() {
                               </button>
                             </td>
                             <td className="p-4 font-mono text-xs">{member.memberCode}</td>
-                            <td className="p-4">{member.mobile}</td>
+                            <td className="p-4"><PhoneLink phone={member.mobile} showWhatsApp /></td>
                             <td className="p-4 text-xs">
                               {member.batch ? (
                                 <Badge variant="outline">{member.batch.name}</Badge>

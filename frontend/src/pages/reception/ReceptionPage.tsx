@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
 import { apiErrorMessage } from '@/lib/api-error';
+import { PhoneLink } from '@/components/common/PhoneLink';
 import api from '@services/api';
 
 type DrillTab = 'checkins' | 'active' | 'expiring' | 'payments';
@@ -261,12 +262,12 @@ export function ReceptionPage() {
                               {m.firstName} {m.lastName}
                             </button>
                           </td>
-                          <td className="p-3 text-muted-foreground font-mono text-xs">{m.mobile}</td>
+                          <td className="p-3"><PhoneLink phone={m.mobile} /></td>
                           <td className="p-3">
                             <Badge variant="secondary" className="font-mono text-xs">{m.memberCode}</Badge>
                           </td>
                           <td className="p-3 text-xs text-muted-foreground">
-                            {m.batch?.name || '—'}
+                            {m.batch?.name || (typeof m.batch === 'string' ? m.batch : '—')}
                           </td>
                           <td className="p-3">
                             <Badge className={m.status === 'ACTIVE' ? 'bg-green-100 text-green-800' : 'bg-amber-100 text-amber-800'}>
@@ -357,7 +358,7 @@ export function ReceptionPage() {
                             >
                               {memberName}
                             </button>
-                            <span className="font-mono text-xs text-muted-foreground">{a.member?.memberCode} • {a.member?.mobile}</span>
+                            <div className="flex items-center gap-1.5 text-xs text-muted-foreground mt-0.5"><span className="font-mono">{a.member?.memberCode}</span><span>•</span><PhoneLink phone={a.member?.mobile} /></div>
                           </td>
                           <td className="p-3 text-xs">
                             <Badge variant="outline">{a.batch?.name || a.member?.batch?.name || 'Standard'}</Badge>
@@ -429,7 +430,7 @@ export function ReceptionPage() {
                           >
                             {m.firstName} {m.lastName}
                           </button>
-                          <span className="font-mono text-xs text-muted-foreground">{m.memberCode} • {m.mobile}</span>
+                          <div className="flex items-center gap-1.5 text-xs text-muted-foreground mt-0.5"><span className="font-mono">{m.memberCode}</span><span>•</span><PhoneLink phone={m.mobile} /></div>
                         </td>
                         <td className="p-3 text-xs">
                           {m.batch ? (
@@ -503,7 +504,7 @@ export function ReceptionPage() {
                             >
                               {m.firstName} {m.lastName}
                             </button>
-                            <span className="font-mono text-xs text-muted-foreground">{m.memberCode} • {m.mobile}</span>
+                            <div className="flex items-center gap-1.5 text-xs text-muted-foreground mt-0.5"><span className="font-mono">{m.memberCode}</span><span>•</span><PhoneLink phone={m.mobile} /></div>
                           </td>
                           <td className="p-3 text-xs">
                             <Badge variant="outline">{m.batch?.name || 'Standard'}</Badge>
@@ -568,7 +569,7 @@ export function ReceptionPage() {
                           >
                             {p.member ? `${p.member.firstName} ${p.member.lastName}` : '—'}
                           </button>
-                          <span className="font-mono text-xs text-muted-foreground">{p.member?.memberCode} • {p.member?.mobile}</span>
+                          <div className="flex items-center gap-1.5 text-xs text-muted-foreground mt-0.5"><span className="font-mono">{p.member?.memberCode}</span><span>•</span><PhoneLink phone={p.member?.mobile} /></div>
                         </td>
                         <td className="p-3 text-xs">
                           <Badge variant="outline">{p.member?.batch?.name || 'Standard'}</Badge>

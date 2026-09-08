@@ -20,6 +20,8 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { useAuthStore } from '@store/auth.store';
 import api from '@services/api';
+import { PhoneLink } from '@/components/common/PhoneLink';
+import { useNavigate } from 'react-router-dom';
 
 const HISTORY_PAGE_SIZE = 20;
 const STAFF_ROLES = ['SUPER_ADMIN', 'GYM_OWNER', 'TRAINER', 'RECEPTIONIST'];
@@ -80,6 +82,7 @@ export function AttendancePage() {
   const [debouncedFilterSearch, setDebouncedFilterSearch] = useState('');
 
   const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
 
   useEffect(() => {
     const dateParam = searchParams.get('date');
@@ -453,9 +456,15 @@ export function AttendancePage() {
                         {(a.member?.lastName?.[0] ?? '').toUpperCase()}
                       </div>
                       <div className="min-w-0">
-                        <p className="truncate text-sm font-medium">
+                        <button
+                          onClick={() => a.member?.id && navigate(`/members/${a.member.id}`)}
+                          className="truncate text-sm font-medium text-primary hover:underline text-left cursor-pointer block"
+                        >
                           {a.member ? `${a.member.firstName} ${a.member.lastName}` : 'Unknown member'}
-                        </p>
+                        </button>
+                        {a.member?.mobile && (
+                          <PhoneLink phone={a.member.mobile} showWhatsApp className="text-[11px]" />
+                        )}
                         <p className="text-xs text-muted-foreground">
                           Since {new Date(a.checkInAt).toLocaleTimeString()}
                         </p>
@@ -653,14 +662,22 @@ export function AttendancePage() {
                       {historyRecords.map((a: any) => (
                         <tr key={a.id} className="border-b last:border-0 hover:bg-muted/30 transition-colors">
                           <td className="p-4">
-                            <div className="flex items-center gap-2">
-                              <span className="font-medium">
-                                {a.member ? `${a.member.firstName} ${a.member.lastName}` : '—'}
-                              </span>
-                              {a.member?.memberCode && (
-                                <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
-                                  {a.member.memberCode}
-                                </span>
+                            <div className="flex flex-col gap-0.5">
+                              <div className="flex items-center gap-2">
+                                <button
+                                  onClick={() => a.member?.id && navigate(`/members/${a.member.id}`)}
+                                  className="font-medium text-primary hover:underline text-left cursor-pointer"
+                                >
+                                  {a.member ? `${a.member.firstName} ${a.member.lastName}` : '—'}
+                                </button>
+                                {a.member?.memberCode && (
+                                  <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+                                    {a.member.memberCode}
+                                  </span>
+                                )}
+                              </div>
+                              {a.member?.mobile && (
+                                <PhoneLink phone={a.member.mobile} showWhatsApp className="text-xs" />
                               )}
                             </div>
                           </td>

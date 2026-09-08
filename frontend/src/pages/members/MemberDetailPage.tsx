@@ -2,7 +2,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  ArrowLeft, Phone, Mail, MapPin, CreditCard, Calendar, ShieldCheck, ShieldAlert,
+  ArrowLeft, Mail, MapPin, CreditCard, Calendar, ShieldCheck, ShieldAlert,
   ShieldQuestion, Dumbbell, Utensils, LogIn, LogOut, Clock, Flame, Trophy,
   CalendarCheck, ChevronLeft, ChevronRight, Send, HelpCircle, CheckCircle2,
 } from 'lucide-react';
@@ -21,6 +21,7 @@ import {
 import { RecordManualPaymentDialog } from '@/components/payments/RecordManualPaymentDialog';
 import { useToast } from '@/hooks/use-toast';
 import { apiErrorMessage } from '@/lib/api-error';
+import { PhoneLink } from '@/components/common/PhoneLink';
 import api from '@services/api';
 
 interface Member360Response {
@@ -282,7 +283,7 @@ export function MemberDetailPage() {
               )}
             </div>
             <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
-              <span className="flex items-center gap-1"><Phone className="h-3.5 w-3.5" /> {member.mobile}</span>
+              <PhoneLink phone={member.mobile} showIcon showWhatsApp />
               {member.email && (
                 <span className="flex items-center gap-1.5">
                   <Mail className="h-3.5 w-3.5" /> {member.email}
@@ -778,7 +779,9 @@ export function MemberDetailPage() {
                   <p className="text-xs text-muted-foreground font-medium">Emergency Contact</p>
                   <p className="font-medium mt-1">{member.emergencyContactName || 'None listed'}</p>
                   {member.emergencyContactPhone && (
-                    <p className="text-xs text-muted-foreground mt-0.5">{member.emergencyContactPhone}</p>
+                    <div className="mt-1">
+                      <PhoneLink phone={member.emergencyContactPhone} showIcon showWhatsApp />
+                    </div>
                   )}
                 </div>
                 <div className="p-3 rounded-lg border bg-muted/20">

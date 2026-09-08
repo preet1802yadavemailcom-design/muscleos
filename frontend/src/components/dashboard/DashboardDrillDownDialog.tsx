@@ -17,6 +17,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import api from '@services/api';
+import { PhoneLink } from '@/components/common/PhoneLink';
 
 export type DashboardDrillMetric =
   | 'ACTIVE_MEMBERS'
@@ -353,7 +354,7 @@ export function DashboardDrillDownDialog({
                     </td>
                     <td className="p-3">
                       <div className="flex flex-col text-xs">
-                        <span>{row.mobile}</span>
+                        <PhoneLink phone={row.mobile} showWhatsApp />
                         {row.email && <span className="text-muted-foreground">{row.email}</span>}
                       </div>
                     </td>
@@ -399,6 +400,9 @@ export function DashboardDrillDownDialog({
                           <span className="text-xs text-muted-foreground font-mono">
                             {member.memberCode}
                           </span>
+                        )}
+                        {member?.mobile && (
+                          <PhoneLink phone={member.mobile} showWhatsApp className="text-xs" />
                         )}
                       </div>
                     </td>
@@ -452,6 +456,9 @@ export function DashboardDrillDownDialog({
                           <span className="text-xs text-muted-foreground font-mono">
                             {member.memberCode}
                           </span>
+                        )}
+                        {member?.mobile && (
+                          <PhoneLink phone={member.mobile} showWhatsApp className="text-xs" />
                         )}
                       </div>
                     </td>

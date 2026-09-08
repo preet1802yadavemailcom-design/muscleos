@@ -685,7 +685,7 @@ export class AttendanceService {
       take: 50,
       include: {
         member: {
-          select: { id: true, firstName: true, lastName: true, memberCode: true, photo: true },
+          select: { id: true, firstName: true, lastName: true, memberCode: true, mobile: true, photo: true },
         },
         batch: { select: { id: true, name: true } },
       },
