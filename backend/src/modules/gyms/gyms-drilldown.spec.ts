@@ -1,10 +1,12 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { plainToInstance } from 'class-transformer';
+import { validate } from 'class-validator';
 import { PrismaService } from '@database/prisma.service';
 import { AuthService } from '@modules/auth/auth.service';
 import { AuditService } from '@shared/services/audit.service';
 import { AccessScopeService } from '@shared/services/access-scope.service';
 import { GymsService } from './gyms.service';
-import { DashboardDrillMetric } from './dto';
+import { DashboardDrillDownDto, DashboardDrillMetric } from './dto';
 
 describe('GymsService - Dashboard DrillDown', () => {
   let service: GymsService;
@@ -58,6 +60,33 @@ describe('GymsService - Dashboard DrillDown', () => {
     service = module.get<GymsService>(GymsService);
   });
 
+  it('should validate and transform uppercase metric strings in DashboardDrillDownDto', async () => {
+    const dto = plainToInstance(DashboardDrillDownDto, {
+      metric: 'ACTIVE_MEMBERS',
+      sortBy: 'createdAt',
+      sortOrder: 'desc',
+      page: '1',
+      limit: '10',
+    });
+
+    const errors = await validate(dto);
+    expect(errors.length).toBe(0);
+    expect(dto.metric).toBe(DashboardDrillMetric.ACTIVE_MEMBERS);
+    expect(dto.sortBy).toBe('createdAt');
+  });
+
+  it('should validate alias metrics like INACTIVE_MEMBERS and EXPIRED_MEMBERS', async () => {
+    const dto1 = plainToInstance(DashboardDrillDownDto, { metric: 'INACTIVE_MEMBERS' });
+    const errors1 = await validate(dto1);
+    expect(errors1.length).toBe(0);
+    expect(dto1.metric).toBe(DashboardDrillMetric.INACTIVE_MEMBERS);
+
+    const dto2 = plainToInstance(DashboardDrillDownDto, { metric: 'EXPIRED_MEMBERS' });
+    const errors2 = await validate(dto2);
+    expect(errors2.length).toBe(0);
+    expect(dto2.metric).toBe(DashboardDrillMetric.EXPIRED_MEMBERS);
+  });
+
   it('should return paginated active members for ACTIVE_MEMBERS metric', async () => {
     const res = await service.dashboardDrillDown('gym-1', {
       metric: DashboardDrillMetric.ACTIVE_MEMBERS,
@@ -71,6 +100,43 @@ describe('GymsService - Dashboard DrillDown', () => {
     expect(res.data).toHaveLength(1);
     expect(res.meta.total).toBe(42);
     expect(prisma.member.findMany).toHaveBeenCalled();
+  });
+
+  it('should return inactive members for INACTIVE_MEMBERS alias metric', async () => {
+    const res = await service.dashboardDrillDown('gym-1', {
+      metric: DashboardDrillMetric.INACTIVE_MEMBERS,
+      page: 1,
+      limit: 10,
+    });
+
+    expect(res.title).toBe('Inactive Members');
+    expect(res.viewAllUrl).toBe('/members?status=INACTIVE');
+    expect(prisma.member.findMany).toHaveBeenCalled();
+  });
+
+  it('should return expired members for EXPIRED_MEMBERS alias metric', async () => {
+    const res = await service.dashboardDrillDown('gym-1', {
+      metric: DashboardDrillMetric.EXPIRED_MEMBERS,
+      page: 1,
+      limit: 10,
+    });
+
+    expect(res.title).toBe('Expired Members');
+    expect(res.viewAllUrl).toBe('/members?status=EXPIRED');
+    expect(prisma.member.findMany).toHaveBeenCalled();
+  });
+
+  it('should return expired memberships for EXPIRED_MEMBERSHIPS metric with OR query', async () => {
+    const res = await service.dashboardDrillDown('gym-1', {
+      metric: DashboardDrillMetric.EXPIRED_MEMBERSHIPS,
+      page: 1,
+      limit: 10,
+    });
+
+    expect(res.metric).toBe(DashboardDrillMetric.EXPIRED_MEMBERSHIPS);
+    expect(res.title).toBe('Expired Memberships');
+    expect(res.viewAllUrl).toBe('/memberships?status=EXPIRED');
+    expect(prisma.membership.findMany).toHaveBeenCalled();
   });
 
   it('should return paginated check-ins for CHECKINS_TODAY metric', async () => {

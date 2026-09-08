@@ -1,12 +1,14 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import { IsEnum, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
 
 export enum DashboardDrillMetric {
   ACTIVE_MEMBERS = 'active_members',
   MEMBERS_ACTIVE = 'members_active',
   MEMBERS_INACTIVE = 'members_inactive',
+  INACTIVE_MEMBERS = 'inactive_members',
   MEMBERS_EXPIRED = 'members_expired',
+  EXPIRED_MEMBERS = 'expired_members',
   CHECKINS_TODAY = 'checkins_today',
   CHECKOUTS_TODAY = 'checkouts_today',
   CURRENTLY_IN_GYM = 'currently_in_gym',
@@ -22,6 +24,7 @@ export class DashboardDrillDownDto {
     description: 'The KPI metric to drill down into',
     example: DashboardDrillMetric.ACTIVE_MEMBERS,
   })
+  @Transform(({ value }) => (typeof value === 'string' ? value.toLowerCase() : value))
   @IsEnum(DashboardDrillMetric)
   metric: DashboardDrillMetric;
 
@@ -49,6 +52,11 @@ export class DashboardDrillDownDto {
   @IsOptional()
   @IsString()
   sortField?: string;
+
+  @ApiPropertyOptional({ description: 'Field to sort by (alias for sortField)' })
+  @IsOptional()
+  @IsString()
+  sortBy?: string;
 
   @ApiPropertyOptional({ enum: ['asc', 'desc'], default: 'desc' })
   @IsOptional()

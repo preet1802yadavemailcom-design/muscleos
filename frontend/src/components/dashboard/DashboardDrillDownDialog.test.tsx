@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -6,6 +6,15 @@ import { MemoryRouter } from 'react-router-dom';
 import { DashboardDrillDownDialog } from './DashboardDrillDownDialog';
 
 const mockGet = vi.fn();
+const mockNavigate = vi.fn();
+
+vi.mock('react-router-dom', async () => {
+  const actual = await vi.importActual('react-router-dom');
+  return {
+    ...actual,
+    useNavigate: () => mockNavigate,
+  };
+});
 
 vi.mock('@services/api', () => ({
   default: {
@@ -36,6 +45,7 @@ function renderDialog(metric: any = 'ACTIVE_MEMBERS', open = true) {
 describe('DashboardDrillDownDialog', () => {
   beforeEach(() => {
     mockGet.mockReset();
+    mockNavigate.mockReset();
   });
 
   it('renders active members when metric is ACTIVE_MEMBERS', async () => {
@@ -66,6 +76,33 @@ describe('DashboardDrillDownDialog', () => {
     expect(screen.getByText('IRON-0001')).toBeInTheDocument();
     expect(screen.getByText('+919988776655')).toBeInTheDocument();
     expect(screen.getByText('Annual Gold')).toBeInTheDocument();
+  });
+
+  it('renders inactive members when metric is INACTIVE_MEMBERS', async () => {
+    mockGet.mockResolvedValue({
+      data: {
+        data: [
+          {
+            id: 'm-inactive-1',
+            firstName: 'Neha',
+            lastName: 'Sharma',
+            mobile: '+919811223344',
+            memberCode: 'IRON-0099',
+            status: 'INACTIVE',
+          },
+        ],
+        total: 1,
+        page: 1,
+        limit: 10,
+        totalPages: 1,
+      },
+    });
+
+    renderDialog('INACTIVE_MEMBERS');
+
+    expect(screen.getByText('Inactive Members')).toBeInTheDocument();
+    expect(await screen.findByText('Neha Sharma')).toBeInTheDocument();
+    expect(screen.getByText('IRON-0099')).toBeInTheDocument();
   });
 
   it('renders check-ins when metric is CHECKINS_TODAY', async () => {
@@ -135,7 +172,7 @@ describe('DashboardDrillDownDialog', () => {
     expect(screen.getByText('₹2,500')).toBeInTheDocument();
   });
 
-  it('shows empty state when no records match', async () => {
+  it('shows empty state and 0 records when total is 0', async () => {
     mockGet.mockResolvedValue({
       data: {
         data: [],
@@ -149,6 +186,37 @@ describe('DashboardDrillDownDialog', () => {
     renderDialog('EXPIRING_SOON');
 
     expect(await screen.findByText('No records found')).toBeInTheDocument();
+    expect(screen.getAllByText(/0 records/i).length).toBeGreaterThan(0);
+  });
+
+  it('navigates to member profile when a member row is clicked', async () => {
+    const user = userEvent.setup();
+    mockGet.mockResolvedValue({
+      data: {
+        data: [
+          {
+            id: 'm-click-1',
+            firstName: 'Rahul',
+            lastName: 'Verma',
+            mobile: '+919876540000',
+            memberCode: 'MOS-0042',
+            status: 'ACTIVE',
+          },
+        ],
+        total: 1,
+        page: 1,
+        limit: 10,
+        totalPages: 1,
+      },
+    });
+
+    const { onOpenChange } = renderDialog('ACTIVE_MEMBERS');
+
+    expect(await screen.findByText('Rahul Verma')).toBeInTheDocument();
+    await user.click(screen.getByText('Rahul Verma'));
+
+    expect(mockNavigate).toHaveBeenCalledWith('/members/m-click-1');
+    expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
   it('shows error state and retries on failure', async () => {

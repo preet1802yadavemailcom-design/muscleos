@@ -149,8 +149,10 @@ export class GymsService {
       this.prisma.membership.count({
         where: {
           ...membershipWhere,
-          status: MembershipStatus.ACTIVE,
-          endDate: { lt: now },
+          OR: [
+            { status: MembershipStatus.EXPIRED },
+            { status: MembershipStatus.ACTIVE, endDate: { lt: now } },
+          ],
         },
       }),
       this.prisma.membership.count({
@@ -264,7 +266,8 @@ export class GymsService {
         break;
       }
 
-      case DashboardDrillMetric.MEMBERS_INACTIVE: {
+      case DashboardDrillMetric.MEMBERS_INACTIVE:
+      case DashboardDrillMetric.INACTIVE_MEMBERS: {
         title = 'Inactive Members';
         viewAllUrl = '/members?status=INACTIVE';
         const where: any = { gymId, deletedAt: null, status: UserStatus.INACTIVE };
@@ -295,13 +298,21 @@ export class GymsService {
         break;
       }
 
-      case DashboardDrillMetric.MEMBERS_EXPIRED: {
+      case DashboardDrillMetric.MEMBERS_EXPIRED:
+      case DashboardDrillMetric.EXPIRED_MEMBERS: {
         title = 'Expired Members';
         viewAllUrl = '/members?status=EXPIRED';
         const where: any = {
           gymId,
           deletedAt: null,
-          currentMembership: { is: { endDate: { lt: now } } },
+          currentMembership: {
+            is: {
+              OR: [
+                { status: MembershipStatus.EXPIRED },
+                { endDate: { lt: now } },
+              ],
+            },
+          },
         };
         if (branchId) where.branchId = branchId;
         if (search) {
@@ -335,8 +346,10 @@ export class GymsService {
         const where: any = {
           gymId,
           deletedAt: null,
-          status: MembershipStatus.ACTIVE,
-          endDate: { lt: now },
+          OR: [
+            { status: MembershipStatus.EXPIRED },
+            { status: MembershipStatus.ACTIVE, endDate: { lt: now } },
+          ],
         };
         if (branchId) where.member = { branchId };
         if (search) {
