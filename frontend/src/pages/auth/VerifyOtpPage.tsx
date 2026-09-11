@@ -50,10 +50,13 @@ export function VerifyOtpPage() {
       setError('');
       const res: any = await api.post('/auth/verify-email', { email, otp: code });
       setSuccess(true);
-      if (res.data?.requiresPhoneVerification && userId) {
+      const resData = res?.data?.data ?? res?.data ?? res;
+      if (resData?.requiresPhoneVerification) {
         // Gym owners have a second step — phone verification via Firebase
         // — before their account activates.
-        setTimeout(() => navigate('/verify-phone', { state: { userId, phone } }), 1200);
+        const targetUserId = resData.userId || userId;
+        const targetPhone = resData.phone || phone;
+        setTimeout(() => navigate('/verify-phone', { state: { userId: targetUserId, phone: targetPhone } }), 1200);
       } else {
         setTimeout(() => navigate('/login'), 1200);
       }

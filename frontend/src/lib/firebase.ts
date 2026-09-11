@@ -44,6 +44,49 @@ export async function requestPushToken(): Promise<string | null> {
 
 let recaptchaVerifier: RecaptchaVerifier | null = null;
 
+export function clearRecaptchaVerifier() {
+  if (recaptchaVerifier) {
+    try {
+      recaptchaVerifier.clear();
+    } catch {
+      // ignore
+    }
+    recaptchaVerifier = null;
+  }
+}
+
+/** Translates Firebase Auth error codes into clear, actionable user messages */
+export function formatFirebaseError(err: any): string {
+  const code = err?.code || '';
+  const message = err?.message || '';
+
+  if (code === 'auth/configuration-not-found') {
+    return 'Phone authentication is not yet enabled in the Firebase Console. Please enable Phone Auth under Authentication > Sign-in method in Firebase Console.';
+  }
+  if (code === 'auth/invalid-phone-number') {
+    return 'Invalid phone number format. Please ensure you entered a valid 10-digit number with country code (+91).';
+  }
+  if (code === 'auth/quota-exceeded') {
+    return 'SMS quota exceeded for this project. Please try again later or add this number as a test phone number in Firebase Console.';
+  }
+  if (code === 'auth/too-many-requests') {
+    return 'Too many verification attempts. Please wait a few minutes before trying again.';
+  }
+  if (code === 'auth/invalid-verification-code') {
+    return 'The verification code you entered is incorrect. Please double check and try again.';
+  }
+  if (code === 'auth/code-expired') {
+    return 'The verification code has expired. Please click "Resend code" to get a new code.';
+  }
+  if (code === 'auth/captcha-check-failed') {
+    return 'reCAPTCHA verification failed. Please refresh the page and try again.';
+  }
+  if (message.includes('billing') || message.includes('SMS unable to be sent until this region enabled')) {
+    return 'SMS delivery is restricted by Firebase SMS Region Policy. Please enable India (+91) under Firebase Authentication > Settings > SMS region policy, or add this number as a test phone number in Firebase Console.';
+  }
+  return message || 'Could not send verification code. Please try again.';
+}
+
 /** Starts Firebase Phone Auth — sends a real SMS OTP to the given number
  *  (E.164 format, e.g. "+919876543210") using Firebase's free tier, no
  *  backend involvement at all for sending/checking the code itself.
@@ -54,10 +97,24 @@ export async function startPhoneVerification(phoneE164: string, containerId: str
   if (!app) throw new Error('Phone verification is not configured for this deployment.');
 
   const auth = getAuth(app);
-  if (!recaptchaVerifier) {
-    recaptchaVerifier = new RecaptchaVerifier(auth, containerId, { size: 'invisible' });
+
+  // Clear previous verifier and container DOM to prevent duplicate element errors
+  clearRecaptchaVerifier();
+  if (typeof document !== 'undefined') {
+    const el = document.getElementById(containerId);
+    if (el) el.innerHTML = '';
   }
-  return signInWithPhoneNumber(auth, phoneE164, recaptchaVerifier);
+
+  recaptchaVerifier = new RecaptchaVerifier(auth, containerId, {
+    size: 'invisible',
+  });
+
+  try {
+    return await signInWithPhoneNumber(auth, phoneE164, recaptchaVerifier);
+  } catch (err: any) {
+    clearRecaptchaVerifier();
+    throw err;
+  }
 }
 
 /** Confirms the OTP the user typed in and returns a Firebase ID token —
@@ -68,3 +125,4 @@ export async function confirmPhoneOtp(confirmation: ConfirmationResult, code: st
   const credential = await confirmation.confirm(code);
   return credential.user.getIdToken();
 }
+

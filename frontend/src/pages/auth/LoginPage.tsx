@@ -45,17 +45,30 @@ export function LoginPage() {
         ...(isEmail ? { email: data.identifier } : { phone: data.identifier }),
       };
       const response: any = await api.post('/auth/login', payload);
+      const resData = response.data?.data ?? response.data;
 
-      if (response.data?.requiresTwoFactorSetup) {
-        navigate('/2fa-setup', { state: { setupToken: response.data.setupToken } });
+      if (resData?.requiresPhoneVerification) {
+        navigate('/verify-phone', {
+          state: { userId: resData.userId, phone: resData.phone },
+        });
         return;
       }
-      if (response.data?.requiresTwoFactor) {
-        navigate('/2fa-verify', { state: { pendingToken: response.data.pendingToken } });
+      if (resData?.requiresEmailVerification) {
+        navigate('/verify-otp', {
+          state: { userId: resData.userId, email: resData.email, phone: resData.phone },
+        });
+        return;
+      }
+      if (resData?.requiresTwoFactorSetup) {
+        navigate('/2fa-setup', { state: { setupToken: resData.setupToken } });
+        return;
+      }
+      if (resData?.requiresTwoFactor) {
+        navigate('/2fa-verify', { state: { pendingToken: resData.pendingToken } });
         return;
       }
 
-      const { user, accessToken, refreshToken } = response.data;
+      const { user, accessToken, refreshToken } = resData;
       setAuth(user, accessToken, refreshToken);
       navigate('/');
     } catch (err: any) {

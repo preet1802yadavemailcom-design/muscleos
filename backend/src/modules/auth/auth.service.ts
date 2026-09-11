@@ -141,6 +141,31 @@ export class AuthService {
       throw new ForbiddenException('Account is temporarily locked. Please try again later.');
     }
 
+    // If account is PENDING, check credentials and guide user to complete verification
+    if (user && user.status === UserStatus.PENDING && user.password) {
+      const isPasswordValid = await bcrypt.compare(dto.password, user.password);
+      if (isPasswordValid) {
+        if (!user.emailVerified && user.role === UserRole.GYM_OWNER) {
+          return {
+            requiresEmailVerification: true,
+            userId: user.id,
+            email: user.email,
+            phone: user.phone,
+            message: 'Please verify your email address to continue.',
+          };
+        }
+        if (!user.phoneVerified) {
+          return {
+            requiresPhoneVerification: true,
+            userId: user.id,
+            phone: user.phone,
+            email: user.email,
+            message: 'Please verify your phone number to activate your account.',
+          };
+        }
+      }
+    }
+
     const validated = user && user.status === UserStatus.ACTIVE
       ? await this.validateUser(identifier, dto.password, dto.gymId)
       : null;
@@ -385,13 +410,23 @@ export class AuthService {
    *  the one tied to this account. */
   async confirmPhoneVerification(userId: string, idToken: string) {
     const verifiedPhone = await this.firebaseAdmin.verifyPhoneToken(idToken);
+    const last10Digits = verifiedPhone.replace(/\D/g, '').slice(-10);
 
-    const user = await this.prisma.user.findUnique({ where: { id: userId } });
-    if (!user) throw new BadRequestException('User not found');
+    const user = await this.prisma.user.findFirst({
+      where: {
+        OR: [
+          { id: userId },
+          { phone: userId },
+          { email: userId },
+          { phone: { endsWith: last10Digits } },
+        ],
+      },
+    });
+    if (!user) throw new BadRequestException('User not found for this verification.');
     if (!user.phone) throw new BadRequestException('No phone number on file for this account.');
 
     const normalize = (p: string) => p.replace(/\D/g, '').slice(-10);
-    if (normalize(user.phone) !== normalize(verifiedPhone)) {
+    if (normalize(user.phone) !== last10Digits) {
       throw new BadRequestException('The verified phone number does not match the number on your account.');
     }
 
@@ -400,7 +435,7 @@ export class AuthService {
     const readyToActivate = user.role === UserRole.GYM_OWNER ? user.emailVerified : true;
 
     await this.prisma.user.update({
-      where: { id: userId },
+      where: { id: user.id },
       data: {
         phoneVerified: true,
         ...(readyToActivate ? { status: UserStatus.ACTIVE } : {}),
@@ -408,7 +443,7 @@ export class AuthService {
     });
 
     await this.audit.log({
-      action: 'PHONE_VERIFIED', entity: 'User', entityId: userId, userId, gymId: user.gymId ?? undefined,
+      action: 'PHONE_VERIFIED', entity: 'User', entityId: user.id, userId: user.id, gymId: user.gymId ?? undefined,
     });
 
     return {
@@ -508,7 +543,12 @@ export class AuthService {
     if (isOwnerNeedingPhoneVerify) {
       // Phone verification (Firebase Phone Auth) is triggered from the
       // frontend right after this — no server-side OTP send needed here.
-      return { message: 'Email verified. Please also verify your phone number to activate your account.', requiresPhoneVerification: true };
+      return {
+        message: 'Email verified. Please also verify your phone number to activate your account.',
+        requiresPhoneVerification: true,
+        userId: user.id,
+        phone: user.phone,
+      };
     }
 
     // Best-effort — email verification succeeding must not be blocked by a

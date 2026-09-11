@@ -20,9 +20,17 @@ export class FirebaseAdminService implements OnModuleInit {
   constructor(private readonly config: ConfigService) {}
 
   onModuleInit() {
-    const projectId = this.config.get('FIREBASE_PROJECT_ID');
-    const clientEmail = this.config.get('FIREBASE_CLIENT_EMAIL');
-    const privateKey = String(this.config.get('FIREBASE_PRIVATE_KEY', '')).replace(/\\n/g, '\n');
+    const projectId = this.config.get<string>('FIREBASE_PROJECT_ID');
+    const clientEmail = this.config.get<string>('FIREBASE_CLIENT_EMAIL');
+    let rawKey = String(this.config.get<string>('FIREBASE_PRIVATE_KEY', ''));
+    if (rawKey.startsWith('"') && rawKey.endsWith('"')) {
+      try {
+        rawKey = JSON.parse(rawKey);
+      } catch {
+        rawKey = rawKey.slice(1, -1);
+      }
+    }
+    const privateKey = rawKey.replace(/\\n/g, '\n');
 
     if (!projectId || !clientEmail || !privateKey) return; // stays unconfigured — callers get a clear error, not a crash
 
@@ -42,8 +50,10 @@ export class FirebaseAdminService implements OnModuleInit {
     let decoded: admin.auth.DecodedIdToken;
     try {
       decoded = await admin.auth(this.app).verifyIdToken(idToken);
-    } catch {
-      throw new BadRequestException('Invalid or expired verification token.');
+    } catch (err: any) {
+      throw new BadRequestException(
+        err?.message ? `Verification failed: ${err.message}` : 'Invalid or expired verification token.',
+      );
     }
     if (!decoded.phone_number) {
       throw new BadRequestException('This verification token has no verified phone number attached.');
