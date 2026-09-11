@@ -35,6 +35,13 @@ export class ProfileController {
     return this.service.updateMine(userId, dto);
   }
 
+  @Post('link-member/send-otp')
+  @Permissions('profile:update')
+  @ApiOperation({ summary: 'Send an OTP to verify mobile number before linking member profile' })
+  async sendLinkOtp(@CurrentUser('userId') userId: string, @Body('mobile') mobile: string) {
+    return this.service.sendLinkMemberOtp(userId, mobile);
+  }
+
   @Post('link-member')
   @Permissions('profile:update')
   @ApiOperation({ summary: 'Claim an existing member profile using member code + mobile (for accounts created via Google with no gym yet)' })

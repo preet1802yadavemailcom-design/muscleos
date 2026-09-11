@@ -82,12 +82,21 @@ export class AuditService {
       'accessToken',
       'refreshToken',
       'token',
+      'setupToken',
+      'pendingToken',
+      'stepUpToken',
+      'idToken',
       'otp',
       'secret',
       'twoFactorSecret',
       'twoFactorRecoveryCodes',
       'claimToken',
       'qrCodeData',
+      'paymentSecret',
+      'cvv',
+      'cardNumber',
+      'privateKey',
+      'clientSecret',
     ]);
 
     const sanitized: Record<string, any> = {};

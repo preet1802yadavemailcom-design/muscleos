@@ -1,8 +1,9 @@
-﻿import { useQuery } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { Download, Receipt, AlertTriangle } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { downloadBlob } from '@/lib/download';
 import api from '@services/api';
 
 interface MyPayment {
@@ -31,17 +32,15 @@ const statusColor: Record<string, string> = {
 export function MyPaymentsPage() {
   const { data, isLoading, isError } = useQuery<MyPayment[]>({
     queryKey: ['payments', 'me'],
-    queryFn: async () => (await api.get('/payments/me')).data,
+    queryFn: async () => {
+      const res = await api.get('/payments/me');
+      return Array.isArray(res.data?.data) ? res.data.data : Array.isArray(res.data) ? res.data : [];
+    },
   });
 
   const downloadReceipt = async (id: string) => {
     const res = await api.get(`/payments/${id}/receipt`, { responseType: 'blob' });
-    const url = window.URL.createObjectURL(new Blob([res.data]));
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `receipt-${id}.pdf`;
-    link.click();
-    window.URL.revokeObjectURL(url);
+    downloadBlob(res, `receipt-${id}.pdf`);
   };
 
   if (isLoading) return <div className="p-6 text-sm text-muted-foreground">Loading payment history...</div>;

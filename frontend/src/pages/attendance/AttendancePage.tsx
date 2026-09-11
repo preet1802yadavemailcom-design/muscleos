@@ -384,7 +384,13 @@ export function AttendancePage() {
   const historyMeta = historyBody?.meta ?? { total: 0, totalPages: 1, page: 1 };
 
   const myHistoryBody = myHistory.data as any;
-  const myHistoryRecords: any[] = myHistoryBody?.data?.data ?? [];
+  const myHistoryRecords: any[] = Array.isArray(myHistoryBody?.data?.data)
+    ? myHistoryBody.data.data
+    : Array.isArray(myHistoryBody?.data)
+    ? myHistoryBody.data
+    : Array.isArray(myHistoryBody)
+    ? myHistoryBody
+    : [];
 
   const isCheckIn = scanResult?.type === 'CHECK_IN';
 

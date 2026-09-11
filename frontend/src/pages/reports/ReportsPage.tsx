@@ -6,6 +6,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
 import api from '@services/api';
 
+import { downloadBlob } from '@/lib/download';
+
 type ReportType = 'ATTENDANCE' | 'REVENUE' | 'MEMBER' | 'BATCH';
 type Period = 'DAILY' | 'WEEKLY' | 'MONTHLY' | 'YEARLY';
 
@@ -37,15 +39,7 @@ export function ReportsPage() {
   const exportMutation = useMutation({
     mutationFn: async ({ type, format }: { type: ReportType; format: 'csv' | 'pdf' | 'excel' }) => {
       const res = await api.post('/reports/export', { type, period, format }, { responseType: 'blob' });
-      const contentDisposition = res.headers?.['content-disposition'] as string | undefined;
-      const filenameMatch = contentDisposition?.match(/filename="?([^"]+)"?/);
-      const filename = filenameMatch?.[1] ?? `${type.toLowerCase()}-report.${format === 'excel' ? 'xlsx' : format}`;
-      const url = window.URL.createObjectURL(new Blob([res.data]));
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = filename;
-      link.click();
-      window.URL.revokeObjectURL(url);
+      downloadBlob(res, `${type.toLowerCase()}-report.${format === 'excel' ? 'xlsx' : format}`);
     },
     onError: (e: any) => toast({
       title: 'Export failed',

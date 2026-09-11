@@ -12,31 +12,7 @@ import { apiErrorMessage } from '@/lib/api-error';
 import { requestPushToken } from '@/lib/firebase';
 import api from '@services/api';
 
-interface MyProfile {
-  id: string;
-  email: string;
-  firstName: string;
-  lastName: string;
-  phone?: string | null;
-  avatar?: string | null;
-  role: string;
-  emailVerified: boolean;
-  createdAt: string;
-  gym?: { name: string } | null;
-  branch?: { name: string } | null;
-  memberProfile?: {
-    memberCode: string;
-    photo?: string | null;
-    emergencyContactName?: string | null;
-    emergencyContactPhone?: string | null;
-    createdAt: string;
-    status: string;
-    currentStreak?: number;
-    longestStreak?: number;
-    branch?: { name: string; city?: string | null } | null;
-    currentMembership?: { status: string; endDate: string; planName?: string | null } | null;
-  } | null;
-}
+import { profileApi, MyProfile } from '@/services/profile.api';
 
 /** Every authenticated role lands here for their OWN profile - this is not
  *  an admin "manage users" page. Editable fields mirror exactly what the
@@ -49,7 +25,7 @@ export function MyProfilePage() {
 
   const { data, isLoading } = useQuery<MyProfile>({
     queryKey: ['profile', 'me'],
-    queryFn: async () => (await api.get('/profile')).data,
+    queryFn: () => profileApi.getProfile(),
   });
 
   const [form, setForm] = useState({

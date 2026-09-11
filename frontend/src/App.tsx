@@ -48,6 +48,8 @@ const SupportTicketsPage = lazy(() => import('@pages/super-admin/SupportTicketsP
 const MySupportTicketsPage = lazy(() => import('@pages/support/SupportTicketsPage').then((m) => ({ default: m.SupportTicketsPage })));
 const MyFitnessPage = lazy(() => import('@pages/fitness/MyFitnessPage').then((m) => ({ default: m.MyFitnessPage })));
 const AssignFitnessPlanPage = lazy(() => import('@pages/fitness/AssignFitnessPlanPage').then((m) => ({ default: m.AssignFitnessPlanPage })));
+const MemberDashboardPage = lazy(() => import('@pages/dashboard/MemberDashboardPage').then((m) => ({ default: m.MemberDashboardPage })));
+const SecurityPage = lazy(() => import('@pages/security/SecurityPage').then((m) => ({ default: m.SecurityPage })));
 
 const ROLES = {
   SUPER_ADMIN: 'SUPER_ADMIN',
@@ -71,7 +73,7 @@ function RoleAwareDashboard() {
   const { user } = useAuthStore();
   if (user?.role === ROLES.SUPER_ADMIN) return <SuperAdminDashboardPage />;
   if (user?.role === ROLES.GYM_OWNER) return <OwnerDashboardPage />;
-  if (user?.role === ROLES.MEMBER) return <Navigate to="/my/membership" replace />;
+  if (user?.role === ROLES.MEMBER) return <MemberDashboardPage />;
   if (user?.role === ROLES.RECEPTION) return <Navigate to="/reception" replace />;
   if (user?.role === ROLES.TRAINER) return <Navigate to="/batches" replace />;
   return <DashboardPage />;
@@ -234,6 +236,7 @@ function App() {
           }
         />
         <Route path="my/profile" element={<MyProfilePage />} />
+        <Route path="security" element={<SecurityPage />} />
         <Route
           path="my/membership"
           element={

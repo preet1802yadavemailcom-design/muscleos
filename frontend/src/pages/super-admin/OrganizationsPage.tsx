@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Building2, CheckCircle2, XCircle, Ban, RotateCcw, Trash2, ShieldAlert } from 'lucide-react';
+import { Building2, CheckCircle2, XCircle, Ban, RotateCcw, Archive, ShieldAlert } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -9,19 +9,11 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
-import api from '@services/api';
+import { superAdminApi, Gym } from '@/services/super-admin.api';
+import api from '@/services/api';
 import { apiErrorMessage } from '@/lib/api-error';
-
-interface Gym {
-  id: string;
-  name: string;
-  email: string;
-  status: 'PENDING' | 'ACTIVE' | 'SUSPENDED' | 'REJECTED';
-  planType?: string | null;
-  createdAt: string;
-  _count?: { members: number; branches: number };
-}
 
 const statusColor: Record<string, string> = {
   ACTIVE: 'bg-green-100 text-green-800',
@@ -30,68 +22,73 @@ const statusColor: Record<string, string> = {
   REJECTED: 'bg-gray-100 text-gray-800',
 };
 
-/**
- * The backend already had full org lifecycle endpoints
- * (super-admin.controller.ts: approve/reject/suspend/reactivate/delete) —
- * there was just no frontend page calling any of them. Suspend and Delete
- * are step-up-guarded server-side (see auth/guards/step-up.guard.ts), so
- * this page collects a fresh password (+2FA code if enabled) via a dialog
- * and attaches it as `x-step-up-token` before those two specific calls.
- */
 export function OrganizationsPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const [pendingAction, setPendingAction] = useState<{ gymId: string; action: 'suspend' | 'delete' } | null>(null);
+
+  // Dialog state for Rejection
+  const [rejectingGym, setRejectingGym] = useState<Gym | null>(null);
+  const [rejectReason, setRejectReason] = useState('');
+
+  // Dialog state for Step-up (Suspend or Archive)
+  const [pendingAction, setPendingAction] = useState<{ gymId: string; action: 'suspend' | 'archive' } | null>(null);
+  const [suspendReason, setSuspendReason] = useState('');
   const [stepUpPassword, setStepUpPassword] = useState('');
   const [stepUpCode, setStepUpCode] = useState('');
 
-  const { data, isLoading } = useQuery<{ data: Gym[] }>({
+  const { data, isLoading } = useQuery({
     queryKey: ['super-admin', 'gyms'],
-    queryFn: async () => (await api.get('/super-admin/gyms')).data,
+    queryFn: () => superAdminApi.getGyms(),
   });
+
+  const gyms = data?.items ?? [];
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['super-admin', 'gyms'] });
 
   const approveMutation = useMutation({
-    mutationFn: (id: string) => api.post(`/super-admin/gyms/${id}/approve`),
+    mutationFn: (id: string) => superAdminApi.approveGym(id),
     onSuccess: () => { invalidate(); toast({ title: 'Organization approved' }); },
     onError: (e: unknown) => toast({ title: 'Failed', description: apiErrorMessage(e), variant: 'destructive' }),
   });
 
   const rejectMutation = useMutation({
-    mutationFn: (id: string) => api.post(`/super-admin/gyms/${id}/reject`, { reason: 'Rejected via admin panel' }),
-    onSuccess: () => { invalidate(); toast({ title: 'Organization rejected' }); },
+    mutationFn: ({ id, reason }: { id: string; reason: string }) => superAdminApi.rejectGym(id, reason),
+    onSuccess: () => {
+      invalidate();
+      toast({ title: 'Organization rejected' });
+      setRejectingGym(null);
+      setRejectReason('');
+    },
     onError: (e: unknown) => toast({ title: 'Failed', description: apiErrorMessage(e), variant: 'destructive' }),
   });
 
   const reactivateMutation = useMutation({
-    mutationFn: (id: string) => api.post(`/super-admin/gyms/${id}/reactivate`),
+    mutationFn: (id: string) => superAdminApi.reactivateGym(id),
     onSuccess: () => { invalidate(); toast({ title: 'Organization reactivated' }); },
     onError: (e: unknown) => toast({ title: 'Failed', description: apiErrorMessage(e), variant: 'destructive' }),
   });
 
-  /** Step 1: get a step-up token; Step 2: retry the actual action with it attached. */
   const stepUpThenAct = useMutation({
     mutationFn: async () => {
       if (!pendingAction) return;
       const stepUp = await api.post('/auth/step-up/verify', { password: stepUpPassword, code: stepUpCode || undefined });
-      const token = stepUp.data.stepUpToken;
-      const headers = { 'x-step-up-token': token };
+      const token = stepUp.data?.data?.stepUpToken ?? stepUp.data?.stepUpToken;
       if (pendingAction.action === 'suspend') {
-        await api.post(`/super-admin/gyms/${pendingAction.gymId}/suspend`, { reason: 'Suspended via admin panel' }, { headers });
+        await superAdminApi.suspendGym(pendingAction.gymId, suspendReason.trim() || 'Suspended via admin panel', token);
       } else {
-        await api.delete(`/super-admin/gyms/${pendingAction.gymId}`, { headers });
+        await superAdminApi.archiveGym(pendingAction.gymId, token);
       }
     },
     onSuccess: () => {
       invalidate();
-      toast({ title: pendingAction?.action === 'suspend' ? 'Organization suspended' : 'Organization deleted' });
+      toast({ title: pendingAction?.action === 'suspend' ? 'Organization suspended' : 'Organization archived' });
       setPendingAction(null);
+      setSuspendReason('');
       setStepUpPassword('');
       setStepUpCode('');
     },
     onError: (e: unknown) => toast({
-      title: 'Re-authentication failed',
+      title: 'Action failed',
       description: apiErrorMessage(e, 'Check your password and try again'),
       variant: 'destructive',
     }),
@@ -103,23 +100,34 @@ export function OrganizationsPage() {
         <h1 className="text-xl sm:text-2xl font-bold tracking-tight flex items-center gap-2">
           <Building2 className="h-5 w-5" /> Organizations
         </h1>
-        <p className="text-sm text-muted-foreground">Every gym on the platform. Suspend/Delete require re-authentication.</p>
+        <p className="text-sm text-muted-foreground">Every gym on the platform. Suspend/Archive require re-authentication.</p>
       </div>
 
       <Card>
         <CardHeader><CardTitle className="text-base">All organizations</CardTitle></CardHeader>
         <CardContent className="divide-y">
           {isLoading && <p className="py-6 text-sm text-muted-foreground text-center">Loading…</p>}
-          {!isLoading && (!data?.data || data.data.length === 0) && (
-            <p className="py-6 text-sm text-muted-foreground text-center">No organizations yet.</p>
+          {!isLoading && gyms.length === 0 && (
+            <p className="py-6 text-sm text-muted-foreground text-center">No organizations found.</p>
           )}
-          {data?.data?.map((gym) => (
+          {gyms.map((gym) => (
             <div key={gym.id} className="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div className="min-w-0">
-                <p className="font-medium truncate">{gym.name}</p>
+                <div className="flex items-center gap-2">
+                  <p className="font-medium truncate">{gym.name}</p>
+                  <Badge variant="outline" className="text-xs">{gym.planType || 'STARTER'}</Badge>
+                </div>
                 <p className="text-xs text-muted-foreground truncate">{gym.email}</p>
+                {gym.rejectionReason && (
+                  <p className="text-xs text-destructive mt-0.5">Rejected: {gym.rejectionReason}</p>
+                )}
+                {gym.suspensionReason && (
+                  <p className="text-xs text-destructive mt-0.5">Suspended: {gym.suspensionReason}</p>
+                )}
                 {gym._count && (
-                  <p className="text-xs text-muted-foreground">{gym._count.members} members · {gym._count.branches} branches</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    {gym._count.members ?? 0} members · {gym._count.users ?? 0} staff · {gym._count.batches ?? 0} batches
+                  </p>
                 )}
               </div>
               <div className="flex items-center gap-2 flex-wrap shrink-0">
@@ -129,7 +137,11 @@ export function OrganizationsPage() {
                     <Button size="sm" variant="outline" onClick={() => approveMutation.mutate(gym.id)} className="gap-1">
                       <CheckCircle2 className="h-3.5 w-3.5" /> Approve
                     </Button>
-                    <Button size="sm" variant="outline" onClick={() => rejectMutation.mutate(gym.id)} className="gap-1">
+                    <Button
+                      size="sm" variant="outline"
+                      onClick={() => { setRejectingGym(gym); setRejectReason(''); }}
+                      className="gap-1 text-destructive"
+                    >
                       <XCircle className="h-3.5 w-3.5" /> Reject
                     </Button>
                   </>
@@ -137,8 +149,8 @@ export function OrganizationsPage() {
                 {gym.status === 'ACTIVE' && (
                   <Button
                     size="sm" variant="outline"
-                    onClick={() => setPendingAction({ gymId: gym.id, action: 'suspend' })}
-                    className="gap-1"
+                    onClick={() => { setPendingAction({ gymId: gym.id, action: 'suspend' }); setSuspendReason(''); }}
+                    className="gap-1 text-amber-600"
                   >
                     <Ban className="h-3.5 w-3.5" /> Suspend
                   </Button>
@@ -150,10 +162,10 @@ export function OrganizationsPage() {
                 )}
                 <Button
                   size="sm" variant="destructive"
-                  onClick={() => setPendingAction({ gymId: gym.id, action: 'delete' })}
+                  onClick={() => setPendingAction({ gymId: gym.id, action: 'archive' })}
                   className="gap-1"
                 >
-                  <Trash2 className="h-3.5 w-3.5" /> Delete
+                  <Archive className="h-3.5 w-3.5" /> Archive
                 </Button>
               </div>
             </div>
@@ -161,6 +173,41 @@ export function OrganizationsPage() {
         </CardContent>
       </Card>
 
+      {/* Reject Gym Dialog */}
+      <Dialog open={!!rejectingGym} onOpenChange={(open) => !open && setRejectingGym(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Reject Organization Registration</DialogTitle>
+            <DialogDescription>
+              Please provide a clear reason for rejecting &quot;{rejectingGym?.name}&quot;. This will be recorded in their organization record and audit log.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div>
+              <Label htmlFor="reject-reason">Rejection Reason</Label>
+              <Textarea
+                id="reject-reason"
+                rows={3}
+                placeholder="e.g. Incomplete documentation, duplicate organization, or invalid contact details."
+                value={rejectReason}
+                onChange={(e) => setRejectReason(e.target.value)}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setRejectingGym(null)}>Cancel</Button>
+            <Button
+              variant="destructive"
+              onClick={() => rejectingGym && rejectMutation.mutate({ id: rejectingGym.id, reason: rejectReason.trim() || 'Registration requirements not met' })}
+              disabled={rejectMutation.isPending}
+            >
+              {rejectMutation.isPending ? 'Rejecting…' : 'Confirm Rejection'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Step-Up Re-Authentication Modal for Suspend / Archive */}
       <Dialog open={!!pendingAction} onOpenChange={(open) => !open && setPendingAction(null)}>
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
@@ -169,13 +216,24 @@ export function OrganizationsPage() {
               Confirm your identity
             </DialogTitle>
             <DialogDescription>
-              {pendingAction?.action === 'delete' ? 'Deleting' : 'Suspending'} an organization is a
-              high-impact action — re-enter your password to continue.
+              {pendingAction?.action === 'archive' ? 'Archiving' : 'Suspending'} an organization is a
+              high-impact platform action. Re-enter your password to continue.
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-3">
+          <div className="space-y-3 py-2">
+            {pendingAction?.action === 'suspend' && (
+              <div>
+                <Label htmlFor="suspend-reason">Suspension Reason</Label>
+                <Input
+                  id="suspend-reason"
+                  value={suspendReason}
+                  onChange={(e) => setSuspendReason(e.target.value)}
+                  placeholder="e.g. Terms violation or billing non-compliance"
+                />
+              </div>
+            )}
             <div>
-              <Label htmlFor="stepup-password">Password</Label>
+              <Label htmlFor="stepup-password">Your Password</Label>
               <Input id="stepup-password" type="password" value={stepUpPassword} onChange={(e) => setStepUpPassword(e.target.value)} />
             </div>
             <div>
@@ -190,7 +248,7 @@ export function OrganizationsPage() {
               onClick={() => stepUpThenAct.mutate()}
               disabled={!stepUpPassword || stepUpThenAct.isPending}
             >
-              {stepUpThenAct.isPending ? 'Verifying…' : 'Confirm'}
+              {stepUpThenAct.isPending ? 'Verifying…' : pendingAction?.action === 'archive' ? 'Archive Gym' : 'Suspend Gym'}
             </Button>
           </DialogFooter>
         </DialogContent>

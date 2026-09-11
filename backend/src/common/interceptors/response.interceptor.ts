@@ -24,7 +24,8 @@ export class ResponseInterceptor<T> implements NestInterceptor<T, ApiResponse<T>
       map((data) => {
         if (data && typeof data === 'object' && 'success' in data) return data;
         const meta = data && typeof data === 'object' && 'meta' in data ? data.meta : undefined;
-        const responseData = data && typeof data === 'object' && 'meta' in data ? data.data : data;
+        const isPurePaginated = data && typeof data === 'object' && 'meta' in data && 'data' in data && Object.keys(data).length <= 2;
+        const responseData = isPurePaginated ? data.data : data;
 
         return {
           success: true,

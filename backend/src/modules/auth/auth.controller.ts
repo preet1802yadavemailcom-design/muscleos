@@ -37,12 +37,17 @@ export class AuthController {
   @ApiOperation({ summary: 'Google login callback — issues tokens and redirects to the frontend' })
   async googleCallback(@Req() req: Request, @Res() res: Response, @Ip() ip: string, @Headers('user-agent') deviceInfo: string) {
     const user = req.user as any;
-    const session = await this.authService.issueSessionForOAuthUser(user, ip, deviceInfo);
+    const authResult: any = await this.authService.issueSessionForOAuthUser(user, ip, deviceInfo);
     const frontendUrl = this.config.get('app.frontendUrl', 'http://localhost:5173');
-    // Tokens are passed via URL fragment (not query) so they never hit server
-    // logs; the frontend route at /auth/callback reads window.location.hash.
-    // `profileIncomplete` tells the frontend to send brand-new members to a
-    // "join a gym" step instead of a dashboard that has no data to show yet.
+
+    if (authResult.requiresTwoFactorSetup) {
+      return res.redirect(`${frontendUrl}/2fa-setup?setupToken=${encodeURIComponent(authResult.setupToken)}`);
+    }
+    if (authResult.requiresTwoFactor) {
+      return res.redirect(`${frontendUrl}/2fa-verify?pendingToken=${encodeURIComponent(authResult.pendingToken)}`);
+    }
+
+    const session = authResult;
     const incompleteFlag = user.profileIncomplete ? '&profileIncomplete=1' : '';
     res.redirect(`${frontendUrl}/auth/callback#accessToken=${session.accessToken}&refreshToken=${session.refreshToken}${incompleteFlag}`);
   }

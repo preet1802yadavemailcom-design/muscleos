@@ -71,7 +71,8 @@ export function NotificationsPage() {
           api.get('/notifications'),
           api.get('/batches').catch(() => ({ data: [] })),
         ]);
-        setLogs(logsRes.data ?? []);
+        const rawLogs = (logsRes as any)?.data?.data ?? (logsRes as any)?.data ?? [];
+        setLogs(Array.isArray(rawLogs) ? rawLogs : []);
         const batchData = (batchesRes as any)?.data?.data ?? (batchesRes as any)?.data ?? [];
         setBatches(Array.isArray(batchData) ? batchData : []);
       } catch {

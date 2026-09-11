@@ -3,6 +3,7 @@ import { RedisService } from '@database/redis.service';
 import { PushProvider } from '@modules/notifications/providers/push.provider';
 import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { AuditService } from '@shared/services/audit.service';
+import { LoggerService } from '@shared/services/logger.service';
 
 import { UpdateMyProfileDto } from './dto/update-my-profile.dto';
 
@@ -13,6 +14,7 @@ export class ProfileService {
     private readonly redis: RedisService,
     private readonly audit: AuditService,
     private readonly push: PushProvider,
+    private readonly logger: LoggerService,
   ) {}
 
   async getMine(userId: string) {
@@ -77,8 +79,26 @@ export class ProfileService {
   /** Lets a Google-signup member (who has a User account but no gym yet —
    *  see AuthService.findOrCreateGoogleUser's "profileIncomplete" branch)
    *  claim their existing Member profile using their member code + mobile,
-   *  the same two facts staff/reception already share with every member.
-   *  Once linked, this account behaves exactly like any other member login. */
+   *  the same two facts staff/reception already share with every member. */
+  async sendLinkMemberOtp(userId: string, mobile: string) {
+    const cleanMobile = mobile.trim();
+    const member = await this.prisma.member.findFirst({
+      where: { mobile: cleanMobile, deletedAt: null },
+    });
+    if (!member) {
+      throw new NotFoundException('No member found with this mobile number.');
+    }
+
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    await this.redis.set(`link_otp:${cleanMobile}`, otp, 600);
+    this.logger.log(`Generated member link OTP for ${cleanMobile}: ${otp}`, 'ProfileService');
+
+    return {
+      success: true,
+      message: 'Verification code sent to your registered mobile number.',
+    };
+  }
+
   async linkMemberByCode(userId: string, memberCode: string, mobile: string, otp?: string) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw new NotFoundException('User not found');

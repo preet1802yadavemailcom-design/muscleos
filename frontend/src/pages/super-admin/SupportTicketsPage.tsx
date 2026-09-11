@@ -4,22 +4,12 @@ import { LifeBuoy } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
-import api from '@services/api';
+import { superAdminApi } from '@/services/super-admin.api';
 import { apiErrorMessage } from '@/lib/api-error';
 
 type TicketStatus = 'OPEN' | 'IN_PROGRESS' | 'RESOLVED' | 'CLOSED' | 'ESCALATED';
-type TicketPriority = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
 
-interface Ticket {
-  id: string;
-  subject: string;
-  status: TicketStatus;
-  priority: TicketPriority;
-  gym?: { name: string } | null;
-  createdAt: string;
-}
-
-const statusColor: Record<TicketStatus, string> = {
+const statusColor: Record<string, string> = {
   OPEN: 'bg-amber-100 text-amber-800',
   IN_PROGRESS: 'bg-blue-100 text-blue-800',
   RESOLVED: 'bg-green-100 text-green-800',
@@ -27,7 +17,7 @@ const statusColor: Record<TicketStatus, string> = {
   ESCALATED: 'bg-red-100 text-red-800',
 };
 
-const priorityColor: Record<TicketPriority, string> = {
+const priorityColor: Record<string, string> = {
   LOW: 'bg-gray-100 text-gray-700',
   MEDIUM: 'bg-blue-100 text-blue-700',
   HIGH: 'bg-amber-100 text-amber-800',
@@ -39,15 +29,18 @@ export function SupportTicketsPage() {
   const queryClient = useQueryClient();
   const [statusFilter, setStatusFilter] = useState<TicketStatus | 'ALL'>('OPEN');
 
-  const { data, isLoading } = useQuery<{ data: Ticket[] }>({
+  const { data, isLoading } = useQuery({
     queryKey: ['super-admin', 'tickets', statusFilter],
-    queryFn: async () => (await api.get('/super-admin/tickets', {
-      params: statusFilter === 'ALL' ? {} : { status: statusFilter },
-    })).data,
+    queryFn: () => superAdminApi.getTickets({
+      status: statusFilter === 'ALL' ? undefined : statusFilter,
+    }),
   });
 
+  const tickets = data?.items ?? [];
+
   const updateMutation = useMutation({
-    mutationFn: ({ id, status }: { id: string; status: TicketStatus }) => api.put(`/super-admin/tickets/${id}`, { status }),
+    mutationFn: ({ id, status }: { id: string; status: TicketStatus }) =>
+      superAdminApi.updateTicket(id, { status }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['super-admin', 'tickets'] });
       toast({ title: 'Ticket updated' });
@@ -85,10 +78,10 @@ export function SupportTicketsPage() {
         <CardHeader><CardTitle className="text-base">Tickets</CardTitle></CardHeader>
         <CardContent className="divide-y">
           {isLoading && <p className="py-6 text-sm text-muted-foreground text-center">Loading…</p>}
-          {!isLoading && (!data?.data || data.data.length === 0) && (
+          {!isLoading && tickets.length === 0 && (
             <p className="py-6 text-sm text-muted-foreground text-center">No tickets here.</p>
           )}
-          {data?.data?.map((ticket) => (
+          {tickets.map((ticket) => (
             <div key={ticket.id} className="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div className="min-w-0">
                 <p className="font-medium truncate">{ticket.subject}</p>

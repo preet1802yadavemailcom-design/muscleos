@@ -55,6 +55,78 @@ export class NotificationsService {
     };
   }
 
+  async findMy(userId: string, options: { page?: number; limit?: number }) {
+    const page = options.page && options.page > 0 ? options.page : 1;
+    const limit = options.limit && options.limit > 0 ? options.limit : 20;
+    const skip = (page - 1) * limit;
+
+    // Find member ID if this user is linked to a Member profile
+    const member = await this.prisma.member.findFirst({ where: { userId }, select: { id: true, gymId: true } });
+
+    const userWhereClause = member
+      ? { OR: [{ userId }, { memberId: member.id }] }
+      : { userId };
+
+    const [data, total] = await Promise.all([
+      this.prisma.notification.findMany({
+        where: userWhereClause,
+        skip,
+        take: limit,
+        orderBy: { createdAt: 'desc' },
+      }),
+      this.prisma.notification.count({ where: userWhereClause }),
+    ]);
+
+    return {
+      data,
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+        hasNextPage: page * limit < total,
+        hasPrevPage: page > 1,
+      },
+    };
+  }
+
+  async getUnreadCount(userId: string): Promise<{ count: number }> {
+    const member = await this.prisma.member.findFirst({ where: { userId }, select: { id: true } });
+    const userWhereClause = member
+      ? { OR: [{ userId }, { memberId: member.id }], readAt: null }
+      : { userId, readAt: null };
+
+    const count = await this.prisma.notification.count({ where: userWhereClause });
+    return { count };
+  }
+
+  async markAsRead(id: string, userId: string) {
+    const member = await this.prisma.member.findFirst({ where: { userId }, select: { id: true } });
+    const userWhereClause = member
+      ? { id, OR: [{ userId }, { memberId: member.id }] }
+      : { id, userId };
+
+    const notification = await this.prisma.notification.findFirst({ where: userWhereClause });
+    if (!notification) throw new NotFoundException('Notification not found');
+
+    return this.prisma.notification.update({
+      where: { id },
+      data: { readAt: new Date(), status: 'READ' },
+    });
+  }
+
+  async markAllAsRead(userId: string) {
+    const member = await this.prisma.member.findFirst({ where: { userId }, select: { id: true } });
+    const userWhereClause = member
+      ? { OR: [{ userId }, { memberId: member.id }], readAt: null }
+      : { userId, readAt: null };
+
+    return this.prisma.notification.updateMany({
+      where: userWhereClause,
+      data: { readAt: new Date(), status: 'READ' },
+    });
+  }
+
   async findOne(id: string, gymId: string) {
     const item = await this.prisma.notification.findFirst({ where: { id, gymId } });
     if (!item) throw new NotFoundException('Notification not found');

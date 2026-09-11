@@ -1,13 +1,14 @@
 import { useEffect, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { Dumbbell, ShieldCheck, Copy, Check } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import api from '@services/api';
+import { authApi } from '@/services/auth.api';
 
 export function TwoFactorSetupPage() {
   const navigate = useNavigate();
   const location = useLocation();
-  const setupToken = (location.state)?.setupToken;
+  const [searchParams] = useSearchParams();
+  const setupToken = (location.state)?.setupToken || searchParams.get('setupToken');
 
   const [qrDataUrl, setQrDataUrl] = useState('');
   const [secret, setSecret] = useState('');
@@ -25,11 +26,15 @@ export function TwoFactorSetupPage() {
     }
     (async () => {
       try {
-        const res = await api.post('/auth/2fa/setup/begin', {}, { headers: { Authorization: `Bearer ${setupToken}` } });
-        setQrDataUrl(res.data.qrDataUrl);
-        setSecret(res.data.secret);
+        const data = await authApi.begin2FASetup(setupToken);
+        setQrDataUrl(data.qrDataUrl);
+        setSecret(data.secret);
       } catch (err: any) {
-        setError(err.response?.data?.message || 'Could not start 2FA setup � please log in again.');
+        if (err.response?.status === 401) {
+          setError('Your security setup session has expired. Please sign in again to continue.');
+        } else {
+          setError(err.response?.data?.message || 'Could not start 2FA setup — please log in again.');
+        }
       } finally {
         setLoading(false);
       }
@@ -41,10 +46,10 @@ export function TwoFactorSetupPage() {
     try {
       setSubmitting(true);
       setError('');
-      const res = await api.post('/auth/2fa/setup/confirm', { code }, { headers: { Authorization: `Bearer ${setupToken}` } });
-      setRecoveryCodes(res.data.recoveryCodes);
+      const data = await authApi.confirm2FASetup(code, setupToken);
+      setRecoveryCodes(data.recoveryCodes);
     } catch (err: any) {
-      setError(err.response?.data?.message || 'Invalid code � please try again.');
+      setError(err.response?.data?.message || 'Invalid verification code — please try again.');
     } finally {
       setSubmitting(false);
     }

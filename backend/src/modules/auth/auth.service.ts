@@ -237,10 +237,49 @@ export class AuthService {
     return this.issueSessionAfterAuth(user, ipAddress, deviceInfo, payload.rememberMe);
   }
 
-  /** Public wrapper so the Google OAuth callback (which has no password to
-   *  check — Google already verified the identity) can issue a normal
-   *  session using the same refresh-token/audit-log path as password login. */
+  /** Public wrapper so the Google OAuth callback can issue a session
+   *  while strictly enforcing all security gates: active account check,
+   *  active gym check, and mandatory 2FA setup/verification. */
   async issueSessionForOAuthUser(user: any, ipAddress?: string, deviceInfo?: string) {
+    if (user.status !== UserStatus.ACTIVE && user.status !== UserStatus.PENDING) {
+      throw new UnauthorizedException('Account is suspended or deactivated');
+    }
+
+    if (user.gymId && user.role !== UserRole.SUPER_ADMIN && user.gym) {
+      if (user.gym.status !== 'ACTIVE' || user.gym.deletedAt) {
+        throw new UnauthorizedException('Gym account is suspended or inactive');
+      }
+    }
+
+    if (user.role === UserRole.SUPER_ADMIN && !user.twoFactorEnabled) {
+      const setupToken = this.jwtService.sign(
+        { sub: user.id, purpose: '2fa-setup-required' },
+        { secret: this.configService.get('app.jwtSecret'), expiresIn: '10m' },
+      );
+      return {
+        requiresTwoFactorSetup: true,
+        setupToken,
+        message: 'Two-factor authentication setup is required for Super Admin accounts before you can log in.',
+      };
+    }
+
+    if (user.twoFactorEnabled) {
+      const pendingToken = this.jwtService.sign(
+        { sub: user.id, purpose: '2fa-pending', rememberMe: false },
+        { secret: this.configService.get('app.jwtSecret'), expiresIn: PENDING_2FA_TTL_SECONDS },
+      );
+      await this.audit.log({
+        action: 'LOGIN_2FA_PENDING',
+        entity: 'User',
+        entityId: user.id,
+        userId: user.id,
+        gymId: user.gymId ?? undefined,
+        ipAddress,
+        userAgent: deviceInfo,
+      });
+      return { requiresTwoFactor: true, pendingToken };
+    }
+
     return this.issueSessionAfterAuth(user, ipAddress, deviceInfo, false);
   }
 

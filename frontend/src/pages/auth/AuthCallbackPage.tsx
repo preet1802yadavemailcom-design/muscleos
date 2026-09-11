@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import api from '@services/api';
+import { authApi } from '@/services/auth.api';
 import { useAuthStore } from '@store/auth.store';
 
 /** Google redirects here after login with tokens in the URL fragment
@@ -24,10 +24,8 @@ export function AuthCallbackPage() {
 
     (async () => {
       try {
-        const res: any = await api.get('/auth/me', {
-          headers: { Authorization: `Bearer ${accessToken}` },
-        });
-        setAuth(res.data, accessToken, refreshToken);
+        const data = await authApi.getMe(accessToken);
+        setAuth(data.user, accessToken, refreshToken);
         const profileIncomplete = params.get('profileIncomplete') === '1';
         navigate(profileIncomplete ? '/complete-profile' : '/', { replace: true });
       } catch {

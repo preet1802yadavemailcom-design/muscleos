@@ -29,12 +29,15 @@ export class TwoFactorSetupGuard implements CanActivate {
       throw new UnauthorizedException('Invalid or expired setup token');
     }
 
-    if (payload?.purpose !== '2fa-setup-required' || !payload?.sub) {
+    // Support both the initial login mandatory setup token ('2fa-setup-required')
+    // AND an already authenticated user enabling 2FA from the Security Center
+    const userId = payload?.purpose === '2fa-setup-required' ? payload.sub : (payload.sub || payload.userId);
+    if (!userId) {
       throw new UnauthorizedException('Invalid setup token');
     }
 
     const user = await this.prisma.user.findUnique({
-      where: { id: payload.sub },
+      where: { id: userId },
       select: { id: true, email: true, status: true },
     });
     if (!user || user.status !== 'ACTIVE') {

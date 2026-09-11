@@ -10,18 +10,8 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
-import api from '@services/api';
+import { superAdminApi, GymPlan } from '@/services/super-admin.api';
 import { apiErrorMessage } from '@/lib/api-error';
-
-interface GymPlan {
-  id: string;
-  name: string;
-  type: string;
-  monthlyPrice: number;
-  yearlyPrice: number;
-  maxMembers?: number | null;
-  isActive: boolean;
-}
 
 export function PlansPage() {
   const { toast } = useToast();
@@ -29,13 +19,13 @@ export function PlansPage() {
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ name: '', type: 'BASIC', monthlyPrice: '', yearlyPrice: '', maxMembers: '' });
 
-  const { data, isLoading } = useQuery<GymPlan[]>({
+  const { data: plans = [], isLoading } = useQuery<GymPlan[]>({
     queryKey: ['super-admin', 'plans'],
-    queryFn: async () => (await api.get('/super-admin/plans')).data,
+    queryFn: () => superAdminApi.getPlans(),
   });
 
   const createMutation = useMutation({
-    mutationFn: () => api.post('/super-admin/plans', {
+    mutationFn: () => superAdminApi.createPlan({
       name: form.name,
       type: form.type,
       monthlyPrice: Number(form.monthlyPrice),
@@ -52,7 +42,7 @@ export function PlansPage() {
   });
 
   const deactivateMutation = useMutation({
-    mutationFn: (id: string) => api.delete(`/super-admin/plans/${id}`),
+    mutationFn: (id: string) => superAdminApi.deletePlan(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['super-admin', 'plans'] });
       toast({ title: 'Plan deactivated' });
@@ -110,10 +100,10 @@ export function PlansPage() {
       <Card>
         <CardContent className="divide-y pt-6">
           {isLoading && <p className="py-6 text-sm text-muted-foreground text-center">Loading…</p>}
-          {!isLoading && (!data || data.length === 0) && (
+          {!isLoading && plans.length === 0 && (
             <p className="py-6 text-sm text-muted-foreground text-center">No plans yet — create one above.</p>
           )}
-          {data?.map((plan) => (
+          {plans.map((plan) => (
             <div key={plan.id} className="py-3 flex items-center justify-between gap-4">
               <div className="min-w-0">
                 <p className="font-medium truncate">{plan.name}</p>

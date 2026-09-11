@@ -1,3 +1,4 @@
+import { CurrentUser } from '@common/decorators/current-user.decorator';
 import { GymId } from '@common/decorators/gym-id.decorator';
 import { Roles } from '@common/decorators/roles.decorator';
 import { GymOwnerGuard } from '@common/guards/gym-owner.guard';
@@ -5,7 +6,7 @@ import { JwtAuthGuard } from '@common/guards/jwt-auth.guard';
 import { PermissionsGuard } from '@common/guards/permissions.guard';
 import { RolesGuard } from '@common/guards/roles.guard';
 import { IdempotencyInterceptor } from '@common/interceptors/idempotency.interceptor';
-import { Controller, Get, Post, Body, Param, Query, UseGuards, UseInterceptors, ParseIntPipe, DefaultValuePipe } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Body, Param, Query, UseGuards, UseInterceptors, ParseIntPipe, DefaultValuePipe } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiQuery } from '@nestjs/swagger';
 import { UserRole, NotificationStatus, NotificationType } from '@prisma/client';
 
@@ -15,12 +16,47 @@ import { NotificationsService } from './notifications.service';
 @ApiTags('Notifications')
 @UseInterceptors(IdempotencyInterceptor)
 @Controller('notifications')
-@UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard, GymOwnerGuard)
+@UseGuards(JwtAuthGuard)
 @ApiBearerAuth('access-token')
 export class NotificationsController {
   constructor(private readonly service: NotificationsService) {}
 
+  // ---- Personal user notifications (accessible by ALL roles) ----
+
+  @Get('my')
+  @ApiOperation({ summary: 'List notifications for current user' })
+  @ApiQuery({ name: 'page', required: false, type: Number })
+  @ApiQuery({ name: 'limit', required: false, type: Number })
+  async findMy(
+    @CurrentUser('userId') userId: string,
+    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
+    @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit: number,
+  ) {
+    return this.service.findMy(userId, { page, limit });
+  }
+
+  @Get('my/unread-count')
+  @ApiOperation({ summary: 'Get unread notification count for current user' })
+  async getUnreadCount(@CurrentUser('userId') userId: string) {
+    return this.service.getUnreadCount(userId);
+  }
+
+  @Patch('my/:id/read')
+  @ApiOperation({ summary: 'Mark a notification as read' })
+  async markAsRead(@Param('id') id: string, @CurrentUser('userId') userId: string) {
+    return this.service.markAsRead(id, userId);
+  }
+
+  @Post('my/read-all')
+  @ApiOperation({ summary: 'Mark all notifications as read for current user' })
+  async markAllAsRead(@CurrentUser('userId') userId: string) {
+    return this.service.markAllAsRead(userId);
+  }
+
+  // ---- Staff notification operations ----
+
   @Get()
+  @UseGuards(RolesGuard, PermissionsGuard, GymOwnerGuard)
   @Roles(UserRole.GYM_OWNER, UserRole.SUPER_ADMIN, UserRole.RECEPTIONIST)
   @ApiOperation({ summary: 'List notification logs (staff only)' })
   @ApiQuery({ name: 'page', required: false, type: Number })
@@ -38,6 +74,7 @@ export class NotificationsController {
   }
 
   @Get('delivery-report')
+  @UseGuards(RolesGuard, PermissionsGuard, GymOwnerGuard)
   @Roles(UserRole.GYM_OWNER, UserRole.SUPER_ADMIN)
   @ApiOperation({ summary: 'Aggregate delivery stats (sent/delivered/failed/read)' })
   async deliveryReport(@GymId() gymId: string) {

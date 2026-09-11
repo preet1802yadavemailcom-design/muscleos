@@ -1,15 +1,16 @@
 import { useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { Dumbbell } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAuthStore } from '@store/auth.store';
-import api from '@services/api';
+import { authApi } from '@/services/auth.api';
 
 export function TwoFactorVerifyPage() {
   const navigate = useNavigate();
   const location = useLocation();
+  const [searchParams] = useSearchParams();
   const { setAuth } = useAuthStore();
-  const pendingToken = (location.state)?.pendingToken;
+  const pendingToken = (location.state)?.pendingToken || searchParams.get('pendingToken');
 
   const [code, setCode] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -25,12 +26,11 @@ export function TwoFactorVerifyPage() {
     try {
       setSubmitting(true);
       setError('');
-      const res = await api.post('/auth/2fa/verify-login', { pendingToken, code });
-      const { user, accessToken, refreshToken } = res.data;
-      setAuth(user, accessToken, refreshToken);
+      const data = await authApi.verifyLogin2FA(pendingToken, code.trim());
+      setAuth(data.user, data.accessToken, data.refreshToken);
       navigate('/');
     } catch (err: any) {
-      setError(err.response?.data?.message || 'Invalid code � please try again.');
+      setError(err.response?.data?.message || 'Invalid verification code — please try again.');
     } finally {
       setSubmitting(false);
     }

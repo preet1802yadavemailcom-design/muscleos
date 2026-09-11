@@ -4,8 +4,16 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { motion } from 'framer-motion';
-import { Dumbbell, Eye, EyeOff } from 'lucide-react';
+import { Dumbbell, Eye, EyeOff, Building2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from '@/components/ui/dialog';
 import { useAuthStore } from '@store/auth.store';
 import api from '@services/api';
 
@@ -32,6 +40,16 @@ export function LoginPage() {
     resolver: zodResolver(loginSchema),
   });
 
+  interface GymOption {
+    id: string;
+    name: string;
+    logo?: string | null;
+    role: string;
+  }
+
+  const [gymsList, setGymsList] = useState<GymOption[] | null>(null);
+  const [pendingFormData, setPendingFormData] = useState<LoginForm | null>(null);
+
   const onSubmit = async (data: LoginForm) => {
     try {
       setIsLoading(true);
@@ -47,6 +65,11 @@ export function LoginPage() {
       const response: any = await api.post('/auth/login', payload);
       const resData = response.data?.data ?? response.data;
 
+      if (resData?.requiresGymSelection && Array.isArray(resData.gyms)) {
+        setPendingFormData(data);
+        setGymsList(resData.gyms);
+        return;
+      }
       if (resData?.requiresPhoneVerification) {
         navigate('/verify-phone', {
           state: { userId: resData.userId, phone: resData.phone },
@@ -76,6 +99,12 @@ export function LoginPage() {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleSelectGym = (gymId: string) => {
+    if (!pendingFormData) return;
+    setGymsList(null);
+    onSubmit({ ...pendingFormData, gymId });
   };
 
   return (
@@ -168,6 +197,35 @@ export function LoginPage() {
           Continue with Google
         </Button>
       </motion.div>
+
+      <Dialog open={!!gymsList} onOpenChange={(open) => { if (!open) setGymsList(null); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Building2 className="h-5 w-5 text-primary" /> Select Your Gym
+            </DialogTitle>
+            <DialogDescription>
+              Multiple gym accounts found for this login. Select which gym you want to sign in to:
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            {gymsList?.map((gym) => (
+              <button
+                key={gym.id}
+                type="button"
+                onClick={() => handleSelectGym(gym.id)}
+                className="w-full flex items-center justify-between p-3.5 rounded-lg border hover:border-primary hover:bg-accent transition text-left"
+              >
+                <div>
+                  <p className="font-semibold">{gym.name}</p>
+                  <p className="text-xs text-muted-foreground capitalize">Role: {gym.role.toLowerCase()}</p>
+                </div>
+                <Badge variant="outline">{gym.role}</Badge>
+              </button>
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
