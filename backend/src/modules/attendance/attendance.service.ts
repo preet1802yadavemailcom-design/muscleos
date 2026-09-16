@@ -261,29 +261,6 @@ export class AttendanceService {
       include: { currentMembership: true, batch: true },
     });
 
-    // 2. Fallback resolution: match unlinked member by email or phone and bind userId
-    if (!member) {
-      member = await this.prisma.member.findFirst({
-        where: {
-          gymId,
-          deletedAt: null,
-          userId: null,
-          OR: [
-            ...(dbUser.email ? [{ email: dbUser.email }] : []),
-            ...(dbUser.phone ? [{ mobile: dbUser.phone }] : []),
-          ],
-        },
-        include: { currentMembership: true, batch: true },
-      });
-
-      if (member) {
-        await this.prisma.member.update({
-          where: { id: member.id },
-          data: { userId: dbUser.id },
-        });
-      }
-    }
-
     if (member) return member;
 
     // Check if gym allows trial membership self-provisioning via QR scan
@@ -393,12 +370,8 @@ export class AttendanceService {
     user: CurrentUserPayload,
     query?: { month?: number; year?: number; page?: number; limit?: number },
   ) {
-    const dbUser = await this.prisma.user.findUnique({
-      where: { id: user.userId },
-      select: { email: true, phone: true },
-    });
-    // 1. Primary canonical lookup: find member by linked userId
-    let member = await this.prisma.member.findFirst({
+    // Primary canonical lookup: find member by linked userId
+    const member = await this.prisma.member.findFirst({
       where: { userId: user.userId, gymId, deletedAt: null },
       select: {
         id: true,
@@ -410,38 +383,6 @@ export class AttendanceService {
         branch: { select: { id: true, name: true } },
       },
     });
-
-    // 2. Self-healing fallback: match unlinked member by email or phone and bind userId
-    if (!member) {
-      const unlinked = await this.prisma.member.findFirst({
-        where: {
-          gymId,
-          deletedAt: null,
-          userId: null,
-          OR: [
-            ...(dbUser?.email ? [{ email: dbUser.email }] : []),
-            ...(dbUser?.phone ? [{ mobile: dbUser.phone }] : []),
-          ],
-        },
-        select: {
-          id: true,
-          firstName: true,
-          lastName: true,
-          memberCode: true,
-          photo: true,
-          batch: { select: { id: true, name: true, startTime: true, endTime: true } },
-          branch: { select: { id: true, name: true } },
-        },
-      });
-
-      if (unlinked) {
-        await this.prisma.member.update({
-          where: { id: unlinked.id },
-          data: { userId: user.userId },
-        });
-        member = unlinked;
-      }
-    }
 
     if (!member) return { member: null, data: [], meta: { total: 0, page: 1, limit: 30, totalPages: 0 } };
 

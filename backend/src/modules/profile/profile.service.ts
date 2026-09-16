@@ -44,41 +44,7 @@ export class ProfileService {
     });
     if (!user) throw new NotFoundException('User not found');
 
-    // Self-healing: if memberProfile is null and user.gymId exists, find any unlinked member record in that gym matching user's phone or email
-    if (!user.memberProfile && user.gymId) {
-      const unlinkedMember = await this.prisma.member.findFirst({
-        where: {
-          gymId: user.gymId,
-          userId: null,
-          deletedAt: null,
-          OR: [
-            ...(user.email ? [{ email: user.email }] : []),
-            ...(user.phone ? [{ mobile: user.phone }] : []),
-          ],
-        },
-      });
-      if (unlinkedMember) {
-        await this.prisma.member.update({
-          where: { id: unlinkedMember.id },
-          data: { userId: user.id },
-        });
-        user = await this.prisma.user.findUnique({
-          where: { id: userId },
-          include: {
-            memberProfile: {
-              include: {
-                branch: { select: { id: true, name: true, city: true } },
-                currentMembership: { select: { id: true, status: true, endDate: true, planName: true } },
-              },
-            },
-            gym: { select: { id: true, name: true, slug: true } },
-            branch: { select: { id: true, name: true } },
-          },
-        });
-      }
-    }
-
-    const { password, twoFactorSecret, twoFactorRecoveryCodes, ...safeUser } = user!;
+    const { password, twoFactorSecret, twoFactorRecoveryCodes, ...safeUser } = user;
     return safeUser;
   }
 
@@ -154,6 +120,9 @@ export class ProfileService {
     if (member.gym.status !== 'ACTIVE') {
       throw new ForbiddenException('The gym associated with this member is not currently active.');
     }
+    if (member.userId && member.userId !== userId) {
+      throw new BadRequestException('This member profile is already linked to another account.');
+    }
 
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
     await this.redis.set(`link_otp:${cleanMobile}`, otp, 600);
@@ -205,10 +174,13 @@ export class ProfileService {
       throw new BadRequestException('This member profile is already linked to another account.');
     }
 
-    // Security check: If member email matches verified OAuth user email, allow instant link.
-    // Otherwise require OTP to verify physical ownership of the member's registered mobile number.
+    // Security check: If member email matches cryptographically verified user email (e.g. Google OAuth),
+    // allow instant link. Otherwise require OTP to verify physical ownership of the member's registered mobile number.
     const emailMatches = Boolean(
-      member.email && user.email && member.email.toLowerCase() === user.email.toLowerCase(),
+      user.emailVerified &&
+      member.email &&
+      user.email &&
+      member.email.toLowerCase() === user.email.toLowerCase(),
     );
 
     if (!emailMatches) {

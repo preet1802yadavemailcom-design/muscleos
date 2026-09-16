@@ -1,15 +1,14 @@
+import { HttpException, HttpStatus, ForbiddenException, BadRequestException, NotFoundException } from '@nestjs/common';
+import { Test } from '@nestjs/testing';
 import { PrismaService } from '@database/prisma.service';
 import { RedisService } from '@database/redis.service';
-import { NotificationsService } from '@modules/notifications/notifications.service';
-import { PushProvider } from '@modules/notifications/providers/push.provider';
-import { BadRequestException, ForbiddenException, HttpException, NotFoundException } from '@nestjs/common';
-import { Test } from '@nestjs/testing';
 import { AuditService } from '@shared/services/audit.service';
 import { LoggerService } from '@shared/services/logger.service';
-
+import { PushProvider } from '@modules/notifications/providers/push.provider';
+import { NotificationsService } from '@modules/notifications/notifications.service';
 import { ProfileService } from './profile.service';
 
-describe('ProfileService — Self-Service & Linking Hardening', () => {
+describe('ProfileService - Forensic Identity & Linking Security', () => {
   let service: ProfileService;
   let prisma: any;
   let redis: any;
@@ -25,9 +24,14 @@ describe('ProfileService — Self-Service & Linking Hardening', () => {
         findFirst: jest.fn(),
         update: jest.fn(),
       },
-      $transaction: jest.fn(async (callbackOrArr) => {
-        if (Array.isArray(callbackOrArr)) return Promise.all(callbackOrArr);
-        return callbackOrArr(prisma);
+      $transaction: jest.fn().mockImplementation((args) => {
+        if (Array.isArray(args)) {
+          return Promise.all(args);
+        }
+        if (typeof args === 'function') {
+          return args(prisma);
+        }
+        return Promise.resolve(args);
       }),
     };
 
@@ -35,12 +39,12 @@ describe('ProfileService — Self-Service & Linking Hardening', () => {
       get: jest.fn(),
       set: jest.fn(),
       del: jest.fn(),
-      increment: jest.fn().mockResolvedValue(1),
+      increment: jest.fn(),
       expire: jest.fn(),
     };
 
     notifications = {
-      send: jest.fn().mockResolvedValue(undefined),
+      send: jest.fn().mockResolvedValue(true),
     };
 
     const module = await Test.createTestingModule({
@@ -49,16 +53,16 @@ describe('ProfileService — Self-Service & Linking Hardening', () => {
         { provide: PrismaService, useValue: prisma },
         { provide: RedisService, useValue: redis },
         { provide: AuditService, useValue: { log: jest.fn() } },
-        { provide: PushProvider, useValue: { registerToken: jest.fn(), unregisterToken: jest.fn() } },
         { provide: LoggerService, useValue: { log: jest.fn(), warn: jest.fn(), error: jest.fn() } },
+        { provide: PushProvider, useValue: { registerToken: jest.fn(), unregisterToken: jest.fn() } },
         { provide: NotificationsService, useValue: notifications },
       ],
     }).compile();
 
-    service = module.get(ProfileService);
+    service = module.get<ProfileService>(ProfileService);
   });
 
-  describe('getMine — Self-Healing Member Profile', () => {
+  describe('getMine — Canonical Member Profile Resolution', () => {
     it('returns linked member profile directly when present', async () => {
       prisma.user.findUnique.mockResolvedValue({
         id: 'u-1',
@@ -74,48 +78,51 @@ describe('ProfileService — Self-Service & Linking Hardening', () => {
       expect(prisma.member.findFirst).not.toHaveBeenCalled();
     });
 
-    it('self-heals and links unlinked member matching phone/email when memberProfile is null', async () => {
-      prisma.user.findUnique
-        .mockResolvedValueOnce({
-          id: 'u-1',
-          email: 'unlinked@gym.com',
-          phone: '9876543210',
-          role: 'MEMBER',
-          gymId: 'gym-1',
-          memberProfile: null,
-        })
-        .mockResolvedValueOnce({
-          id: 'u-1',
-          email: 'unlinked@gym.com',
-          phone: '9876543210',
-          role: 'MEMBER',
-          gymId: 'gym-1',
-          memberProfile: { id: 'm-unlinked-1', memberCode: 'MOS-999' },
-        });
-
-      prisma.member.findFirst.mockResolvedValue({
-        id: 'm-unlinked-1',
+    it('does not automatically link unlinked member matching phone/email without verified ownership', async () => {
+      prisma.user.findUnique.mockResolvedValue({
+        id: 'u-attacker',
+        email: 'victim@gym.com',
+        phone: '9876543210',
+        role: 'MEMBER',
         gymId: 'gym-1',
-        userId: null,
-        mobile: '9876543210',
+        memberProfile: null,
       });
 
-      prisma.member.update.mockResolvedValue({ id: 'm-unlinked-1', userId: 'u-1' });
+      const profile = await service.getMine('u-attacker');
+      expect(profile.id).toBe('u-attacker');
+      expect(profile.memberProfile).toBeNull();
+      expect(prisma.member.findFirst).not.toHaveBeenCalled();
+      expect(prisma.member.update).not.toHaveBeenCalled();
+    });
 
-      const profile = await service.getMine('u-1');
-      expect(prisma.member.findFirst).toHaveBeenCalledWith({
-        where: {
-          gymId: 'gym-1',
-          userId: null,
-          deletedAt: null,
-          OR: [{ email: 'unlinked@gym.com' }, { mobile: '9876543210' }],
-        },
+    it('User A + Member B email match (unverified) -> does not auto-link', async () => {
+      prisma.user.findUnique.mockResolvedValue({
+        id: 'user-a',
+        email: 'member-b@example.com',
+        emailVerified: false,
+        role: 'MEMBER',
+        gymId: 'gym-1',
+        memberProfile: null,
       });
-      expect(prisma.member.update).toHaveBeenCalledWith({
-        where: { id: 'm-unlinked-1' },
-        data: { userId: 'u-1' },
+
+      const profile = await service.getMine('user-a');
+      expect(profile.memberProfile).toBeNull();
+      expect(prisma.member.update).not.toHaveBeenCalled();
+    });
+
+    it('User A + Member B phone match -> does not auto-link', async () => {
+      prisma.user.findUnique.mockResolvedValue({
+        id: 'user-a',
+        phone: '+919876543210',
+        phoneVerified: false,
+        role: 'MEMBER',
+        gymId: 'gym-1',
+        memberProfile: null,
       });
-      expect(profile.memberProfile).toBeDefined();
+
+      const profile = await service.getMine('user-a');
+      expect(profile.memberProfile).toBeNull();
+      expect(prisma.member.update).not.toHaveBeenCalled();
     });
   });
 
@@ -140,7 +147,21 @@ describe('ProfileService — Self-Service & Linking Hardening', () => {
       expect(redis.set).not.toHaveBeenCalled();
     });
 
-    it('generates OTP, stores in Redis with TTL, and dispatches notification', async () => {
+    it('rejects OTP dispatch if member is already linked to another account', async () => {
+      redis.increment.mockResolvedValue(1);
+      prisma.member.findFirst.mockResolvedValue({
+        id: 'm-1',
+        userId: 'u-other',
+        mobile: '9876543210',
+        gymId: 'gym-1',
+        gym: { status: 'ACTIVE' },
+      });
+
+      await expect(service.sendLinkMemberOtp('u-1', '9876543210')).rejects.toThrow(BadRequestException);
+      expect(redis.set).not.toHaveBeenCalled();
+    });
+
+    it('dispatches 6-digit OTP via WhatsApp notifications when eligible', async () => {
       redis.increment.mockResolvedValue(1);
       prisma.member.findFirst.mockResolvedValue({
         id: 'm-1',
@@ -153,30 +174,26 @@ describe('ProfileService — Self-Service & Linking Hardening', () => {
       expect(res.success).toBe(true);
       expect(redis.set).toHaveBeenCalledWith(
         'link_otp:9876543210',
-        expect.stringMatching(/^\d{6}$/),
+        expect.stringMatching(/^[0-9]{6}$/),
         600,
       );
       expect(notifications.send).toHaveBeenCalledWith('gym-1', expect.objectContaining({
         memberId: 'm-1',
-        title: 'Profile Linking Code',
+        channel: 'WHATSAPP',
       }));
     });
   });
 
-  describe('linkMemberByCode — Anti-IDOR & Account Linking Security', () => {
-    it('rejects if account is already linked to a gym', async () => {
-      prisma.user.findUnique.mockResolvedValue({
-        id: 'u-1',
-        gymId: 'existing-gym',
-        role: 'MEMBER',
-      });
+  describe('linkMemberByCode — Secure Ownership Linking', () => {
+    it('rejects if user already has a gymId', async () => {
+      prisma.user.findUnique.mockResolvedValue({ id: 'u-1', gymId: 'gym-already', role: 'MEMBER' });
 
       await expect(
         service.linkMemberByCode('u-1', 'MOS-001', '9876543210'),
       ).rejects.toThrow(BadRequestException);
     });
 
-    it('rejects if user role is not MEMBER', async () => {
+    it('rejects if caller is not a MEMBER role', async () => {
       prisma.user.findUnique.mockResolvedValue({
         id: 'u-admin',
         gymId: null,
@@ -202,8 +219,57 @@ describe('ProfileService — Self-Service & Linking Hardening', () => {
       ).rejects.toThrow(BadRequestException);
     });
 
+    it('rejects unverified email user from bypassing OTP requirement', async () => {
+      prisma.user.findUnique.mockResolvedValue({
+        id: 'u-unverified',
+        gymId: null,
+        role: 'MEMBER',
+        email: 'member@gym.com',
+        emailVerified: false,
+      });
+      prisma.member.findFirst.mockResolvedValue({
+        id: 'm-1',
+        userId: null,
+        gymId: 'gym-1',
+        email: 'member@gym.com',
+        gym: { status: 'ACTIVE' },
+      });
+
+      await expect(
+        service.linkMemberByCode('u-unverified', 'MOS-001', '9876543210'),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('allows instant linking when user email is verified and matches member email', async () => {
+      prisma.user.findUnique.mockResolvedValue({
+        id: 'u-verified-oauth',
+        gymId: null,
+        role: 'MEMBER',
+        email: 'member@gym.com',
+        emailVerified: true,
+      });
+      prisma.member.findFirst.mockResolvedValue({
+        id: 'm-1',
+        userId: null,
+        gymId: 'gym-1',
+        email: 'member@gym.com',
+        gym: { status: 'ACTIVE' },
+      });
+
+      prisma.member.update.mockResolvedValue({ id: 'm-1', userId: 'u-verified-oauth' });
+      prisma.user.update.mockResolvedValue({ id: 'u-verified-oauth', gymId: 'gym-1' });
+      jest.spyOn(service, 'getMine').mockResolvedValue({ id: 'u-verified-oauth', gymId: 'gym-1' } as any);
+
+      const result = await service.linkMemberByCode('u-verified-oauth', 'MOS-001', '9876543210');
+      expect(prisma.member.update).toHaveBeenCalledWith({
+        where: { id: 'm-1' },
+        data: { userId: 'u-verified-oauth' },
+      });
+      expect(result.gymId).toBe('gym-1');
+    });
+
     it('locks OTP after 5 failed verification attempts', async () => {
-      prisma.user.findUnique.mockResolvedValue({ id: 'u-1', gymId: null, role: 'MEMBER', email: 'other@gmail.com' });
+      prisma.user.findUnique.mockResolvedValue({ id: 'u-1', gymId: null, role: 'MEMBER', email: 'other@gmail.com', emailVerified: true });
       prisma.member.findFirst.mockResolvedValue({
         id: 'm-1',
         userId: null,
@@ -227,6 +293,7 @@ describe('ProfileService — Self-Service & Linking Hardening', () => {
         gymId: null,
         role: 'MEMBER',
         email: 'other@gmail.com',
+        emailVerified: true,
       });
       prisma.member.findFirst.mockResolvedValue({
         id: 'm-1',
