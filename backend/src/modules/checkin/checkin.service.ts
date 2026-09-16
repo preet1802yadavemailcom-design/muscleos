@@ -397,6 +397,7 @@ export class CheckinService {
     // Deliberately minimal and privacy-preserving: this is returned from a
     // mobile-number lookup with no OTP/password proof of identity.
     // Masks member code and last name so public kiosk viewers cannot harvest credentials.
+    // Raw database member UUID is omitted to prevent member enumeration / scraping.
     const maskedLastName = member.lastName
       ? member.lastName.length > 2
         ? member.lastName[0] + '*'.repeat(member.lastName.length - 2) + member.lastName.slice(-1)
@@ -407,7 +408,6 @@ export class CheckinService {
       : '';
 
     return {
-      id: member.id,
       memberCode: maskedCode,
       firstName: member.firstName,
       lastName: maskedLastName,

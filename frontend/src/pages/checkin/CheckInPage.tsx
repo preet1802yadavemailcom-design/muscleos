@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, Link } from 'react-router-dom';
 import {
   QrCode, Camera, CameraOff, AlertTriangle, LogIn, LogOut, CheckCircle2,
   ArrowLeft, ArrowRight, User, RefreshCw, X, Upload, Clock,
@@ -12,6 +12,7 @@ import { Badge } from '@/components/ui/badge';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
+import { useAuthStore } from '@store/auth.store';
 import api from '@services/api';
 
 type Step =
@@ -172,6 +173,7 @@ function useQrScanner(onDetect: (value: string) => void) {
 
 export function CheckInPage() {
   const [searchParams] = useSearchParams();
+  const { isAuthenticated } = useAuthStore();
   const [step, setStep] = useState<Step>('scan');
   const [gym, setGym] = useState<GymInfo | null>(null);
   const [kioskToken, setKioskToken] = useState('');
@@ -189,6 +191,7 @@ export function CheckInPage() {
     memberCode: string;
     batchName?: string;
   } | null>(null);
+  const [countdown, setCountdown] = useState(15);
 
   // Registration form state
   const [form, setForm] = useState({
@@ -359,6 +362,16 @@ export function CheckInPage() {
   };
 
   const reset = () => {
+    try {
+      for (let i = sessionStorage.length - 1; i >= 0; i--) {
+        const key = sessionStorage.key(i);
+        if (key && key.startsWith('checkin_session_')) {
+          sessionStorage.removeItem(key);
+        }
+      }
+    } catch {
+      // ignore
+    }
     setStep('scan');
     setGym(null);
     setKioskToken('');
@@ -371,6 +384,7 @@ export function CheckInPage() {
     setRegisteredPending(null);
     setError('');
     setResult(null);
+    setCountdown(15);
     setForm({
       firstName: '',
       lastName: '',
@@ -386,6 +400,41 @@ export function CheckInPage() {
     });
     stopCamera();
   };
+
+  // Auto-reset countdown when reaching success step
+  useEffect(() => {
+    if (step !== 'success') {
+      setCountdown(15);
+      return;
+    }
+    const timer = setInterval(() => {
+      setCountdown((prev) => {
+        if (prev <= 1) {
+          clearInterval(timer);
+          reset();
+          return 15;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [step]);
+
+  // Clean up any sensitive kiosk sessions on unmount
+  useEffect(() => {
+    return () => {
+      try {
+        for (let i = sessionStorage.length - 1; i >= 0; i--) {
+          const key = sessionStorage.key(i);
+          if (key && key.startsWith('checkin_session_')) {
+            sessionStorage.removeItem(key);
+          }
+        }
+      } catch {
+        // ignore
+      }
+    };
+  }, []);
 
   // Keep the QR scanner's onDetect in sync with the latest handleScan closure.
   useEffect(() => {
@@ -757,6 +806,25 @@ export function CheckInPage() {
                   <p>• Once approved and your batch is confirmed, you can immediately check in using this kiosk.</p>
                   <p>• Please speak with reception to activate your membership plan and get started.</p>
                 </div>
+                <div className="text-xs text-muted-foreground">
+                  Auto-resetting in <span className="font-semibold text-foreground">{countdown}s</span>
+                </div>
+
+                {isAuthenticated ? (
+                  <Button asChild variant="outline" className="w-full gap-2">
+                    <Link to="/">
+                      <User className="h-4 w-4" /> View My Account
+                    </Link>
+                  </Button>
+                ) : (
+                  <div className="rounded-lg border p-3 text-xs text-muted-foreground bg-muted/40 text-center">
+                    <p className="font-medium text-foreground mb-1">Have an account or invitation?</p>
+                    <Link to="/login" className="text-primary underline font-medium hover:text-primary/80">
+                      Sign in here
+                    </Link>
+                  </div>
+                )}
+
                 <Button className="w-full" onClick={reset}>
                   <RefreshCw className="h-4 w-4 mr-2" /> Done / Next Person
                 </Button>
@@ -784,8 +852,28 @@ export function CheckInPage() {
                     <Badge variant="default" className="mt-2">Early leave</Badge>
                   )}
                 </div>
+
+                <div className="text-xs text-muted-foreground">
+                  Auto-resetting in <span className="font-semibold text-foreground">{countdown}s</span>
+                </div>
+
+                {isAuthenticated ? (
+                  <Button asChild variant="outline" className="w-full gap-2">
+                    <Link to="/">
+                      <User className="h-4 w-4" /> View My Account
+                    </Link>
+                  </Button>
+                ) : (
+                  <div className="rounded-lg border p-3 text-xs text-muted-foreground bg-muted/40 text-center">
+                    <p className="font-medium text-foreground mb-1">Want to track your consistency & streak?</p>
+                    <Link to="/login" className="text-primary underline font-medium hover:text-primary/80">
+                      Sign in to your member portal
+                    </Link>
+                  </div>
+                )}
+
                 <Button className="w-full" onClick={reset}>
-                  <RefreshCw className="h-4 w-4 mr-2" /> Next person
+                  <RefreshCw className="h-4 w-4 mr-2" /> Done / Next Person
                 </Button>
               </div>
             )}

@@ -59,6 +59,7 @@ export class CheckinController {
   @Post('register')
   @Public()
   @HttpCode(HttpStatus.CREATED)
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
   @ApiOperation({ summary: 'Create the member profile (pending-approval membership) and auto check-in' })
   async register(
     @Body() dto: RegisterMemberDto,
@@ -71,6 +72,7 @@ export class CheckinController {
   @Post('check-in')
   @Public()
   @HttpCode(HttpStatus.CREATED)
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
   @ApiOperation({ summary: 'Check in for today (rejects duplicates + already-completed days)' })
   async checkIn(@Body() dto: CheckinActionDto) {
     return this.service.checkIn(dto);
@@ -79,6 +81,7 @@ export class CheckinController {
   @Post('check-out')
   @Public()
   @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
   @ApiOperation({ summary: 'Check out today\'s open session' })
   async checkOut(@Body() dto: CheckinActionDto) {
     return this.service.checkOut(dto);

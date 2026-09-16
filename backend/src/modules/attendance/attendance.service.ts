@@ -255,19 +255,35 @@ export class AttendanceService {
     });
     if (!dbUser) throw new UnauthorizedException('User not found');
 
-    // Match an existing member profile by email or phone so we never create a
-    // duplicate — the Members page may have registered them with either.
+    // 1. Primary canonical resolution: look up by linked userId
     let member = await this.prisma.member.findFirst({
-      where: {
-        gymId,
-        deletedAt: null,
-        OR: [
-          ...(dbUser.email ? [{ email: dbUser.email }] : []),
-          ...(dbUser.phone ? [{ mobile: dbUser.phone }] : []),
-        ],
-      },
+      where: { userId: dbUser.id, gymId, deletedAt: null },
       include: { currentMembership: true, batch: true },
     });
+
+    // 2. Fallback resolution: match unlinked member by email or phone and bind userId
+    if (!member) {
+      member = await this.prisma.member.findFirst({
+        where: {
+          gymId,
+          deletedAt: null,
+          userId: null,
+          OR: [
+            ...(dbUser.email ? [{ email: dbUser.email }] : []),
+            ...(dbUser.phone ? [{ mobile: dbUser.phone }] : []),
+          ],
+        },
+        include: { currentMembership: true, batch: true },
+      });
+
+      if (member) {
+        await this.prisma.member.update({
+          where: { id: member.id },
+          data: { userId: dbUser.id },
+        });
+      }
+    }
+
     if (member) return member;
 
     // Check if gym allows trial membership self-provisioning via QR scan
@@ -288,6 +304,7 @@ export class AttendanceService {
       data: {
         id: memberId,
         memberCode,
+        userId: dbUser.id,
         firstName: dbUser.firstName,
         lastName: dbUser.lastName,
         email: dbUser.email,
@@ -380,15 +397,9 @@ export class AttendanceService {
       where: { id: user.userId },
       select: { email: true, phone: true },
     });
-    const member = await this.prisma.member.findFirst({
-      where: {
-        gymId,
-        deletedAt: null,
-        OR: [
-          ...(dbUser?.email ? [{ email: dbUser.email }] : []),
-          ...(dbUser?.phone ? [{ mobile: dbUser.phone }] : []),
-        ],
-      },
+    // 1. Primary canonical lookup: find member by linked userId
+    let member = await this.prisma.member.findFirst({
+      where: { userId: user.userId, gymId, deletedAt: null },
       select: {
         id: true,
         firstName: true,
@@ -399,6 +410,39 @@ export class AttendanceService {
         branch: { select: { id: true, name: true } },
       },
     });
+
+    // 2. Self-healing fallback: match unlinked member by email or phone and bind userId
+    if (!member) {
+      const unlinked = await this.prisma.member.findFirst({
+        where: {
+          gymId,
+          deletedAt: null,
+          userId: null,
+          OR: [
+            ...(dbUser?.email ? [{ email: dbUser.email }] : []),
+            ...(dbUser?.phone ? [{ mobile: dbUser.phone }] : []),
+          ],
+        },
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          memberCode: true,
+          photo: true,
+          batch: { select: { id: true, name: true, startTime: true, endTime: true } },
+          branch: { select: { id: true, name: true } },
+        },
+      });
+
+      if (unlinked) {
+        await this.prisma.member.update({
+          where: { id: unlinked.id },
+          data: { userId: user.userId },
+        });
+        member = unlinked;
+      }
+    }
+
     if (!member) return { member: null, data: [], meta: { total: 0, page: 1, limit: 30, totalPages: 0 } };
 
     const page = Math.max(1, query?.page ?? 1);
