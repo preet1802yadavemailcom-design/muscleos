@@ -119,4 +119,43 @@ describe('AttendanceService - Role Isolation', () => {
       ).rejects.toThrow(NotFoundException);
     });
   });
+
+  describe('self check-in via branch QR (canonical user -> member resolution)', () => {
+    it('rejects scan when authenticated user has no linked member record in the gym', async () => {
+      qrService.resolveToken = jest.fn().mockResolvedValue({
+        gym: { id: 'gym-1' },
+        branch: { id: 'branch-1', latitude: null, longitude: null },
+      });
+
+      prisma.user = {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'user-no-member',
+          email: 'nomember@test.com',
+          firstName: 'No',
+          lastName: 'Member',
+          phone: '+919999999999',
+          gymId: 'gym-1',
+        }),
+      };
+      prisma.member.findFirst = jest.fn().mockResolvedValue(null);
+
+      const memberUser = {
+        userId: 'user-no-member',
+        role: UserRole.MEMBER,
+        gymId: 'gym-1',
+        email: 'nomember@test.com',
+        permissions: [],
+      };
+
+      await expect(
+        service.scan(
+          'gym-1',
+          { qrCodeData: 'branch_opaque_token_123' },
+          memberUser as any,
+        ),
+      ).rejects.toThrow(
+        new ForbiddenException('No active membership found for this gym. Please contact reception to activate your membership.'),
+      );
+    });
+  });
 });

@@ -1,5 +1,3 @@
-import { randomUUID } from 'crypto';
-
 import { CurrentUserPayload } from '@common/decorators/current-user.decorator';
 import { distanceMeters } from '@common/utils/geo.util';
 import { PrismaService } from '@database/prisma.service';
@@ -7,8 +5,7 @@ import { RedisService } from '@database/redis.service';
 import { QrService } from '@modules/qr/qr.service';
 import { Cron } from '@nestjs/schedule';
 import { Injectable, BadRequestException, NotFoundException, ForbiddenException, UnauthorizedException, Optional } from '@nestjs/common';
-import { AttendanceType, MembershipPlan, MembershipStatus, UserStatus, UserRole, Prisma } from '@prisma/client';
-import { Decimal } from '@prisma/client/runtime/library';
+import { AttendanceType, MembershipStatus, UserStatus, UserRole, Prisma } from '@prisma/client';
 import { AccessScopeService } from '@shared/services/access-scope.service';
 import { AuditService } from '@shared/services/audit.service';
 import { EncryptionService } from '@shared/services/encryption.service';
@@ -224,11 +221,10 @@ export class AttendanceService {
 
   /** Shared membership-validity gate for both the QR scan flow and the
    *  MANUAL (no-QR) flow. */
-  private async ensureMembershipValid(member: any, gymId: string) {
-    let membership = member.currentMembership;
+  private async ensureMembershipValid(member: any, _gymId: string) {
+    const membership = member.currentMembership;
     if (!membership) {
-      membership = await this.grantTrialMembership(member.id, gymId);
-      member.currentMembership = membership;
+      throw new ForbiddenException('Your membership is not currently eligible for attendance — please contact reception.');
     }
     if (membership.endDate < new Date()) {
       throw new ForbiddenException('Membership has expired - please renew to check in');
@@ -242,11 +238,11 @@ export class AttendanceService {
     return membership;
   }
 
-/**
-   * Finds the Member profile belonging to a logged-in user (by email/phone +
-   * gym), creating one on first scan so self check-in works end to end.
-   * A brand-new profile also gets a 14-day trial membership (mirroring the
-   * gym's TRIAL plan) so the first check-in isn't blocked.
+  /**
+   * Resolves the Member profile belonging to a logged-in user (by userId + gymId).
+   * Canonical identity: JWT.sub -> User.id -> Member.userId -> Member.gymId.
+   * If authenticated user has no valid linked Member record for this gym: REJECTS.
+   * QR scanning NEVER creates or provisions a Member.
    */
   private async resolveMemberForUser(gymId: string, user: CurrentUserPayload) {
     const dbUser = await this.prisma.user.findUnique({
@@ -256,112 +252,14 @@ export class AttendanceService {
     if (!dbUser) throw new UnauthorizedException('User not found');
 
     // 1. Primary canonical resolution: look up by linked userId
-    let member = await this.prisma.member.findFirst({
+    const member = await this.prisma.member.findFirst({
       where: { userId: dbUser.id, gymId, deletedAt: null },
       include: { currentMembership: true, batch: true },
     });
 
     if (member) return member;
 
-    // Check if gym allows trial membership self-provisioning via QR scan
-    const setting = await this.prisma.gymSetting.findUnique({
-      where: { gymId_category_key: { gymId, category: 'attendance', key: 'allow_trial_on_scan' } },
-    });
-    const allowTrial = setting ? setting.value === 'true' || setting.value === '1' : false;
-    if (!allowTrial) {
-      throw new ForbiddenException('No active membership found for this gym. Please contact reception to activate your membership.');
-    }
-
-    const memberCode = await this.generateMemberCode(gymId);
-    const memberId = randomUUID();
-    const qrCodeData = this.encryption.generateQRCodeData(memberId, gymId);
-    const qrCode = this.encryption.hash(qrCodeData);
-
-    const created = await this.prisma.member.create({
-      data: {
-        id: memberId,
-        memberCode,
-        userId: dbUser.id,
-        firstName: dbUser.firstName,
-        lastName: dbUser.lastName,
-        email: dbUser.email,
-        mobile: dbUser.phone ?? '',
-        gymId,
-        qrCode,
-        qrCodeData,
-        referralCode: `${memberCode}-REF`,
-        status: UserStatus.ACTIVE,
-      },
-    });
-
-    await this.grantTrialMembership(created.id, gymId);
-
-    member = await this.prisma.member.findUnique({
-      where: { id: created.id },
-      include: { currentMembership: true, batch: true },
-    });
-    if (!member) throw new NotFoundException('Member could not be created');
-
-    await this.audit.log({
-      action: 'CREATE',
-      entity: 'Member',
-      entityId: member.id,
-      newValue: {
-        memberCode: member.memberCode,
-        firstName: member.firstName,
-        lastName: member.lastName,
-        trialMembership: '14 days',
-      },
-      userId: user.userId,
-      gymId,
-    });
-
-    return member;
-  }
-
-  /** Creates a 14-day active trial membership and links it as the member's current membership. */
-  private async grantTrialMembership(memberId: string, gymId: string) {
-    const trialStart = new Date();
-    const trialEnd = new Date(trialStart.getTime() + 14 * 24 * 60 * 60 * 1000);
-
-    return this.prisma.$transaction(async (tx) => {
-      const trial = await tx.membership.create({
-        data: {
-          memberId,
-          plan: MembershipPlan.TRIAL,
-          planName: '14-Day Trial',
-          duration: 14,
-          startDate: trialStart,
-          endDate: trialEnd,
-          baseAmount: new Decimal(0),
-          discountAmount: new Decimal(0),
-          taxAmount: new Decimal(0),
-          totalAmount: new Decimal(0),
-          status: MembershipStatus.ACTIVE,
-          gymId,
-        },
-      });
-
-      await tx.member.update({
-        where: { id: memberId },
-        data: { currentMembershipId: trial.id },
-      });
-
-      return trial;
-    });
-  }
-
-  /** memberCode format: GYM-prefix + zero-padded sequence, e.g. MOS-000001.
-   *  Uses the atomic SequenceService instead of count()+1 — two
-   *  simultaneous trial-signups can never be handed the same code. */
-  private async generateMemberCode(gymId: string): Promise<string> {
-    const gym = await this.prisma.gym.findUnique({ where: { id: gymId }, select: { slug: true } });
-    const prefix = (gym?.slug || 'MOS').slice(0, 4).toUpperCase();
-    const next = await this.sequence.next(gymId, 'MEMBER_CODE');
-    const sequence = next.toString().padStart(6, '0');
-    const candidate = `${prefix}-${sequence}`;
-    const clash = await this.prisma.member.findUnique({ where: { memberCode: candidate } });
-    return clash ? `${prefix}-${Date.now().toString().slice(-6)}` : candidate;
+    throw new ForbiddenException('No active membership found for this gym. Please contact reception to activate your membership.');
   }
 
   /** A member's own recent attendance (self-service page, supporting month/year filter & pagination). */

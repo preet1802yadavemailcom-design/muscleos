@@ -846,15 +846,26 @@ export class AuthService {
   }
 
   async forgotPassword(dto: ForgotPasswordDto) {
-    const cooldownKey = `otp_cooldown:${dto.email}`;
+    const scopeSuffix = dto.gymId ? `:${dto.gymId}` : '';
+    const cooldownKey = `otp_cooldown:${dto.email}${scopeSuffix}`;
     if (await this.redis.get(cooldownKey)) {
       throw new ForbiddenException(`Please wait before requesting another OTP.`);
     }
-    const user = await this.prisma.user.findFirst({ where: { email: dto.email } });
-    if (!user) return { message: 'If email exists, reset link will be sent' };
+
+    const where: any = { email: dto.email };
+    if (dto.gymId) {
+      where.gymId = dto.gymId;
+    }
+    const matchingUsers = await this.prisma.user.findMany({ where, select: { id: true, gymId: true } });
+    if (matchingUsers.length === 0) return { message: 'If email exists, reset link will be sent' };
+    if (matchingUsers.length > 1) {
+      throw new ConflictException('Multiple accounts found for this email. Please specify your gym.');
+    }
+    const user = matchingUsers[0];
 
     const otp = randomInt(100000, 1000000).toString();
-    await this.redis.set(`otp:${dto.email}`, otp, 600); // 10 min validity
+    const otpKey = `otp:${dto.email}${scopeSuffix}`;
+    await this.redis.set(otpKey, otp, 600); // 10 min validity
     await this.redis.set(cooldownKey, '1', OTP_RESEND_COOLDOWN_SECONDS);
     await this.audit.log({
       action: 'PASSWORD_RESET_REQUESTED',
@@ -892,21 +903,32 @@ export class AuthService {
   }
 
   async resetPassword(dto: ResetPasswordDto) {
-    const attemptsKey = `otp_attempts:${dto.email}`;
+    const scopeSuffix = dto.gymId ? `:${dto.gymId}` : '';
+    const attemptsKey = `otp_attempts:${dto.email}${scopeSuffix}`;
     const attempts = Number((await this.redis.get(attemptsKey)) || 0);
     if (attempts >= 5) {
       throw new ForbiddenException('Too many incorrect attempts. Please request a new OTP.');
     }
 
-    const storedOtp = await this.redis.get(`otp:${dto.email}`);
+    const otpKey = `otp:${dto.email}${scopeSuffix}`;
+    const storedOtp = await this.redis.get(otpKey);
     if (!storedOtp || storedOtp !== dto.otp) {
       await this.redis.set(attemptsKey, String(attempts + 1), 600);
       throw new BadRequestException('Invalid or expired OTP');
     }
     await this.redis.del(attemptsKey);
 
-    const user = await this.prisma.user.findFirst({ where: { email: dto.email } });
-    if (!user) throw new BadRequestException('No account found for this email');
+    const where: any = { email: dto.email };
+    if (dto.gymId) {
+      where.gymId = dto.gymId;
+    }
+    const matchingUsers = await this.prisma.user.findMany({ where, select: { id: true, gymId: true } });
+    if (matchingUsers.length === 0) throw new BadRequestException('No account found for this email');
+    if (matchingUsers.length > 1) {
+      throw new ConflictException('Multiple accounts found for this email. Please specify your gym.');
+    }
+    const user = matchingUsers[0];
+
     const hashedPassword = await bcrypt.hash(dto.newPassword, 12);
     // Scoped to this ONE user's id — this used to be updateMany({where:{email}}),
     // which would silently reset the password on every account sharing that
@@ -917,8 +939,8 @@ export class AuthService {
       where: { id: user.id },
       data: { password: hashedPassword, loginAttempts: 0, lockedUntil: null },
     });
-    await this.redis.del(`otp:${dto.email}`);
-    await this.redis.del(`otp_cooldown:${dto.email}`);
+    await this.redis.del(otpKey);
+    await this.redis.del(`otp_cooldown:${dto.email}${scopeSuffix}`);
     if (user) {
       // Reset password invalidates all existing sessions and access tokens
       await this.revokeAllUserTokensAndSessions(user.id);
@@ -1080,7 +1102,7 @@ export class AuthService {
     `;
     const result = await this.email.send(email, subject, html);
     if (!result.success && this.configService.get('app.environment') !== 'production') {
-      this.logger.warn(`OTP email could not be delivered to ${email} (${result.error}) — dev fallback OTP: ${otp}`, 'AuthService');
+      this.logger.warn(`OTP email could not be delivered to ${email} (${result.error})`, 'AuthService');
     } else if (!result.success) {
       this.logger.error(`OTP email failed for ${email}: ${result.error}`, undefined, 'AuthService');
     }

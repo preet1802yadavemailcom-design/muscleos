@@ -530,14 +530,16 @@ describe('MuscleOS — Canonical Member User Identity & Security (30 Scenarios)'
       { id: 'usr-gym-B', email: 'shared@test.com', gymId: 'gym-B' },
     ]);
 
-    const users = await prisma.user.findMany({ where: { email: 'shared@test.com' } });
-    expect(users.length).toBe(2);
-    // Multi-tenant protection: must not arbitrarily choose one
-    expect(() => {
-      if (users.length > 1) {
-        throw new ConflictException('Multiple accounts found for this email. Please specify your gym.');
-      }
-    }).toThrow('Multiple accounts found for this email. Please specify your gym.');
+    await expect(
+      authService.forgotPassword({ email: 'shared@test.com' }),
+    ).rejects.toThrow('Multiple accounts found for this email. Please specify your gym.');
+
+    prisma.user.findMany.mockResolvedValue([
+      { id: 'usr-gym-A', email: 'shared@test.com', gymId: 'gym-A' },
+    ]);
+
+    const res = await authService.forgotPassword({ email: 'shared@test.com', gymId: 'gym-A' });
+    expect(res).toEqual({ message: 'If email exists, reset link will be sent' });
   });
 
   // TEST 27: Phone verification does not auto-link arbitrary Member

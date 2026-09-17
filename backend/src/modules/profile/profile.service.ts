@@ -126,7 +126,7 @@ export class ProfileService {
 
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
     await this.redis.set(`link_otp:${cleanMobile}`, otp, 600);
-    this.logger.log(`Generated member link OTP for ${cleanMobile}: ${otp}`, 'ProfileService');
+    this.logger.log(`Generated member link OTP for ${cleanMobile}`, 'ProfileService');
 
     if (this.notifications) {
       this.notifications.send(member.gymId, {
