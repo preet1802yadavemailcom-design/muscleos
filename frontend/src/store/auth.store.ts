@@ -42,6 +42,9 @@ export const useAuthStore = create<AuthState>()(
         } catch {
           // ignore — logging out locally still proceeds
         }
+        if (typeof window !== 'undefined') {
+          sessionStorage.clear();
+        }
         set({ user: null, token: null, refreshToken: null, isAuthenticated: false });
       },
       updateUser: (userData) =>

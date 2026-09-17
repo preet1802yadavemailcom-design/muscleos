@@ -337,35 +337,10 @@ export class AuthService {
       throw new ConflictException('Multiple gym accounts found for this email. Please log in with your email and password to link your Google account.');
     }
 
-    // No User account yet — check if exactly one unlinked Member profile exists
-    const matchingMembers = await this.prisma.member.findMany({
-      where: { email: profile.email, userId: null, deletedAt: null },
-    });
-    if (matchingMembers.length === 1) {
-      const existingMember = matchingMembers[0];
-      user = await this.prisma.user.create({
-        data: {
-          email: profile.email,
-          googleId: profile.googleId,
-          password: null,
-          firstName: profile.firstName,
-          lastName: profile.lastName,
-          avatar: profile.avatar,
-          role: UserRole.MEMBER,
-          gymId: existingMember.gymId,
-          status: UserStatus.ACTIVE,
-          emailVerified: true,
-        },
-        include: { gym: true },
-      });
-      await this.prisma.member.update({ where: { id: existingMember.id }, data: { userId: user.id } });
-      this.logger.log(`Linked Google sign-in to existing member profile: ${user.email}`, 'AuthService', { userId: user.id, memberId: existingMember.id });
-      return user;
-    }
-
-    // Genuinely new person, no gym/member context yet — create the account
+    // No User account yet — genuinely new person, no gym/member context yet — create the account
     // but flag it so the frontend can route them to "join a gym" / complete
     // their profile instead of a member dashboard that would show nothing.
+    // Unlinked members are NEVER silently taken over solely by Google email match.
     user = await this.prisma.user.create({
       data: {
         email: profile.email,
@@ -609,6 +584,49 @@ export class AuthService {
     return { message: 'Email verified successfully' };
   }
 
+  /**
+   * Pre-validates an activation token for the member onboarding page.
+   * Returns sanitized gym and member info with zero UUIDs or sensitive PII exposed.
+   */
+  async validateActivationToken(token: string) {
+    if (!token || typeof token !== 'string' || token.trim().length < 8) {
+      throw new BadRequestException('Invalid activation token format.');
+    }
+    const cleanToken = token.trim();
+    const tokenHash = this.encryption.hash(cleanToken);
+
+    const member = await this.prisma.member.findFirst({
+      where: {
+        OR: [{ claimToken: cleanToken }, { claimToken: tokenHash }],
+        deletedAt: null,
+      },
+      include: { gym: true, user: true },
+    });
+
+    if (!member) {
+      throw new BadRequestException('Invalid activation token. Please request a new activation link from your gym.');
+    }
+
+    if (member.claimTokenExpiresAt && member.claimTokenExpiresAt < new Date()) {
+      throw new BadRequestException('This activation link has expired. Ask your gym to send a new activation link.');
+    }
+
+    if (member.userId && member.user?.status === UserStatus.ACTIVE && member.user?.password) {
+      throw new BadRequestException('This activation link has already been used. Please sign in.');
+    }
+
+    if (member.gym.status !== 'ACTIVE') {
+      throw new ForbiddenException('This gym is currently not active.');
+    }
+
+    return {
+      valid: true,
+      memberName: `${member.firstName} ${member.lastName}`.trim(),
+      gymName: member.gym.name,
+      memberCode: member.memberCode ? `${member.memberCode.slice(0, 3)}***` : undefined,
+    };
+  }
+
   async claimAccount(dto: ClaimAccountDto, ipAddress?: string, userAgent?: string) {
     const ip = ipAddress || 'unknown';
     const rateLimitKey = `claim_attempts:${ip}`;
@@ -674,13 +692,13 @@ export class AuthService {
       } else {
         u = await tx.user.create({
           data: {
-            email: member.email || `${member.memberCode.toLowerCase()}@${member.gym.slug}.muscleos.local`,
+            email: member.email || `${(member.memberCode || member.id).toLowerCase()}@${member.gym?.slug || 'gym'}.muscleos.local`,
             password: hashedPassword,
             firstName: member.firstName,
             lastName: member.lastName,
             phone: member.mobile,
             role: UserRole.MEMBER,
-            gymId: member.gymId,
+            gymId: member.gymId || member.gym?.id,
             status: UserStatus.ACTIVE,
             emailVerified: false,
             phoneVerified: false,

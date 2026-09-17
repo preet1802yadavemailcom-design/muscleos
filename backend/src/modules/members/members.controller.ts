@@ -99,6 +99,13 @@ export class MembersController {
     return this.service.regenerateQr(id, gymId, user);
   }
 
+  @Post(':id/send-activation')
+  @Permissions('members:update')
+  @ApiOperation({ summary: 'Generate and dispatch one-time activation invitation to member' })
+  async sendActivationInvitation(@Param('id') id: string, @GymId() gymId: string, @CurrentUser() user?: CurrentUserPayload) {
+    return this.service.sendActivationInvitation(id, gymId, user);
+  }
+
   @Post(':id/claim-token')
   @Permissions('members:update')
   @ApiOperation({ summary: 'Generate a one-time activation token for member self-claim' })

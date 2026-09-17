@@ -115,6 +115,7 @@ function App() {
       <Route path="/welcome" element={<WelcomePage />} />
       <Route path="/login" element={<LoginPage />} />
       <Route path="/claim" element={<ClaimAccountPage />} />
+      <Route path="/activate" element={<ClaimAccountPage />} />
       <Route path="/auth/callback" element={<AuthCallbackPage />} />
       <Route path="/complete-profile" element={<CompleteProfilePage />} />
       <Route path="/2fa-setup" element={<TwoFactorSetupPage />} />

@@ -200,6 +200,10 @@ export function RegisterPage() {
               Sign in
             </Link>
           </p>
+
+          <div className="rounded-lg bg-muted/60 p-3 text-center text-xs text-muted-foreground border">
+            <span className="font-semibold text-foreground">Are you a gym member?</span> Members cannot self-register online. Your gym administrator will register your profile and send a one-time activation invitation link.
+          </div>
         </form>
       </motion.div>
     </div>

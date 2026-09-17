@@ -5,6 +5,7 @@ import {
   ArrowLeft, Mail, MapPin, CreditCard, Calendar, ShieldCheck, ShieldAlert,
   ShieldQuestion, Dumbbell, Utensils, LogIn, LogOut, Clock, Flame, Trophy,
   CalendarCheck, ChevronLeft, ChevronRight, Send, HelpCircle, CheckCircle2,
+  KeyRound,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -192,6 +193,33 @@ export function MemberDetailPage() {
     },
   });
 
+  const sendActivationMutation = useMutation({
+    mutationFn: async () => {
+      const res: any = await api.post(`/members/${id}/send-activation`);
+      return res?.data?.data ?? res?.data;
+    },
+    onSuccess: (resData: any) => {
+      const claimUrl = resData?.claimUrl ? `${window.location.origin}${resData.claimUrl}` : '';
+      if (claimUrl && navigator.clipboard) {
+        navigator.clipboard.writeText(claimUrl).catch(() => undefined);
+      }
+      toast({
+        title: 'Activation Link Generated',
+        description: claimUrl
+          ? 'Link copied to clipboard and sent to member if contact is available.'
+          : 'Activation invitation processed successfully.',
+      });
+      queryClient.invalidateQueries({ queryKey: ['members', id, '360'] });
+    },
+    onError: (err: unknown) => {
+      toast({
+        title: 'Could not send activation link',
+        description: apiErrorMessage(err),
+        variant: 'destructive',
+      });
+    },
+  });
+
   if (isLoading) {
     return <div className="p-6 text-sm text-muted-foreground">Loading member profile…</div>;
   }
@@ -260,6 +288,18 @@ export function MemberDetailPage() {
           <h1 className="text-xl sm:text-2xl font-bold tracking-tight">Member 360 Profile</h1>
         </div>
         <div className="flex items-center gap-2">
+          {accountState !== 'LINKED' && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => sendActivationMutation.mutate()}
+              disabled={sendActivationMutation.isPending}
+              className="gap-1.5 border-amber-300 text-amber-800 hover:bg-amber-50"
+            >
+              <KeyRound className="h-4 w-4 text-amber-600" />
+              {sendActivationMutation.isPending ? 'Sending...' : 'Send Activation Link'}
+            </Button>
+          )}
           <Button
             size="sm"
             variant={isCurrentlyInGym ? 'secondary' : 'default'}

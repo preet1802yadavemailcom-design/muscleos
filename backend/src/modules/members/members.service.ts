@@ -23,6 +23,7 @@ import { UserStatus, MembershipStatus, Prisma } from '@prisma/client';
 import { AccessScopeService } from '@shared/services/access-scope.service';
 import { AuditService } from '@shared/services/audit.service';
 import { EncryptionService } from '@shared/services/encryption.service';
+import { NotificationsService } from '@modules/notifications/notifications.service';
 import { SequenceService } from '@shared/services/sequence.service';
 
 import { CreateMemberDto, UpdateMemberDto, QueryMemberDto } from './dto';
@@ -35,6 +36,7 @@ export class MembersService {
     private readonly encryption: EncryptionService,
     private readonly sequence: SequenceService,
     @Optional() private readonly accessScope?: AccessScopeService,
+    @Optional() private readonly notifications?: NotificationsService,
   ) {}
 
   async findAll(gymId: string, query: QueryMemberDto, user?: CurrentUserPayload) {
@@ -580,7 +582,53 @@ export class MembersService {
       memberId: member.id,
       token: rawToken,
       expiresAt,
-      claimUrl: `/claim?token=${rawToken}`,
+      claimUrl: `/activate?token=${rawToken}`,
+    };
+  }
+
+  /**
+   * Generates a one-time secure activation token and dispatches the activation link
+   * to the member via WhatsApp, SMS, or Email if contact information is available.
+   */
+  async sendActivationInvitation(id: string, gymId: string, user?: CurrentUserPayload) {
+    const member = await this.findOne(id, gymId, user);
+    const tokenResult = await this.generateClaimToken(id, gymId, user);
+    const activationUrl = tokenResult.claimUrl;
+
+    if (this.notifications) {
+      const message = `Welcome to MuscleOS! Activate your gym membership account and choose your password here: ${activationUrl} (Valid for 7 days).`;
+      if (member.mobile) {
+        this.notifications.send(gymId, {
+          type: 'SYSTEM' as any,
+          channel: 'WHATSAPP' as any,
+          memberId: member.id,
+          title: 'MuscleOS Account Activation',
+          content: message,
+        } as any).catch(() => undefined);
+      } else if (member.email) {
+        this.notifications.send(gymId, {
+          type: 'SYSTEM' as any,
+          channel: 'EMAIL' as any,
+          memberId: member.id,
+          title: 'MuscleOS Account Activation',
+          content: message,
+        } as any).catch(() => undefined);
+      }
+    }
+
+    await this.audit.log({
+      action: 'ACTIVATION_INVITATION_SENT',
+      entity: 'Member',
+      entityId: member.id,
+      gymId,
+      userId: user?.userId,
+    });
+
+    return {
+      success: true,
+      memberId: member.id,
+      claimUrl: activationUrl,
+      expiresAt: tokenResult.expiresAt,
     };
   }
 

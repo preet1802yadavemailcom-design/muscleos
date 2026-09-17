@@ -63,9 +63,35 @@ export class AuthController {
   }
 
   @Public()
+  @Get('activate/:token')
+  @ApiOperation({ summary: 'Validate member activation token' })
+  @ApiResponse({ status: 200, description: 'Token is valid' })
+  @ApiResponse({ status: 400, description: 'Invalid or expired token' })
+  async validateActivationToken(@Param('token') token: string) {
+    return this.authService.validateActivationToken(token);
+  }
+
+  @Public()
+  @Get('claim/:token')
+  @ApiOperation({ summary: 'Validate member activation token (alias)' })
+  async validateClaimToken(@Param('token') token: string) {
+    return this.authService.validateActivationToken(token);
+  }
+
+  @Public()
+  @Post('activate')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Activate account using one-time token' })
+  @ApiResponse({ status: 200, description: 'Account activated successfully' })
+  @ApiResponse({ status: 400, description: 'Invalid or expired token' })
+  async activate(@Body() dto: ClaimAccountDto, @Ip() ip: string, @Headers('user-agent') deviceInfo: string) {
+    return this.authService.claimAccount(dto, ip, deviceInfo);
+  }
+
+  @Public()
   @Post('claim')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Claim and activate account using one-time token' })
+  @ApiOperation({ summary: 'Claim and activate account using one-time token (alias)' })
   @ApiResponse({ status: 200, description: 'Account activated successfully' })
   @ApiResponse({ status: 400, description: 'Invalid or expired token' })
   async claim(@Body() dto: ClaimAccountDto, @Ip() ip: string, @Headers('user-agent') deviceInfo: string) {
