@@ -76,6 +76,8 @@ export class WhatsappProvider {
   }
 
   private async callGraphApi(payload: Record<string, unknown>): Promise<{ success: boolean; error?: string }> {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 8000);
     try {
       const res = await fetch(`https://graph.facebook.com/v19.0/${this.phoneNumberId}/messages`, {
         method: 'POST',
@@ -84,7 +86,9 @@ export class WhatsappProvider {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(payload),
+        signal: controller.signal,
       });
+      clearTimeout(timeoutId);
       const data = await res.json();
       if (!res.ok) {
         const error = data?.error?.message || `WhatsApp API error (${res.status})`;
@@ -93,8 +97,11 @@ export class WhatsappProvider {
       }
       return { success: true };
     } catch (error: any) {
-      this.logger.error(`WhatsApp send failed: ${error.message}`, error.stack, 'WhatsappProvider');
-      return { success: false, error: error.message };
+      clearTimeout(timeoutId);
+      const isTimeout = error?.name === 'AbortError';
+      const errorMsg = isTimeout ? 'WhatsApp API request timed out (8s limit)' : error.message;
+      this.logger.error(`WhatsApp send failed: ${errorMsg}`, error.stack, 'WhatsappProvider');
+      return { success: false, error: errorMsg };
     }
   }
 

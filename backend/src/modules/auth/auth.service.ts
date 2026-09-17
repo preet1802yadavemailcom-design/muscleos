@@ -400,6 +400,14 @@ export class AuthService {
     if (await this.redis.get(cooldownKey)) {
       throw new ForbiddenException('Please wait before requesting another code.');
     }
+
+    const hourlyKey = `whatsapp_otp_hourly:${userId}`;
+    const hourlyRequests = Number((await this.redis.get(hourlyKey)) || 0);
+    if (hourlyRequests >= 5) {
+      throw new ForbiddenException('Too many verification requests. Please try again later.');
+    }
+    await this.redis.set(hourlyKey, String(hourlyRequests + 1), 3600);
+
     const otp = randomInt(100000, 1000000).toString();
     await this.redis.set(`whatsapp_otp:${userId}`, otp, 600); // 10 min
     await this.redis.set(cooldownKey, '1', OTP_RESEND_COOLDOWN_SECONDS);
@@ -510,6 +518,14 @@ export class AuthService {
     if (await this.redis.get(cooldownKey)) {
       throw new ForbiddenException('Please wait before requesting another OTP.');
     }
+
+    const hourlyKey = `verify_otp_hourly:${email}`;
+    const hourlyRequests = Number((await this.redis.get(hourlyKey)) || 0);
+    if (hourlyRequests >= 5) {
+      throw new ForbiddenException('Too many verification requests. Please try again later.');
+    }
+    await this.redis.set(hourlyKey, String(hourlyRequests + 1), 3600);
+
     const otp = randomInt(100000, 1000000).toString();
     await this.redis.set(`verify_otp:${email}`, otp, 600);
     await this.redis.set(cooldownKey, '1', OTP_RESEND_COOLDOWN_SECONDS);

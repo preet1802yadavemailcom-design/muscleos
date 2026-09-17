@@ -151,13 +151,18 @@ export class AttendanceService {
     // remote check-ins rather than being treated as strong identity proof).
     // Only enforced when the branch has actually configured one.
     if (geofence?.radius && geofence.latitude != null && geofence.longitude != null) {
-      if (dto.latitude == null || dto.longitude == null) {
+      if (
+        dto.latitude == null ||
+        dto.longitude == null ||
+        Number.isNaN(Number(dto.latitude)) ||
+        Number.isNaN(Number(dto.longitude))
+      ) {
         throw new ForbiddenException('Location is required to check in at this branch — please enable location access.');
       }
       const distance = distanceMeters(dto.latitude, dto.longitude, geofence.latitude, geofence.longitude);
-      if (distance > geofence.radius) {
+      if (Number.isNaN(distance) || distance > geofence.radius) {
         throw new ForbiddenException(
-          `You appear to be ${Math.round(distance)}m from the branch (allowed: ${geofence.radius}m) — move closer and try again.`,
+          `You appear to be ${Math.round(distance || 0)}m from the branch (allowed: ${geofence.radius}m) — move closer and try again.`,
         );
       }
     }
