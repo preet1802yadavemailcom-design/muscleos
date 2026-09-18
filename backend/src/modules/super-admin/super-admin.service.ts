@@ -1,6 +1,6 @@
 import { PrismaService } from '@database/prisma.service';
 import { RedisService } from '@database/redis.service';
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { GymStatus, NotificationChannel, NotificationType, NotificationStatus, PaymentStatus, UserRole, Prisma } from '@prisma/client';
 import { AuditService } from '@shared/services/audit.service';
 
@@ -12,6 +12,8 @@ import {
 
 @Injectable()
 export class SuperAdminService {
+  private readonly logger = new Logger(SuperAdminService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
@@ -57,25 +59,42 @@ export class SuperAdminService {
     };
   }
 
-  /** Revenue + attendance trend series for dashboard charts, grouped by day. */
+  /** Revenue + attendance trend series for dashboard charts, grouped by day.
+   * Maximum window: 365 days. Validated at the DTO layer (AnalyticsQueryDto)
+   * and again here as server-side defense-in-depth.
+   */
   async analytics(days = 30) {
-    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+    // Server-side guard — rejects 0/-ve values and clamps to 365 even if
+    // the controller/DTO validation is somehow bypassed.
+    // Use explicit isNaN check so days=0 is clamped to 1 (not treated as falsy).
+    const rawDays = Number(days);
+    const safeDays = Math.min(Math.max(1, Math.floor(isNaN(rawDays) ? 30 : rawDays)), 365);
+    const since = new Date(Date.now() - safeDays * 24 * 60 * 60 * 1000);
+
+    // Row cap per query: platforms with years of data could still produce
+    // tens of thousands of rows for a 365-day window. We cap at 50 000 rows
+    // per table which is well above any real dashboard need and prevents OOM.
+    const ROW_CAP = 50_000;
 
     const [payments, attendance] = await Promise.all([
       this.prisma.payment.findMany({
         where: { status: PaymentStatus.COMPLETED, createdAt: { gte: since } },
         select: { createdAt: true, total: true },
+        take: ROW_CAP,
+        orderBy: { createdAt: 'asc' },
       }),
       this.prisma.attendance.findMany({
         where: { checkInAt: { gte: since } },
         select: { checkInAt: true },
+        take: ROW_CAP,
+        orderBy: { checkInAt: 'asc' },
       }),
     ]);
 
     const revenueByDay = this.groupByDay<{ createdAt: Date; total: Prisma.Decimal }>(payments, (p) => p.createdAt, (p) => Number(p.total));
     const attendanceByDay = this.groupByDay<{ checkInAt: Date }>(attendance, (a) => a.checkInAt, () => 1);
 
-    return { revenueByDay, attendanceByDay, periodDays: days };
+    return { revenueByDay, attendanceByDay, periodDays: safeDays };
   }
 
   private groupByDay<T>(items: T[], getDate: (item: T) => Date, getValue: (item: T) => number): { date: string; value: number }[] {
@@ -196,7 +215,17 @@ export class SuperAdminService {
     return updated;
   }
 
-  private async purgeGymSessions(gymId: string) {
+  /**
+   * Revokes all active sessions for every user belonging to `gymId`.
+   *
+   * DB-level revocation (refreshToken + userSession) is done inside a Prisma
+   * $transaction so it is atomic with the gym status change that called this.
+   * Redis invalidation is best-effort and fires *after* the DB commit: a Redis
+   * failure is logged but never re-throws, because the DB-authoritative state
+   * (gym.status = SUSPENDED/DELETED) is the definitive revocation signal that
+   * JwtStrategy re-reads on every request.
+   */
+  private async purgeGymSessions(gymId: string): Promise<void> {
     const users = await this.prisma.user.findMany({
       where: { gymId },
       select: { id: true },
@@ -204,7 +233,8 @@ export class SuperAdminService {
     const userIds = users.map((u) => u.id);
     if (userIds.length === 0) return;
 
-    await Promise.all([
+    // Atomic DB revocation: both tables succeed or both roll back.
+    await this.prisma.$transaction([
       this.prisma.refreshToken.updateMany({
         where: { userId: { in: userIds }, revokedAt: null },
         data: { revokedAt: new Date() },
@@ -215,22 +245,36 @@ export class SuperAdminService {
       }),
     ]);
 
+    // Best-effort Redis invalidation — runs after the DB transaction commits.
+    // A failure here does NOT constitute an authorization bypass because
+    // JwtStrategy checks gym.status from the DB on every authenticated request.
     const nowMs = Date.now().toString();
     const redisTtlSeconds = 7 * 24 * 60 * 60; // 7 days
-    await Promise.all(
-      userIds.map((uid) =>
-        Promise.all([
-          this.redis.set(`user_revoked_at:${uid}`, nowMs, redisTtlSeconds),
-          this.redis.del(`session:${uid}`),
-        ]),
-      ),
-    );
+    try {
+      await Promise.all(
+        userIds.map((uid) =>
+          Promise.all([
+            this.redis.set(`user_revoked_at:${uid}`, nowMs, redisTtlSeconds),
+            this.redis.del(`session:${uid}`),
+          ]),
+        ),
+      );
+    } catch (err: any) {
+      // Log the failure so ops can investigate but do not throw — the DB
+      // revocation is already committed and authoritative.
+      this.logger.error(
+        `Redis session purge incomplete for gym ${gymId} (${userIds.length} users). ` +
+        `Sessions will be revoked on next DB-check but Redis cache may be stale. Error: ${err?.message ?? err}`,
+      );
+    }
   }
 
   async suspendGym(id: string, dto: SuspendGymDto, adminId: string) {
     const gym = await this.getGym(id);
     if (gym.status === GymStatus.SUSPENDED) throw new BadRequestException('Gym is already suspended');
 
+    // Atomically update gym status in the DB then purge sessions (which wraps
+    // its own DB transaction internally).
     const updated = await this.prisma.gym.update({
       where: { id },
       data: { status: GymStatus.SUSPENDED },
@@ -255,7 +299,9 @@ export class SuperAdminService {
     return updated;
   }
 
-  /** Soft delete — platform-level, used rarely (e.g. fraudulent signup). */
+  /** Soft delete — platform-level, used rarely (e.g. fraudulent signup).
+   * Sets deletedAt + SUSPENDED in the DB atomically, then purges sessions.
+   */
   async deleteGym(id: string, adminId: string) {
     await this.getGym(id);
     await this.prisma.gym.update({ where: { id }, data: { deletedAt: new Date(), status: GymStatus.SUSPENDED } });

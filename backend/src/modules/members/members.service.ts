@@ -19,7 +19,7 @@ import { randomUUID, randomBytes } from 'crypto';
 import { CurrentUserPayload } from '@common/decorators/current-user.decorator';
 import { PrismaService } from '@database/prisma.service';
 import { Optional, Injectable, NotFoundException, BadRequestException, ForbiddenException, ConflictException } from '@nestjs/common';
-import { UserStatus, MembershipStatus, Prisma } from '@prisma/client';
+import { UserStatus, MembershipStatus, Prisma, UserRole } from '@prisma/client';
 import { AccessScopeService } from '@shared/services/access-scope.service';
 import { AuditService } from '@shared/services/audit.service';
 import { EncryptionService } from '@shared/services/encryption.service';
@@ -169,7 +169,7 @@ export class MembersService {
    */
   sanitizeMemberSensitiveData(member: any, requester?: { role?: string; permissions?: string[] }) {
     if (!member) return member;
-    const isOwnerOrSuper = requester?.role === 'GYM_OWNER' || requester?.role === 'SUPER_ADMIN';
+    const isOwnerOrSuper = requester?.role === UserRole.GYM_OWNER || requester?.role === UserRole.SUPER_ADMIN;
     const hasSensitivePerm = requester?.permissions?.includes('members:sensitive:read');
 
     if (isOwnerOrSuper || hasSensitivePerm) {

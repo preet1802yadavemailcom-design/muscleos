@@ -2,7 +2,7 @@ import { ApiPropertyOptional, ApiProperty } from '@nestjs/swagger';
 import { GymStatus, PlanType, NotificationChannel, SupportTicketStatus, SupportTicketPriority } from '@prisma/client';
 import { Type } from 'class-transformer';
 import {
-  IsOptional, IsString, IsEnum, IsInt, Min, IsBoolean, IsNumber, IsArray, MaxLength,
+  IsOptional, IsString, IsEnum, IsInt, Min, Max, IsBoolean, IsNumber, IsArray, MaxLength,
 } from 'class-validator';
 
 export class QueryGymsDto {
@@ -25,6 +25,16 @@ export class QueryGymsDto {
   @ApiPropertyOptional({ enum: PlanType })
   @IsOptional() @IsEnum(PlanType)
   planType?: PlanType;
+}
+
+export class AnalyticsQueryDto {
+  @ApiPropertyOptional({ default: 30, minimum: 1, maximum: 365, description: 'Number of days to include in analytics (1–365)' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt({ message: 'days must be an integer' })
+  @Min(1, { message: 'days must be at least 1' })
+  @Max(365, { message: 'days must not exceed 365' })
+  days?: number = 30;
 }
 
 export class RejectGymDto {

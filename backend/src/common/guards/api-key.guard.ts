@@ -2,6 +2,7 @@ import * as crypto from 'crypto';
 
 import { PrismaService } from '@database/prisma.service';
 import { CanActivate, ExecutionContext, Injectable, UnauthorizedException } from '@nestjs/common';
+import { UserRole } from '@prisma/client';
 import { Request } from 'express';
 
 @Injectable()
@@ -61,7 +62,7 @@ export class ApiKeyGuard implements CanActivate {
       userId: `apikey_${setting.gymId}`,
       email: 'api-key@muscleos.internal',
       gymId: setting.gymId,
-      role: 'GYM_OWNER',
+      role: UserRole.GYM_OWNER,
       isApiKey: true,
       scopes: meta.scopes ?? ['*'],
     };

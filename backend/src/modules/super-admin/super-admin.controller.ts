@@ -8,7 +8,7 @@ import { ApiTags, ApiBearerAuth, ApiOperation, ApiQuery } from '@nestjs/swagger'
 import { UserRole } from '@prisma/client';
 
 import {
-  QueryGymsDto, RejectGymDto, SuspendGymDto, CreateGymPlanDto, UpdateGymPlanDto,
+  QueryGymsDto, AnalyticsQueryDto, RejectGymDto, SuspendGymDto, CreateGymPlanDto, UpdateGymPlanDto,
   CreateAnnouncementDto, UpdateTicketDto, QueryAuditLogsDto,
 } from './dto';
 import { SuperAdminService } from './super-admin.service';
@@ -31,9 +31,9 @@ export class SuperAdminController {
 
   @Get('dashboard/analytics')
   @ApiOperation({ summary: 'Revenue + attendance trend for dashboard charts' })
-  @ApiQuery({ name: 'days', required: false, type: Number })
-  async analytics(@Query('days') days?: string) {
-    return this.service.analytics(days ? Number(days) : undefined);
+  @ApiQuery({ name: 'days', required: false, type: Number, description: 'Lookback window in days (1–365, default 30)' })
+  async analytics(@Query() query: AnalyticsQueryDto) {
+    return this.service.analytics(query.days ?? 30);
   }
 
   // ---- Gym management ----
