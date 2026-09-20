@@ -5,7 +5,7 @@ import {
   ArrowLeft, Mail, MapPin, CreditCard, Calendar, ShieldCheck, ShieldAlert,
   ShieldQuestion, Dumbbell, Utensils, LogIn, LogOut, Clock, Flame, Trophy,
   CalendarCheck, ChevronLeft, ChevronRight, Send, HelpCircle, CheckCircle2,
-  KeyRound,
+  KeyRound, Copy, Check, ExternalLink, MessageCircle,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -113,6 +113,9 @@ export function MemberDetailPage() {
   const [emailSubject, setEmailSubject] = useState('');
   const [emailMessage, setEmailMessage] = useState('');
   const [attendancePage, setAttendancePage] = useState(1);
+  const [activationDialogOpen, setActivationDialogOpen] = useState(false);
+  const [activationLinkUrl, setActivationLinkUrl] = useState('');
+  const [linkCopied, setLinkCopied] = useState(false);
 
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -201,14 +204,19 @@ export function MemberDetailPage() {
       return res?.data?.data ?? res?.data;
     },
     onSuccess: (resData: any) => {
-      const claimUrl = resData?.claimUrl ? `${window.location.origin}${resData.claimUrl}` : '';
-      if (claimUrl && navigator.clipboard) {
-        navigator.clipboard.writeText(claimUrl).catch(() => undefined);
+      const rawUrl = resData?.claimUrl || '';
+      const claimUrl = rawUrl.startsWith('http') ? rawUrl : (rawUrl ? `${window.location.origin}${rawUrl}` : '');
+      if (claimUrl) {
+        setActivationLinkUrl(claimUrl);
+        setActivationDialogOpen(true);
+        if (navigator.clipboard) {
+          navigator.clipboard.writeText(claimUrl).catch(() => undefined);
+        }
       }
       toast({
         title: 'Activation Link Generated',
         description: claimUrl
-          ? 'Link copied to clipboard and sent to member if contact is available.'
+          ? 'Link copied to clipboard and displayed on screen.'
           : 'Activation invitation processed successfully.',
       });
       queryClient.invalidateQueries({ queryKey: ['members', id, '360'] });
@@ -935,6 +943,87 @@ export function MemberDetailPage() {
             >
               <Send className="h-4 w-4" />
               {sendEmailMutation.isPending ? 'Sending…' : 'Send Email'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Activation Link Direct Dialog */}
+      <Dialog open={activationDialogOpen} onOpenChange={setActivationDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <KeyRound className="h-5 w-5 text-amber-600" />
+              Member Activation Link
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <p className="text-sm text-muted-foreground">
+              One-time onboarding link generated for <strong className="text-foreground">{member?.firstName} {member?.lastName}</strong>.
+              Valid for 7 days.
+            </p>
+            <div className="flex items-center gap-2">
+              <Input
+                readOnly
+                value={activationLinkUrl}
+                className="font-mono text-xs bg-muted select-all"
+                onClick={(e) => (e.target as HTMLInputElement).select()}
+              />
+              <Button
+                type="button"
+                size="sm"
+                variant={linkCopied ? "default" : "outline"}
+                className="shrink-0 gap-1"
+                onClick={() => {
+                  if (activationLinkUrl && navigator.clipboard) {
+                    navigator.clipboard.writeText(activationLinkUrl);
+                    setLinkCopied(true);
+                    setTimeout(() => setLinkCopied(false), 2000);
+                  }
+                }}
+              >
+                {linkCopied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                {linkCopied ? 'Copied' : 'Copy'}
+              </Button>
+            </div>
+            <div className="flex flex-wrap gap-2 pt-1">
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                className="gap-1 text-xs"
+                onClick={() => window.open(activationLinkUrl, '_blank', 'noopener,noreferrer')}
+              >
+                <ExternalLink className="h-3.5 w-3.5" />
+                Open Activation Page
+              </Button>
+              {member?.mobile && (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="gap-1 text-xs text-emerald-700 border-emerald-300 hover:bg-emerald-50"
+                  onClick={() => {
+                    const phone = member.mobile.replace(/\D/g, '');
+                    const text = encodeURIComponent(`Hi ${member.firstName}, welcome to our gym! Here is your MuscleOS account activation link to set up your password: ${activationLinkUrl}`);
+                    window.open(`https://wa.me/${phone.startsWith('91') || phone.length > 10 ? phone : '91' + phone}?text=${text}`, '_blank');
+                  }}
+                >
+                  <MessageCircle className="h-3.5 w-3.5" />
+                  Share on WhatsApp
+                </Button>
+              )}
+            </div>
+            <div className="rounded-md bg-amber-50 p-3 text-xs text-amber-800 border border-amber-200 space-y-1">
+              <p className="font-semibold">Email Delivery Note</p>
+              <p>
+                An email was dispatched to <strong>{member?.email || 'member email'}</strong>. If not received in your inbox, ensure your <code>RESEND_API_KEY</code> or <code>SMTP_*</code> credentials are configured in your backend deployment.
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button onClick={() => setActivationDialogOpen(false)}>
+              Close
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -593,22 +593,28 @@ export class MembersService {
   async sendActivationInvitation(id: string, gymId: string, user?: CurrentUserPayload) {
     const member = await this.findOne(id, gymId, user);
     const tokenResult = await this.generateClaimToken(id, gymId, user);
-    const activationUrl = tokenResult.claimUrl;
+    const frontendBaseUrl = (process.env.FRONTEND_URL || 'https://edu-mind.app').replace(/\/+$/, '');
+    const absoluteClaimUrl = `${frontendBaseUrl}${tokenResult.claimUrl}`;
 
     if (this.notifications) {
-      const message = `Welcome to MuscleOS! Activate your gym membership account and choose your password here: ${activationUrl} (Valid for 7 days).`;
-      if (member.mobile) {
+      const message = `Welcome to MuscleOS! Activate your gym membership account and choose your password here: ${absoluteClaimUrl} (Valid for 7 days).`;
+
+      // 1. Dispatch to Email if member has an email address
+      if (member.email) {
         this.notifications.send(gymId, {
           type: 'SYSTEM' as any,
-          channel: 'WHATSAPP' as any,
+          channel: 'EMAIL' as any,
           memberId: member.id,
           title: 'MuscleOS Account Activation',
           content: message,
         } as any).catch(() => undefined);
-      } else if (member.email) {
+      }
+
+      // 2. Dispatch to WhatsApp / Mobile if member has a mobile number
+      if (member.mobile) {
         this.notifications.send(gymId, {
           type: 'SYSTEM' as any,
-          channel: 'EMAIL' as any,
+          channel: 'WHATSAPP' as any,
           memberId: member.id,
           title: 'MuscleOS Account Activation',
           content: message,
@@ -627,7 +633,9 @@ export class MembersService {
     return {
       success: true,
       memberId: member.id,
-      claimUrl: activationUrl,
+      token: tokenResult.token,
+      claimUrl: absoluteClaimUrl,
+      relativeClaimUrl: tokenResult.claimUrl,
       expiresAt: tokenResult.expiresAt,
     };
   }
