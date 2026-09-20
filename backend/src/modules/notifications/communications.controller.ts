@@ -27,7 +27,7 @@ export class CommunicationsController {
     @Body() body: { memberId?: string; subject: string; message: string; recipientEmail?: string },
   ) {
     return this.notificationsService.send(gymId, {
-      type: NotificationType.GENERAL,
+      type: NotificationType.SYSTEM,
       channel: NotificationChannel.EMAIL,
       memberId: body.memberId,
       recipientEmail: body.recipientEmail,

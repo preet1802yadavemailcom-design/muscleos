@@ -172,7 +172,7 @@ export function MemberDetailPage() {
       return api.post(`/notifications/send`, {
         memberId: id,
         channel: 'EMAIL',
-        type: 'GENERAL',
+        type: 'SYSTEM',
         title: emailSubject,
         content: emailMessage,
       });
