@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 
+import { CommunicationsController } from './communications.controller';
 import { NotificationsController } from './notifications.controller';
 import { NotificationsService } from './notifications.service';
 import { EmailProvider } from './providers/email.provider';
@@ -8,7 +9,7 @@ import { SmsProvider } from './providers/sms.provider';
 import { WhatsappProvider } from './providers/whatsapp.provider';
 
 @Module({
-  controllers: [NotificationsController],
+  controllers: [NotificationsController, CommunicationsController],
   providers: [NotificationsService, EmailProvider, SmsProvider, PushProvider, WhatsappProvider],
   exports: [NotificationsService, EmailProvider, WhatsappProvider, PushProvider],
 })

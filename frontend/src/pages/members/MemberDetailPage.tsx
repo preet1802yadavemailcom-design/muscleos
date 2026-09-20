@@ -169,10 +169,12 @@ export function MemberDetailPage() {
 
   const sendEmailMutation = useMutation({
     mutationFn: async () => {
-      return api.post(`/communications/email/send`, {
+      return api.post(`/notifications/send`, {
         memberId: id,
-        subject: emailSubject,
-        message: emailMessage,
+        channel: 'EMAIL',
+        type: 'GENERAL',
+        title: emailSubject,
+        content: emailMessage,
       });
     },
     onSuccess: () => {
