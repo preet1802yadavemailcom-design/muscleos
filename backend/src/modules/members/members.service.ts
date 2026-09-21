@@ -396,6 +396,12 @@ export class MembersService {
       newValue: { memberCode: member.memberCode, firstName: member.firstName, lastName: member.lastName },
       gymId,
     });
+
+    // Automatically dispatch activation invitation (Email & Mobile) when member is created
+    if (member.email || member.mobile) {
+      this.sendActivationInvitation(member.id, gymId, user).catch(() => undefined);
+    }
+
     return member;
   }
 

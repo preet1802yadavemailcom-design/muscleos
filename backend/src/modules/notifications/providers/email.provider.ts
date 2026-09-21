@@ -110,15 +110,18 @@ export class EmailProvider implements OnModuleInit {
         );
         const info: any = await Promise.race([sendPromise, timeoutPromise]);
         this.logger.log(`Email sent via SMTP to ${to} (messageId: ${info.messageId})`, 'EmailProvider');
+        console.log(`[SMTP SUCCESS] Email sent to ${to} (${info.messageId})`);
         return { success: true };
       } catch (error: any) {
         this.logger.error(`SMTP send failed: ${error.message}`, error.stack, 'EmailProvider');
+        console.error(`[SMTP FAILED] Could not send to ${to}: ${error.message}`);
         return { success: false, error: error.message };
       }
     }
 
     // 3. Fallback for development / mock environments
     this.logger.warn(`No email transport configured (neither Resend nor SMTP) — simulated delivery to ${to}: "${subject}"`, 'EmailProvider');
+    console.warn(`[SMTP SIMULATED] No email transport configured for ${to}`);
     return { success: true };
   }
 }
