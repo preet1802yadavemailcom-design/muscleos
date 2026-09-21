@@ -23,7 +23,7 @@ export function MyProfilePage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const { data, isLoading } = useQuery<MyProfile>({
+  const { data, isLoading, isError, error, refetch } = useQuery<MyProfile>({
     queryKey: ['profile', 'me'],
     queryFn: () => profileApi.getProfile(),
   });
@@ -121,10 +121,23 @@ export function MyProfilePage() {
   });
 
   if (isLoading) {
-    return <div className="p-6 text-sm text-muted-foreground">Loading profile...</div>;
+    return (
+      <div className="p-8 flex items-center gap-2 text-sm text-muted-foreground">
+        <Clock className="h-4 w-4 animate-spin text-primary" /> Loading profile...
+      </div>
+    );
   }
-  if (!data) {
-    return <div className="p-6 text-sm text-destructive">Couldn't load your profile. Please refresh.</div>;
+  if (isError || !data) {
+    return (
+      <div className="p-8 max-w-md space-y-3">
+        <p className="text-sm font-medium text-destructive">
+          {(error as any)?.response?.data?.message || "Couldn't load your profile. Please refresh."}
+        </p>
+        <Button variant="outline" size="sm" onClick={() => refetch()}>
+          Retry
+        </Button>
+      </div>
+    );
   }
 
   const isMember = data.role === 'MEMBER';

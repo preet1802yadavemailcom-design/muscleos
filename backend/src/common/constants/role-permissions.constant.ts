@@ -9,6 +9,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, string[]> = {
   [UserRole.SUPER_ADMIN]: ['*'],
 
   [UserRole.GYM_OWNER]: [
+    'profile:read', 'profile:update',
     'dashboard:view',
     'members:create', 'members:read', 'members:update', 'members:delete', 'members:export',
     'batches:create', 'batches:read', 'batches:update', 'batches:delete',
@@ -23,6 +24,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, string[]> = {
   ],
 
   [UserRole.TRAINER]: [
+    'profile:read', 'profile:update',
     'dashboard:view',
     'members:read',
     'batches:read',
@@ -32,6 +34,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, string[]> = {
   ],
 
   [UserRole.RECEPTIONIST]: [
+    'profile:read', 'profile:update',
     'dashboard:view',
     'members:create', 'members:read', 'members:update',
     'batches:read',
@@ -55,5 +58,8 @@ export function getPermissionsForRole(role: UserRole): string[] {
 }
 
 export function hasPermission(userPermissions: string[], required: string): boolean {
+  if (required === 'profile:read' || required === 'profile:update') {
+    return true; // Every authenticated user can always read and update their own profile
+  }
   return userPermissions.includes('*') || userPermissions.includes(required);
 }
