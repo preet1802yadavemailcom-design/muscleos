@@ -25,21 +25,38 @@ export class EmailProvider implements OnModuleInit {
     const smtpHost = this.config.get('SMTP_HOST');
     if (smtpHost) {
       const port = Number(this.config.get('SMTP_PORT', 587));
-      const user = this.config.get('SMTP_USER');
-      const pass = this.config.get('SMTP_PASS');
-      this.smtpTransporter = nodemailer.createTransport({
-        host: smtpHost,
-        port,
-        secure: port === 465,
-        auth: user && pass ? { user, pass } : undefined,
-      });
-      this.logger.log(`SMTP transporter initialized (${smtpHost}:${port})`, 'EmailProvider');
+      const rawUser = this.config.get('SMTP_USER');
+      const user = rawUser ? rawUser.trim() : undefined;
+      const rawPass = this.config.get('SMTP_PASS');
+      const pass = rawPass ? rawPass.replace(/\s+/g, '').trim() : undefined;
+
+      if (smtpHost.toLowerCase().includes('gmail')) {
+        this.smtpTransporter = nodemailer.createTransport({
+          service: 'gmail',
+          auth: user && pass ? { user, pass } : undefined,
+          tls: {
+            rejectUnauthorized: false,
+          },
+        });
+        this.logger.log(`Gmail SMTP transporter initialized for ${user}`, 'EmailProvider');
+      } else {
+        this.smtpTransporter = nodemailer.createTransport({
+          host: smtpHost,
+          port,
+          secure: port === 465,
+          auth: user && pass ? { user, pass } : undefined,
+          tls: {
+            rejectUnauthorized: false,
+          },
+        });
+        this.logger.log(`SMTP transporter initialized (${smtpHost}:${port})`, 'EmailProvider');
+      }
     }
 
     this.from =
       this.config.get('SMTP_FROM') ||
       this.config.get('EMAIL_FROM') ||
-      'MuscleOS <onboarding@resend.dev>';
+      (this.config.get('SMTP_USER') ? `MuscleOS <${this.config.get('SMTP_USER').trim()}>` : 'MuscleOS <onboarding@resend.dev>');
   }
 
   async send(to: string, subject: string, html: string): Promise<{ success: boolean; error?: string }> {
