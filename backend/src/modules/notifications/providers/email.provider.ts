@@ -8,7 +8,6 @@ import { Resend } from 'resend';
 export class EmailProvider implements OnModuleInit {
   private resendClient: Resend | null = null;
   private smtpTransporter: nodemailer.Transporter | null = null;
-  private from: string;
 
   constructor(
     private readonly config: ConfigService,
@@ -63,32 +62,45 @@ export class EmailProvider implements OnModuleInit {
       }
     }
 
-    this.from =
+    const emailFrom = this.config.get('EMAIL_FROM') || process.env.EMAIL_FROM;
+    if (emailFrom && !emailFrom.includes('@gmail.com') && !emailFrom.includes('@yahoo.com')) {
+      this.resendFrom = emailFrom;
+    } else {
+      this.resendFrom = 'MuscleOS <onboarding@resend.dev>';
+    }
+
+    this.smtpFrom =
       this.config.get('SMTP_FROM') ||
-      this.config.get('EMAIL_FROM') ||
+      process.env.SMTP_FROM ||
       (this.config.get('SMTP_USER') ? `MuscleOS <${this.config.get('SMTP_USER').trim()}>` : 'MuscleOS <onboarding@resend.dev>');
   }
+
+  private resendFrom: string;
+  private smtpFrom: string;
 
   async send(to: string, subject: string, html: string): Promise<{ success: boolean; error?: string }> {
     // 1. Try Resend if configured
     if (this.resendClient) {
       try {
         const { data, error } = await this.resendClient.emails.send({
-          from: this.from,
+          from: this.resendFrom,
           to,
           subject,
           html,
         });
         if (error) {
+          console.error(`[RESEND FAILED] ${error.message}`);
           this.logger.error(`Resend send failed: ${error.message}`, undefined, 'EmailProvider');
           if (!this.smtpTransporter) {
             return { success: false, error: error.message };
           }
         } else {
+          console.log(`[RESEND SUCCESS] Email sent to ${to} (id: ${data?.id})`);
           this.logger.log(`Email sent via Resend to ${to} (id: ${data?.id})`, 'EmailProvider');
           return { success: true };
         }
       } catch (error: any) {
+        console.error(`[RESEND EXCEPTION] ${error.message}`);
         this.logger.error(`Resend send exception: ${error.message}`, error.stack, 'EmailProvider');
         if (!this.smtpTransporter) {
           return { success: false, error: error.message };
@@ -100,7 +112,7 @@ export class EmailProvider implements OnModuleInit {
     if (this.smtpTransporter) {
       try {
         const sendPromise = this.smtpTransporter.sendMail({
-          from: this.from,
+          from: this.smtpFrom,
           to,
           subject,
           html,
