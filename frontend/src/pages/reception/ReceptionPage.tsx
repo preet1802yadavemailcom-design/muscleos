@@ -12,6 +12,18 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
+import {
+  ResponsiveContainer,
+  BarChart,
+  Bar,
+  Line,
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+} from 'recharts';
 import { useToast } from '@/hooks/use-toast';
 import { apiErrorMessage } from '@/lib/api-error';
 import { PhoneLink } from '@/components/common/PhoneLink';
@@ -66,6 +78,7 @@ export function ReceptionPage() {
   const [selectedBatchId, setSelectedBatchId] = useState<string>('ALL');
   const [search, setSearch] = useState('');
   const [drillSearch, setDrillSearch] = useState('');
+  const [activeMemberGraphMode, setActiveMemberGraphMode] = useState<'batch' | 'trend'>('batch');
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
@@ -85,6 +98,14 @@ export function ReceptionPage() {
     refetchInterval: 30000,
   });
   const stats = dashboard?.data;
+
+  // Reception Analytics (Active Members & Pending Payments graphs)
+  const { data: analyticsRes, isLoading: analyticsLoading } = useQuery({
+    queryKey: ['reception-analytics', batchParam],
+    queryFn: () => api.get('/reception/analytics', { params: { batchId: batchParam, days: 14 } }),
+    refetchInterval: 30000,
+  });
+  const analyticsData = analyticsRes?.data ?? analyticsRes;
 
   // Quick member search
   const { data: searchResults, isFetching: searching } = useQuery({
@@ -213,6 +234,169 @@ export function ReceptionPage() {
           active={activeTab === 'payments'}
           onClick={() => setActiveTab('payments')}
         />
+      </div>
+
+      {/* Visual Analytics: Active Members & Pending Payments */}
+      <div className="grid gap-4 md:grid-cols-2">
+        {/* Active Members Graph */}
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <div>
+              <CardTitle className="text-base font-semibold flex items-center gap-2">
+                <Users className="h-4 w-4 text-primary" /> Active Members
+              </CardTitle>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {activeMemberGraphMode === 'batch'
+                  ? 'Batch enrollment & seat distribution'
+                  : 'New & active member registration trend (14d)'}
+              </p>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <Button
+                variant={activeMemberGraphMode === 'batch' ? 'default' : 'outline'}
+                size="sm"
+                className="h-7 text-xs px-2.5"
+                onClick={() => setActiveMemberGraphMode('batch')}
+              >
+                Batches
+              </Button>
+              <Button
+                variant={activeMemberGraphMode === 'trend' ? 'default' : 'outline'}
+                size="sm"
+                className="h-7 text-xs px-2.5"
+                onClick={() => setActiveMemberGraphMode('trend')}
+              >
+                Trend
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent className="pt-2">
+            {analyticsLoading ? (
+              <div className="h-[220px] flex items-center justify-center text-sm text-muted-foreground">
+                Loading member metrics...
+              </div>
+            ) : activeMemberGraphMode === 'batch' ? (
+              (analyticsData?.activeMembersByBatch?.length ?? 0) > 0 ? (
+                <ResponsiveContainer width="100%" height={220}>
+                  <BarChart data={analyticsData?.activeMembersByBatch} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" opacity={0.25} />
+                    <XAxis dataKey="name" fontSize={11} tickLine={false} />
+                    <YAxis allowDecimals={false} fontSize={11} tickLine={false} />
+                    <Tooltip
+                      formatter={(val: any, name: string) => [
+                        val,
+                        name === 'activeMembers' ? 'Active Members' : 'Batch Capacity',
+                      ]}
+                      contentStyle={{
+                        backgroundColor: 'hsl(var(--card))',
+                        borderColor: 'hsl(var(--border))',
+                        borderRadius: '8px',
+                        fontSize: '12px',
+                      }}
+                    />
+                    <Bar dataKey="activeMembers" name="activeMembers" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="capacity" name="capacity" fill="#94a3b8" opacity={0.35} radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="h-[220px] flex flex-col items-center justify-center text-sm text-muted-foreground">
+                  <p>No active batch data available</p>
+                </div>
+              )
+            ) : (
+              <ResponsiveContainer width="100%" height={220}>
+                <AreaChart data={analyticsData?.dailyTrend ?? []} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="activeMembersGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.4} />
+                      <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" opacity={0.25} />
+                  <XAxis dataKey="date" fontSize={11} tickLine={false} />
+                  <YAxis allowDecimals={false} fontSize={11} tickLine={false} />
+                  <Tooltip
+                    formatter={(val: any) => [val, 'New / Active Members']}
+                    contentStyle={{
+                      backgroundColor: 'hsl(var(--card))',
+                      borderColor: 'hsl(var(--border))',
+                      borderRadius: '8px',
+                      fontSize: '12px',
+                    }}
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="activeMembers"
+                    name="Members"
+                    stroke="hsl(var(--primary))"
+                    fillOpacity={1}
+                    fill="url(#activeMembersGrad)"
+                    strokeWidth={2}
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Pending Payments Graph */}
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <div>
+              <CardTitle className="text-base font-semibold flex items-center gap-2">
+                <Wallet className="h-4 w-4 text-amber-500" /> Pending Payments
+              </CardTitle>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Outstanding dues timeline & volume (Last 14 days)
+              </p>
+            </div>
+            <Badge variant="outline" className="font-mono text-xs text-amber-600 border-amber-300">
+              ₹{Number(analyticsData?.totalPendingAmount ?? 0).toLocaleString('en-IN')} Due ({analyticsData?.totalPendingCount ?? stats?.pendingPayments ?? 0})
+            </Badge>
+          </CardHeader>
+          <CardContent className="pt-2">
+            {analyticsLoading ? (
+              <div className="h-[220px] flex items-center justify-center text-sm text-muted-foreground">
+                Loading payment metrics...
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height={220}>
+                <BarChart data={analyticsData?.dailyTrend ?? []} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" opacity={0.25} />
+                  <XAxis dataKey="date" fontSize={11} tickLine={false} />
+                  <YAxis
+                    yAxisId="amount"
+                    orientation="left"
+                    fontSize={11}
+                    tickLine={false}
+                    tickFormatter={(val) => `₹${val}`}
+                  />
+                  <YAxis
+                    yAxisId="count"
+                    orientation="right"
+                    allowDecimals={false}
+                    fontSize={11}
+                    tickLine={false}
+                  />
+                  <Tooltip
+                    formatter={(val: any, name: string) => [
+                      name === 'pendingAmount' ? `₹${Number(val).toLocaleString('en-IN')}` : val,
+                      name === 'pendingAmount' ? 'Pending Amount' : 'Pending Transactions',
+                    ]}
+                    contentStyle={{
+                      backgroundColor: 'hsl(var(--card))',
+                      borderColor: 'hsl(var(--border))',
+                      borderRadius: '8px',
+                      fontSize: '12px',
+                    }}
+                  />
+                  <Bar yAxisId="amount" dataKey="pendingAmount" name="pendingAmount" fill="#f59e0b" radius={[4, 4, 0, 0]} />
+                  <Line yAxisId="count" type="monotone" dataKey="pendingCount" name="pendingCount" stroke="#ef4444" strokeWidth={2} dot={{ r: 3 }} />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </CardContent>
+        </Card>
       </div>
 
       {/* Quick Member Search with Manual Check-in Action */}

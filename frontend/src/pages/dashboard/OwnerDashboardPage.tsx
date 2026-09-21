@@ -240,7 +240,7 @@ export function OwnerDashboardPage() {
         >
           <CardHeader className="pb-2">
             <CardTitle className="text-sm flex items-center justify-between">
-              <span>Inactive</span>
+              <span>Inactive Members</span>
               <span className="text-[11px] font-normal text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity">
                 Click to view →
               </span>
@@ -266,7 +266,7 @@ export function OwnerDashboardPage() {
         >
           <CardHeader className="pb-2">
             <CardTitle className="text-sm flex items-center justify-between">
-              <span>Expired</span>
+              <span>Expired Members</span>
               <span className="text-[11px] font-normal text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity">
                 Click to view →
               </span>

@@ -265,4 +265,105 @@ export class ReceptionService {
   memberAttendanceHistory(memberId: string, gymId: string, month?: number, year?: number) {
     return this.attendance.memberHistory(memberId, gymId, month, year);
   }
+
+  /** Front-desk analytics: Active members distribution/trend and Pending payments trend. */
+  async getAnalytics(gymId: string, batchId?: string, days = 14) {
+    const now = new Date();
+    const since = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
+
+    const batchWhere: any = { gymId, deletedAt: null, status: 'ACTIVE' };
+    if (batchId) batchWhere.id = batchId;
+
+    const [batches, unassignedCount, recentMembers, pendingPayments] = await Promise.all([
+      this.prisma.batch.findMany({
+        where: batchWhere,
+        select: {
+          id: true,
+          name: true,
+          capacity: true,
+          _count: {
+            select: {
+              members: { where: { deletedAt: null, status: 'ACTIVE' } },
+            },
+          },
+        },
+        orderBy: { startTime: 'asc' },
+      }),
+      !batchId
+        ? this.prisma.member.count({
+            where: { gymId, deletedAt: null, status: 'ACTIVE', batchId: null },
+          })
+        : Promise.resolve(0),
+      this.prisma.member.findMany({
+        where: {
+          gymId,
+          deletedAt: null,
+          status: 'ACTIVE',
+          createdAt: { gte: since },
+          ...(batchId ? { batchId } : {}),
+        },
+        select: { createdAt: true },
+        orderBy: { createdAt: 'asc' },
+      }),
+      this.prisma.payment.findMany({
+        where: {
+          gymId,
+          status: 'PENDING',
+          deletedAt: null,
+          ...(batchId ? { member: { batchId } } : {}),
+        },
+        select: { id: true, createdAt: true, total: true },
+        orderBy: { createdAt: 'asc' },
+      }),
+    ]);
+
+    const activeMembersByBatch = batches.map((b) => ({
+      name: b.name,
+      activeMembers: b._count.members,
+      capacity: b.capacity,
+    }));
+
+    if (unassignedCount > 0) {
+      activeMembersByBatch.push({
+        name: 'General / No Batch',
+        activeMembers: unassignedCount,
+        capacity: 0,
+      });
+    }
+
+    // Build day-by-day continuous timeline for graphs
+    const dateMap = new Map<string, { date: string; fullDate: string; activeMembers: number; pendingCount: number; pendingAmount: number }>();
+    for (let i = days - 1; i >= 0; i--) {
+      const d = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
+      const key = d.toISOString().slice(0, 10);
+      const label = d.toLocaleDateString('en-IN', { month: 'short', day: 'numeric' });
+      dateMap.set(key, { date: label, fullDate: key, activeMembers: 0, pendingCount: 0, pendingAmount: 0 });
+    }
+
+    for (const m of recentMembers) {
+      const key = m.createdAt.toISOString().slice(0, 10);
+      const entry = dateMap.get(key);
+      if (entry) {
+        entry.activeMembers += 1;
+      }
+    }
+
+    for (const p of pendingPayments) {
+      const key = p.createdAt.toISOString().slice(0, 10);
+      const entry = dateMap.get(key);
+      if (entry) {
+        entry.pendingCount += 1;
+        entry.pendingAmount += Number(p.total || 0);
+      }
+    }
+
+    const dailyTrend = Array.from(dateMap.values());
+
+    return {
+      activeMembersByBatch,
+      dailyTrend,
+      totalPendingCount: pendingPayments.length,
+      totalPendingAmount: pendingPayments.reduce((acc, p) => acc + Number(p.total || 0), 0),
+    };
+  }
 }

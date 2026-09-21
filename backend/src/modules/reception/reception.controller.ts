@@ -35,6 +35,18 @@ export class ReceptionController {
     return this.service.dashboard(gymId, batchId);
   }
 
+  @Get('analytics')
+  @ApiOperation({ summary: 'Front-desk analytics: active members and pending payment trends' })
+  @ApiQuery({ name: 'batchId', required: false, type: String })
+  @ApiQuery({ name: 'days', required: false, type: Number })
+  analytics(
+    @GymId() gymId: string,
+    @Query('batchId') batchId?: string,
+    @Query('days') days?: string,
+  ) {
+    return this.service.getAnalytics(gymId, batchId, days ? Number(days) : 14);
+  }
+
   @Get('batches')
   @ApiOperation({ summary: 'List all active batches for the gym with capacity and enrollment' })
   batches(@GymId() gymId: string) {
