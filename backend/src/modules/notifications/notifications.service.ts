@@ -287,7 +287,7 @@ export class NotificationsService {
       if (member?.userId) {
         targetUserId = member.userId;
       }
-    } else if (notification.variables) {
+    if (!recipient && notification.variables) {
       const vars = notification.variables as Record<string, any>;
       if (notification.channel === 'EMAIL' && vars.directRecipientEmail) {
         recipient = vars.directRecipientEmail;
