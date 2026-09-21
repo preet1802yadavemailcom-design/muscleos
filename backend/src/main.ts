@@ -66,8 +66,27 @@ async function bootstrap() {
   app.use(compression());
   app.use(cookieParser(configService.get('COOKIE_SECRET', 'muscleos_cookie_secret')));
 
+  const allowedOrigins = new Set([
+    'https://edu-mind.app',
+    'https://www.edu-mind.app',
+    'http://localhost:5173',
+    'http://localhost:3000',
+    'http://localhost:4173',
+  ]);
+  const customFrontendUrl = configService.get('FRONTEND_URL') || process.env.FRONTEND_URL;
+  if (customFrontendUrl) {
+    allowedOrigins.add(customFrontendUrl.replace(/\/+$/, ''));
+  }
+
   app.enableCors({
-    origin: configService.get('FRONTEND_URL', 'http://localhost:5173'),
+    origin: (requestOrigin, callback) => {
+      if (!requestOrigin) return callback(null, true);
+      const cleanOrigin = requestOrigin.replace(/\/+$/, '');
+      if (allowedOrigins.has(cleanOrigin) || cleanOrigin.endsWith('.edu-mind.app')) {
+        return callback(null, true);
+      }
+      return callback(null, true);
+    },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: [
