@@ -30,6 +30,13 @@ export class EmailProvider implements OnModuleInit {
       const rawPass = this.config.get('SMTP_PASS');
       const pass = rawPass ? rawPass.replace(/\s+/g, '').trim() : undefined;
 
+      const timeoutOptions = {
+        connectionTimeout: 8000,
+        greetingTimeout: 8000,
+        socketTimeout: 12000,
+        dnsTimeout: 5000,
+      };
+
       if (smtpHost.toLowerCase().includes('gmail')) {
         this.smtpTransporter = nodemailer.createTransport({
           service: 'gmail',
@@ -37,6 +44,7 @@ export class EmailProvider implements OnModuleInit {
           tls: {
             rejectUnauthorized: false,
           },
+          ...timeoutOptions,
         });
         this.logger.log(`Gmail SMTP transporter initialized for ${user}`, 'EmailProvider');
       } else {
@@ -48,6 +56,7 @@ export class EmailProvider implements OnModuleInit {
           tls: {
             rejectUnauthorized: false,
           },
+          ...timeoutOptions,
         });
         this.logger.log(`SMTP transporter initialized (${smtpHost}:${port})`, 'EmailProvider');
       }
@@ -71,7 +80,6 @@ export class EmailProvider implements OnModuleInit {
         });
         if (error) {
           this.logger.error(`Resend send failed: ${error.message}`, undefined, 'EmailProvider');
-          // If Resend failed, fall through to SMTP if available
           if (!this.smtpTransporter) {
             return { success: false, error: error.message };
           }
@@ -90,12 +98,16 @@ export class EmailProvider implements OnModuleInit {
     // 2. Try SMTP if configured
     if (this.smtpTransporter) {
       try {
-        const info = await this.smtpTransporter.sendMail({
+        const sendPromise = this.smtpTransporter.sendMail({
           from: this.from,
           to,
           subject,
           html,
         });
+        const timeoutPromise = new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('SMTP timeout after 12s')), 12000),
+        );
+        const info: any = await Promise.race([sendPromise, timeoutPromise]);
         this.logger.log(`Email sent via SMTP to ${to} (messageId: ${info.messageId})`, 'EmailProvider');
         return { success: true };
       } catch (error: any) {

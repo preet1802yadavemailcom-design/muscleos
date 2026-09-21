@@ -232,7 +232,11 @@ export class NotificationsService {
       },
     });
 
-    await this.dispatch(notification.id);
+    // Dispatch in background so HTTP response is instant and UI never hangs on SMTP sockets
+    this.dispatch(notification.id).catch((err) => {
+      this.logger.error(`Notification dispatch background error: ${err?.message}`, err?.stack, 'NotificationsService');
+    });
+
     return this.findOne(notification.id, gymId);
   }
 
