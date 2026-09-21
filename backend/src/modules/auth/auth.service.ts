@@ -324,8 +324,12 @@ export class AuthService {
     // that was a bug that meant this branch never matched staff accounts
     // (which always have a gymId set), so only fresh Google-only signups
     // Multi-tenant safe Google identity resolution:
-    // If this email exists in multiple gyms, never arbitrarily pick one.
-    const matchingUsers = await this.prisma.user.findMany({ where: { email: profile.email } });
+    const matchingUsers = await this.prisma.user.findMany({
+      where: { email: profile.email },
+      include: { gym: true },
+      orderBy: { createdAt: 'desc' },
+    });
+
     if (matchingUsers.length === 1) {
       user = await this.prisma.user.update({
         where: { id: matchingUsers[0].id },
@@ -334,7 +338,35 @@ export class AuthService {
       });
       return user;
     } else if (matchingUsers.length > 1) {
-      throw new ConflictException('Multiple gym accounts found for this email. Please log in with your email and password to link your Google account.');
+      // Multi-account resolution for Google OAuth:
+      // 1. Prefer ACTIVE accounts
+      // 2. Role priority: SUPER_ADMIN > GYM_OWNER > RECEPTIONIST > TRAINER > MEMBER
+      // 3. Most recently updated / created
+      const roleWeight: Record<string, number> = {
+        SUPER_ADMIN: 5,
+        GYM_OWNER: 4,
+        RECEPTIONIST: 3,
+        TRAINER: 2,
+        MEMBER: 1,
+      };
+
+      const sortedUsers = [...matchingUsers].sort((a, b) => {
+        if (a.status === UserStatus.ACTIVE && b.status !== UserStatus.ACTIVE) return -1;
+        if (b.status === UserStatus.ACTIVE && a.status !== UserStatus.ACTIVE) return 1;
+        const weightA = roleWeight[a.role] ?? 0;
+        const weightB = roleWeight[b.role] ?? 0;
+        if (weightA !== weightB) return weightB - weightA;
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      });
+
+      const chosenUser = sortedUsers[0];
+      user = await this.prisma.user.update({
+        where: { id: chosenUser.id },
+        data: { googleId: profile.googleId, emailVerified: true },
+        include: { gym: true },
+      });
+      this.logger.log(`Google account linked to primary account: ${chosenUser.email} (${chosenUser.role})`, 'AuthService');
+      return user;
     }
 
     // No User account yet — genuinely new person, no gym/member context yet — create the account
