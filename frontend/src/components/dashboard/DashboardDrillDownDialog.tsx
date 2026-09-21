@@ -29,7 +29,8 @@ export type DashboardDrillMetric =
   | 'REVENUE_TODAY'
   | 'REVENUE_MONTH'
   | 'INACTIVE_MEMBERS'
-  | 'EXPIRED_MEMBERS';
+  | 'EXPIRED_MEMBERS'
+  | 'PENDING_PAYMENTS';
 
 interface DashboardDrillDownDialogProps {
   open: boolean;
@@ -115,6 +116,13 @@ const METRIC_CONFIGS: Record<DashboardDrillMetric, MetricConfig> = {
     icon: Users,
     viewAllRoute: '/members?status=EXPIRED',
     viewAllLabel: 'View in Members',
+  },
+  PENDING_PAYMENTS: {
+    title: 'Pending Payments',
+    description: 'Payments awaiting settlement or confirmation',
+    icon: DollarSign,
+    viewAllRoute: '/payments?status=PENDING',
+    viewAllLabel: 'View in Payments',
   },
 };
 
@@ -227,6 +235,9 @@ export function DashboardDrillDownDialog({
     } else if (metric === 'REVENUE_TODAY' || metric === 'REVENUE_MONTH') {
       onOpenChange(false);
       navigate('/payments');
+    } else if (metric === 'PENDING_PAYMENTS') {
+      onOpenChange(false);
+      navigate('/payments?status=PENDING');
     }
   };
 
@@ -526,8 +537,10 @@ export function DashboardDrillDownDialog({
                         <span className="text-muted-foreground">Ad-hoc / Guest</span>
                       )}
                     </td>
-                    <td className="p-3 font-bold text-green-600">
-                      ₹{Number(row.amount || 0).toLocaleString('en-IN')}
+                    <td className="p-3 font-bold">
+                      <span className={metric === 'PENDING_PAYMENTS' ? 'text-amber-600' : 'text-green-600'}>
+                        ₹{Number(row.total ?? row.amount ?? 0).toLocaleString('en-IN')}
+                      </span>
                     </td>
                     <td className="p-3 text-xs">
                       <Badge variant="outline">
@@ -682,6 +695,7 @@ function isMembershipMetric(metric: DashboardDrillMetric | null): boolean {
 function isRevenueMetric(metric: DashboardDrillMetric | null): boolean {
   return (
     metric === 'REVENUE_TODAY' ||
-    metric === 'REVENUE_MONTH'
+    metric === 'REVENUE_MONTH' ||
+    metric === 'PENDING_PAYMENTS'
   );
 }

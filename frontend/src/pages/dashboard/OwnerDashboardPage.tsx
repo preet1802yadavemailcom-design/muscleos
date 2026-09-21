@@ -202,26 +202,26 @@ export function OwnerDashboardPage() {
         <Card
           role="button"
           tabIndex={0}
-          aria-label="Drill down into Active members"
-          onClick={() => openDrillDown('ACTIVE_MEMBERS')}
+          aria-label="Drill down into Pending Payments"
+          onClick={() => openDrillDown('PENDING_PAYMENTS')}
           onKeyDown={(e) => {
             if (e.key === 'Enter' || e.key === ' ') {
               e.preventDefault();
-              openDrillDown('ACTIVE_MEMBERS');
+              openDrillDown('PENDING_PAYMENTS');
             }
           }}
-          className="cursor-pointer transition-all hover:border-green-500/50 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-500 group"
+          className="cursor-pointer transition-all hover:border-amber-500/50 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 group"
         >
           <CardHeader className="pb-2">
             <CardTitle className="text-sm flex items-center justify-between">
-              <span>Active</span>
+              <span>Pending Payment</span>
               <span className="text-[11px] font-normal text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity">
                 Click to view →
               </span>
             </CardTitle>
           </CardHeader>
-          <CardContent className="text-2xl font-bold text-green-600">
-            {stats?.members.active ?? '—'}
+          <CardContent className="text-2xl font-bold text-amber-600">
+            {stats?.revenue.pendingPayments ?? '—'}
           </CardContent>
         </Card>
 
@@ -236,7 +236,7 @@ export function OwnerDashboardPage() {
               openDrillDown('INACTIVE_MEMBERS');
             }
           }}
-          className="cursor-pointer transition-all hover:border-amber-500/50 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 group"
+          className="cursor-pointer transition-all hover:border-slate-500/50 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-500 group"
         >
           <CardHeader className="pb-2">
             <CardTitle className="text-sm flex items-center justify-between">
@@ -246,7 +246,7 @@ export function OwnerDashboardPage() {
               </span>
             </CardTitle>
           </CardHeader>
-          <CardContent className="text-2xl font-bold text-amber-600">
+          <CardContent className="text-2xl font-bold text-slate-500">
             {stats?.members.inactive ?? '—'}
           </CardContent>
         </Card>

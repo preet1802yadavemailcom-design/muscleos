@@ -604,6 +604,42 @@ export class GymsService {
         break;
       }
 
+      case DashboardDrillMetric.PENDING_PAYMENTS: {
+        title = 'Pending Payments';
+        viewAllUrl = '/payments?status=PENDING';
+        const where: any = {
+          gymId,
+          status: PaymentStatus.PENDING,
+          deletedAt: null,
+        };
+        if (branchId) where.member = { branchId };
+        if (search) {
+          where.OR = [
+            { receiptNumber: { contains: search, mode: 'insensitive' } },
+            { invoiceNumber: { contains: search, mode: 'insensitive' } },
+            { member: { firstName: { contains: search, mode: 'insensitive' } } },
+            { member: { lastName: { contains: search, mode: 'insensitive' } } },
+            { member: { mobile: { contains: search } } },
+          ];
+        }
+        [data, total] = await Promise.all([
+          this.prisma.payment.findMany({
+            where,
+            skip,
+            take: limit,
+            orderBy: { createdAt: query.sortOrder || 'desc' },
+            include: {
+              member: {
+                select: { id: true, firstName: true, lastName: true, memberCode: true, mobile: true },
+              },
+              verifiedBy: { select: { firstName: true, lastName: true } },
+            },
+          }),
+          this.prisma.payment.count({ where }),
+        ]);
+        break;
+      }
+
       default:
         throw new BadRequestException(`Unsupported drilldown metric: ${query.metric}`);
     }

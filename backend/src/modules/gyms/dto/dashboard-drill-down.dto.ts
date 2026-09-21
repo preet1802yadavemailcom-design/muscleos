@@ -16,6 +16,7 @@ export enum DashboardDrillMetric {
   EXPIRED_MEMBERSHIPS = 'expired_memberships',
   REVENUE_TODAY = 'revenue_today',
   REVENUE_MONTH = 'revenue_month',
+  PENDING_PAYMENTS = 'pending_payments',
 }
 
 export class DashboardDrillDownDto {
