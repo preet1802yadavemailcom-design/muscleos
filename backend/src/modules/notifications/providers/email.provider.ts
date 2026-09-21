@@ -16,18 +16,19 @@ export class EmailProvider implements OnModuleInit {
   ) {}
 
   onModuleInit() {
-    const resendApiKey = this.config.get('RESEND_API_KEY');
+    const resendApiKey = this.config.get('RESEND_API_KEY') || this.config.get('app.resendApiKey') || process.env.RESEND_API_KEY;
     if (resendApiKey) {
       this.resendClient = new Resend(resendApiKey);
       this.logger.log('Resend email client initialized', 'EmailProvider');
     }
 
-    const smtpHost = this.config.get('SMTP_HOST');
+    const smtpHost = this.config.get('SMTP_HOST') || this.config.get('app.smtpHost') || process.env.SMTP_HOST;
     if (smtpHost) {
-      const port = Number(this.config.get('SMTP_PORT', 587));
-      const rawUser = this.config.get('SMTP_USER');
+      const rawPort = this.config.get('SMTP_PORT') || this.config.get('app.smtpPort') || process.env.SMTP_PORT;
+      const port = Number(rawPort || 587);
+      const rawUser = this.config.get('SMTP_USER') || this.config.get('app.smtpUser') || process.env.SMTP_USER;
       const user = rawUser ? rawUser.trim() : undefined;
-      const rawPass = this.config.get('SMTP_PASS');
+      const rawPass = this.config.get('SMTP_PASS') || this.config.get('app.smtpPass') || process.env.SMTP_PASS;
       const pass = rawPass ? rawPass.replace(/\s+/g, '').trim() : undefined;
 
       const timeoutOptions = {
