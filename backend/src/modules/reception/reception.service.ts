@@ -37,6 +37,7 @@ export class ReceptionService {
     private readonly members: MembersService,
     private readonly payments: PaymentsService,
     private readonly attendance: AttendanceService,
+    private readonly memberships: MembershipsService,
   ) {}
 
   /** Front-desk snapshot: check-ins today, expiring in 7d, pending payments, active members. */
