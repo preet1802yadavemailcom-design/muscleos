@@ -54,15 +54,21 @@ export class ReceptionController {
   }
 
   @Get('checkins-today')
-  @ApiOperation({ summary: "Drill-down: today's check-ins with batch and search filter" })
+  @ApiOperation({ summary: 'Attendance feed with date period, custom range, batch, and search filters' })
   @ApiQuery({ name: 'batchId', required: false, type: String })
   @ApiQuery({ name: 'search', required: false, type: String })
+  @ApiQuery({ name: 'period', required: false, type: String })
+  @ApiQuery({ name: 'fromDate', required: false, type: String })
+  @ApiQuery({ name: 'toDate', required: false, type: String })
   checkinsToday(
     @GymId() gymId: string,
     @Query('batchId') batchId?: string,
     @Query('search') search?: string,
+    @Query('period') period?: string,
+    @Query('fromDate') fromDate?: string,
+    @Query('toDate') toDate?: string,
   ) {
-    return this.service.getCheckinsToday(gymId, batchId, search);
+    return this.service.getCheckinsToday(gymId, batchId, search, period, fromDate, toDate);
   }
 
   @Get('active-members')

@@ -1,4 +1,13 @@
-import { getGymStartOfDay, getGymEndOfDay, DEFAULT_TIMEZONE } from '@common/utils/timezone.util';
+import {
+  getGymStartOfDay,
+  getGymEndOfDay,
+  getGymStartOfWeek,
+  getGymStartOfMonth,
+  getGymEndOfMonth,
+  getGymStartOfYear,
+  getZonedDateParts,
+  DEFAULT_TIMEZONE,
+} from '@common/utils/timezone.util';
 import { PrismaService } from '@database/prisma.service';
 import { AttendanceService } from '@modules/attendance/attendance.service';
 import { CreateMemberDto } from '@modules/members/dto/create-member.dto';
@@ -28,10 +37,9 @@ export class ReceptionService {
     private readonly members: MembersService,
     private readonly payments: PaymentsService,
     private readonly attendance: AttendanceService,
-    private readonly memberships: MembershipsService,
   ) {}
 
-  /** Front-desk landing snapshot: today's check-ins, expiring memberships, pending payments (with optional batch filter). */
+  /** Front-desk snapshot: check-ins today, expiring in 7d, pending payments, active members. */
   async dashboard(gymId: string, batchId?: string) {
     const tz = await this.attendance.getGymTimezone(gymId);
     const now = new Date();
@@ -94,17 +102,86 @@ export class ReceptionService {
     });
   }
 
-  /** Drill-down: today's check-ins with batch and search filter. */
-  async getCheckinsToday(gymId: string, batchId?: string, search?: string) {
+  /** Drill-down: check-ins with batch, date period, custom range, and search filter. */
+  async getCheckinsToday(
+    gymId: string,
+    batchId?: string,
+    search?: string,
+    period: string = 'today',
+    fromDate?: string,
+    toDate?: string,
+  ) {
     const tz = await this.attendance.getGymTimezone(gymId);
     const now = new Date();
-    const startOfDay = getGymStartOfDay(now, tz);
-    const endOfDay = getGymEndOfDay(now, tz);
+
+    let rangeStart: Date | undefined;
+    let rangeEnd: Date | undefined;
+
+    if (period) {
+      switch (period.toLowerCase()) {
+        case 'today':
+          rangeStart = getGymStartOfDay(now, tz);
+          rangeEnd = getGymEndOfDay(now, tz);
+          break;
+        case 'yesterday': {
+          const yesterday = new Date(now.getTime() - 86400000);
+          rangeStart = getGymStartOfDay(yesterday, tz);
+          rangeEnd = getGymEndOfDay(yesterday, tz);
+          break;
+        }
+        case 'day_before_yesterday':
+        case 'parso': {
+          const dayBefore = new Date(now.getTime() - 2 * 86400000);
+          rangeStart = getGymStartOfDay(dayBefore, tz);
+          rangeEnd = getGymEndOfDay(dayBefore, tz);
+          break;
+        }
+        case 'this_week':
+          rangeStart = getGymStartOfWeek(now, tz);
+          rangeEnd = getGymEndOfDay(now, tz);
+          break;
+        case 'last_week': {
+          const lastWeek = new Date(now.getTime() - 7 * 86400000);
+          rangeStart = getGymStartOfWeek(lastWeek, tz);
+          rangeEnd = new Date(rangeStart.getTime() + 7 * 86400000 - 1);
+          break;
+        }
+        case 'this_month':
+          rangeStart = getGymStartOfMonth(now, tz);
+          rangeEnd = getGymEndOfMonth(now, tz);
+          break;
+        case 'last_month': {
+          const parts = getZonedDateParts(now, tz);
+          const prevMonthDate = new Date(Date.UTC(parts.year, parts.month - 2, 1));
+          rangeStart = getGymStartOfMonth(prevMonthDate, tz);
+          rangeEnd = getGymEndOfMonth(prevMonthDate, tz);
+          break;
+        }
+        case 'this_year':
+          rangeStart = getGymStartOfYear(now, tz);
+          rangeEnd = getGymEndOfDay(now, tz);
+          break;
+        case 'all':
+          break;
+      }
+    }
+
+    if (fromDate) {
+      rangeStart = getGymStartOfDay(new Date(fromDate), tz);
+    }
+    if (toDate) {
+      rangeEnd = getGymEndOfDay(new Date(toDate), tz);
+    }
 
     const where: any = {
       gymId,
-      checkInAt: { gte: startOfDay, lte: endOfDay },
     };
+
+    if (rangeStart || rangeEnd) {
+      where.checkInAt = {};
+      if (rangeStart) where.checkInAt.gte = rangeStart;
+      if (rangeEnd) where.checkInAt.lte = rangeEnd;
+    }
     if (batchId) {
       where.batchId = batchId;
     }

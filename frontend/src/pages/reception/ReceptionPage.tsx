@@ -78,6 +78,9 @@ export function ReceptionPage() {
   const [selectedBatchId, setSelectedBatchId] = useState<string>('ALL');
   const [search, setSearch] = useState('');
   const [drillSearch, setDrillSearch] = useState('');
+  const [checkinPeriod, setCheckinPeriod] = useState<string>('today');
+  const [checkinFromDate, setCheckinFromDate] = useState<string>('');
+  const [checkinToDate, setCheckinToDate] = useState<string>('');
   const [activeMemberGraphMode, setActiveMemberGraphMode] = useState<'batch' | 'trend'>('batch');
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -115,11 +118,21 @@ export function ReceptionPage() {
   });
   const members = unwrapArray(searchResults);
 
-  // Tab 1: Check-ins today
+  // Tab 1: Check-ins feed
+  const checkinsQueryParams: Record<string, any> = {};
+  if (batchParam) checkinsQueryParams.batchId = batchParam;
+  if (drillSearch) checkinsQueryParams.search = drillSearch;
+  if (checkinPeriod === 'custom') {
+    if (checkinFromDate) checkinsQueryParams.fromDate = checkinFromDate;
+    if (checkinToDate) checkinsQueryParams.toDate = checkinToDate;
+  } else if (checkinPeriod) {
+    checkinsQueryParams.period = checkinPeriod;
+  }
+
   const { data: checkinsRes, isLoading: checkinsLoading } = useQuery({
-    queryKey: ['reception-checkins-today', batchParam, drillSearch],
+    queryKey: ['reception-checkins-today', batchParam, drillSearch, checkinPeriod, checkinFromDate, checkinToDate],
     queryFn: () => api.get('/reception/checkins-today', {
-      params: { batchId: batchParam, search: drillSearch || undefined },
+      params: checkinsQueryParams,
     }),
     enabled: activeTab === 'checkins',
     refetchInterval: 15000,
@@ -490,14 +503,81 @@ export function ReceptionPage() {
       {/* Selected Drill-down View */}
       <Card>
         <CardHeader className="pb-4">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-            <CardTitle className="flex items-center gap-2 text-lg">
-              {activeTab === 'checkins' && <><QrCode className="h-5 w-5 text-primary" /> Today's Check-ins & Attendance Feed</>}
+          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+            <CardTitle className="flex items-center gap-2 text-lg flex-wrap">
+              {activeTab === 'checkins' && (
+                <>
+                  <QrCode className="h-5 w-5 text-primary" />
+                  <span>Check-ins & Attendance Feed</span>
+                  <Badge variant="outline" className="text-xs font-normal capitalize ml-1">
+                    {checkinPeriod === 'today' ? 'Today' :
+                     checkinPeriod === 'yesterday' ? 'Yesterday' :
+                     checkinPeriod === 'day_before_yesterday' ? 'Day Before (Parso)' :
+                     checkinPeriod === 'this_week' ? 'This Week' :
+                     checkinPeriod === 'last_week' ? 'Last Week' :
+                     checkinPeriod === 'this_month' ? 'This Month' :
+                     checkinPeriod === 'last_month' ? 'Last Month' :
+                     checkinPeriod === 'this_year' ? 'This Year' :
+                     checkinPeriod === 'all' ? 'All Time' :
+                     'Custom Range'}
+                  </Badge>
+                </>
+              )}
               {activeTab === 'active' && <><Users className="h-5 w-5 text-primary" /> Active Members Roster</>}
               {activeTab === 'expiring' && <><Clock3 className="h-5 w-5 text-amber-600" /> Memberships Expiring in 7 Days</>}
               {activeTab === 'payments' && <><Wallet className="h-5 w-5 text-destructive" /> Outstanding & Pending Payments</>}
             </CardTitle>
-            {(activeTab === 'checkins' || activeTab === 'active') && (
+
+            {activeTab === 'checkins' && (
+              <div className="flex flex-wrap items-center gap-2">
+                <Select value={checkinPeriod} onValueChange={setCheckinPeriod}>
+                  <SelectTrigger className="w-[145px] text-xs h-8">
+                    <SelectValue placeholder="Period" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="today">Today (Aaj)</SelectItem>
+                    <SelectItem value="yesterday">Yesterday (Kal)</SelectItem>
+                    <SelectItem value="day_before_yesterday">Day Before (Parso)</SelectItem>
+                    <SelectItem value="this_week">This Week</SelectItem>
+                    <SelectItem value="last_week">Last Week</SelectItem>
+                    <SelectItem value="this_month">This Month</SelectItem>
+                    <SelectItem value="last_month">Last Month</SelectItem>
+                    <SelectItem value="this_year">This Year</SelectItem>
+                    <SelectItem value="all">All Time</SelectItem>
+                    <SelectItem value="custom">Custom Range</SelectItem>
+                  </SelectContent>
+                </Select>
+
+                {checkinPeriod === 'custom' && (
+                  <div className="flex items-center gap-1.5 bg-muted/40 p-1 rounded-md border">
+                    <Input
+                      type="date"
+                      value={checkinFromDate}
+                      onChange={(e) => setCheckinFromDate(e.target.value)}
+                      className="h-6 text-xs w-[125px] bg-background"
+                      title="From Date"
+                    />
+                    <span className="text-xs text-muted-foreground">to</span>
+                    <Input
+                      type="date"
+                      value={checkinToDate}
+                      onChange={(e) => setCheckinToDate(e.target.value)}
+                      className="h-6 text-xs w-[125px] bg-background"
+                      title="To Date"
+                    />
+                  </div>
+                )}
+
+                <Input
+                  placeholder="Filter by name, phone, code..."
+                  value={drillSearch}
+                  onChange={(e) => setDrillSearch(e.target.value)}
+                  className="w-[180px] sm:w-[200px] text-xs h-8"
+                />
+              </div>
+            )}
+
+            {activeTab === 'active' && (
               <Input
                 placeholder="Filter by name, phone, or code..."
                 value={drillSearch}
@@ -508,12 +588,14 @@ export function ReceptionPage() {
           </div>
         </CardHeader>
         <CardContent>
-          {/* TAB 1: CHECKINS TODAY */}
+          {/* TAB 1: CHECKINS FEED */}
           {activeTab === 'checkins' && (
             checkinsLoading ? (
               <div className="py-12 text-center text-sm text-muted-foreground">Loading attendance records...</div>
             ) : checkins.length === 0 ? (
-              <div className="py-12 text-center text-sm text-muted-foreground">No check-ins found for the selected batch today.</div>
+              <div className="py-12 text-center text-sm text-muted-foreground">
+                No check-ins found for the selected {checkinPeriod === 'today' ? 'batch today' : 'period'}.
+              </div>
             ) : (
               <div className="rounded-md border overflow-x-auto">
                 <table className="w-full text-sm">
@@ -548,10 +630,24 @@ export function ReceptionPage() {
                           </td>
                           <td className="p-3 text-xs text-muted-foreground">{a.branch?.name || 'Main'}</td>
                           <td className="p-3 text-xs font-mono">
-                            {a.checkInAt ? new Date(a.checkInAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'}
+                            {a.checkInAt ? (
+                              <div>
+                                <span>{new Date(a.checkInAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                <span className="block text-[10px] text-muted-foreground">
+                                  {new Date(a.checkInAt).toLocaleDateString([], { day: 'numeric', month: 'short' })}
+                                </span>
+                              </div>
+                            ) : '—'}
                           </td>
                           <td className="p-3 text-xs font-mono">
-                            {a.checkOutAt ? new Date(a.checkOutAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'}
+                            {a.checkOutAt ? (
+                              <div>
+                                <span>{new Date(a.checkOutAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                <span className="block text-[10px] text-muted-foreground">
+                                  {new Date(a.checkOutAt).toLocaleDateString([], { day: 'numeric', month: 'short' })}
+                                </span>
+                              </div>
+                            ) : '—'}
                           </td>
                           <td className="p-3">
                             {a.isAutoClosed ? (
