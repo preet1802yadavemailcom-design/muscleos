@@ -52,6 +52,8 @@ export function PaymentsPage() {
   });
   const [gatewayFilter, setGatewayFilter] = useState('ALL');
   const [dateRangeFilter, setDateRangeFilter] = useState(() => searchParams.get('range') || 'ALL');
+  const [customFromDate, setCustomFromDate] = useState(() => searchParams.get('fromDate') || '');
+  const [customToDate, setCustomToDate] = useState(() => searchParams.get('toDate') || '');
   const [page, setPage] = useState(1);
 
   useEffect(() => {
@@ -60,6 +62,10 @@ export function PaymentsPage() {
     else if (s) setStatusFilter(s);
     const r = searchParams.get('range');
     if (r) setDateRangeFilter(r);
+    const fd = searchParams.get('fromDate');
+    if (fd) setCustomFromDate(fd);
+    const td = searchParams.get('toDate');
+    if (td) setCustomToDate(td);
   }, [searchParams]);
 
   // Search members for new payment
@@ -76,12 +82,15 @@ export function PaymentsPage() {
   if (statusFilter !== 'ALL') queryParams.status = statusFilter;
   if (gatewayFilter !== 'ALL') queryParams.gateway = gatewayFilter;
 
-  if (dateRangeFilter && dateRangeFilter !== 'ALL') {
+  if (dateRangeFilter === 'custom') {
+    if (customFromDate) queryParams.fromDate = customFromDate;
+    if (customToDate) queryParams.toDate = customToDate;
+  } else if (dateRangeFilter && dateRangeFilter !== 'ALL') {
     queryParams.period = dateRangeFilter;
   }
 
   const { data: paymentsRes, isLoading } = useQuery({
-    queryKey: ['payments', tableSearch, statusFilter, gatewayFilter, dateRangeFilter, page],
+    queryKey: ['payments', tableSearch, statusFilter, gatewayFilter, dateRangeFilter, customFromDate, customToDate, page],
     queryFn: () => api.get('/payments', { params: queryParams }),
   });
 
@@ -137,8 +146,7 @@ export function PaymentsPage() {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h2 className="text-3xl font-bold tracking-tight">Payments & Ledger</h2>
-          <p className="text-muted-foreground">Manage financial transactions, member receipts, and invoices</p>
+          <p className="text-sm text-muted-foreground">Manage financial transactions, member receipts, and invoices</p>
         </div>
         <Button onClick={() => { setShowModal(true); setSelectedMember(null); setMemberSearch(''); }}>
           <Plus className="h-4 w-4 mr-2" />
@@ -347,7 +355,7 @@ export function PaymentsPage() {
               </div>
 
               <Select value={dateRangeFilter} onValueChange={(v) => { setDateRangeFilter(v); setPage(1); }}>
-                <SelectTrigger className="w-[125px] h-8 text-xs">
+                <SelectTrigger className="w-[130px] h-8 text-xs">
                   <SelectValue placeholder="Date Range" />
                 </SelectTrigger>
                 <SelectContent>
@@ -359,8 +367,29 @@ export function PaymentsPage() {
                   <SelectItem value="this_month">This Month</SelectItem>
                   <SelectItem value="last_month">Last Month</SelectItem>
                   <SelectItem value="this_year">This Year</SelectItem>
+                  <SelectItem value="custom">Custom Range</SelectItem>
                 </SelectContent>
               </Select>
+
+              {dateRangeFilter === 'custom' && (
+                <div className="flex items-center gap-1.5 bg-muted/30 p-1 rounded-md border">
+                  <Input
+                    type="date"
+                    value={customFromDate}
+                    onChange={(e) => { setCustomFromDate(e.target.value); setPage(1); }}
+                    className="h-7 text-xs w-[130px] bg-background"
+                    title="From Date"
+                  />
+                  <span className="text-xs text-muted-foreground">to</span>
+                  <Input
+                    type="date"
+                    value={customToDate}
+                    onChange={(e) => { setCustomToDate(e.target.value); setPage(1); }}
+                    className="h-7 text-xs w-[130px] bg-background"
+                    title="To Date"
+                  />
+                </div>
+              )}
 
               <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v); setPage(1); }}>
                 <SelectTrigger className="w-[120px] h-8 text-xs">

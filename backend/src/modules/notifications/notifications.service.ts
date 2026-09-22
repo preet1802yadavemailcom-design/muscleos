@@ -59,17 +59,30 @@ export class NotificationsService {
     const page = options.page && options.page > 0 ? options.page : 1;
     const limit = options.limit && options.limit > 0 ? options.limit : 20;
     const skip = (page - 1) * limit;
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
 
     // Find member ID if this user is linked to a Member profile
     const member = await this.prisma.member.findFirst({ where: { userId }, select: { id: true, gymId: true } });
 
-    const userWhereClause = member
-      ? { OR: [{ userId }, { memberId: member.id }] }
-      : { userId };
+    const userWhereClause = {
+      ...(member
+        ? { OR: [{ userId }, { memberId: member.id }] }
+        : { userId }),
+      createdAt: { gte: sevenDaysAgo },
+    };
 
     const [data, total] = await Promise.all([
       this.prisma.notification.findMany({
         where: userWhereClause,
+        include: {
+          gym: {
+            select: {
+              id: true,
+              name: true,
+              slug: true,
+            },
+          },
+        },
         skip,
         take: limit,
         orderBy: { createdAt: 'desc' },
@@ -91,10 +104,15 @@ export class NotificationsService {
   }
 
   async getUnreadCount(userId: string): Promise<{ count: number }> {
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
     const member = await this.prisma.member.findFirst({ where: { userId }, select: { id: true } });
-    const userWhereClause = member
-      ? { OR: [{ userId }, { memberId: member.id }], readAt: null }
-      : { userId, readAt: null };
+    const userWhereClause = {
+      ...(member
+        ? { OR: [{ userId }, { memberId: member.id }] }
+        : { userId }),
+      readAt: null,
+      createdAt: { gte: sevenDaysAgo },
+    };
 
     const count = await this.prisma.notification.count({ where: userWhereClause });
     return { count };
@@ -646,7 +664,9 @@ export class NotificationsService {
     const now = new Date();
     const auditRetentionCutoff = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
 
-    const [refreshTokens, sessions, qrTokens] = await Promise.all([
+    const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+    const [refreshTokens, sessions, qrTokens, oldNotifications] = await Promise.all([
       this.prisma.refreshToken.deleteMany({
         where: { OR: [{ expiresAt: { lt: now } }, { revokedAt: { lt: auditRetentionCutoff } }] },
       }),
@@ -656,10 +676,13 @@ export class NotificationsService {
       this.prisma.branchQrToken.deleteMany({
         where: { isActive: false, revokedAt: { lt: auditRetentionCutoff } },
       }),
+      this.prisma.notification.deleteMany({
+        where: { createdAt: { lt: sevenDaysAgo } },
+      }),
     ]);
 
     this.logger.log(
-      `Cleaned up: ${refreshTokens.count} refresh tokens, ${sessions.count} sessions, ${qrTokens.count} revoked QR tokens`,
+      `Cleaned up: ${refreshTokens.count} refresh tokens, ${sessions.count} sessions, ${qrTokens.count} revoked QR tokens, ${oldNotifications.count} expired notifications (>7d)`,
       'NotificationsService',
     );
   }

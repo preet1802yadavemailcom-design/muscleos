@@ -149,8 +149,7 @@ export function NotificationsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-3xl font-bold tracking-tight">Notifications</h2>
-        <p className="text-muted-foreground">
+        <p className="text-sm text-muted-foreground">
           SMS, Email &amp; Push — expiry alerts, birthdays, payments, batch changes
         </p>
       </div>

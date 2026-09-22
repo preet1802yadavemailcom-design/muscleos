@@ -145,7 +145,6 @@ export function MyProfilePage() {
   return (
     <div className="space-y-6 max-w-2xl">
       <div>
-        <h1 className="text-xl sm:text-2xl font-bold tracking-tight">My Profile</h1>
         <p className="text-sm text-muted-foreground">View and update your personal details.</p>
       </div>
 

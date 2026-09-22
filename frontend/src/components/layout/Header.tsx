@@ -4,9 +4,16 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '@store/auth.store';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { LogOut, User, Bell, Menu, Shield, CheckCheck, Clock, ExternalLink } from 'lucide-react';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog';
+import { LogOut, User, Bell, Menu, Shield, CheckCheck, Clock, ExternalLink, Building2 } from 'lucide-react';
 import { getRouteTitle, updateDocumentTitle } from '@/lib/route-metadata';
-import { notificationsApi } from '@/services/notifications.api';
+import { notificationsApi, UserNotification } from '@/services/notifications.api';
 
 interface HeaderProps {
   onMenuClick: () => void;
@@ -20,6 +27,7 @@ export function Header({ onMenuClick }: HeaderProps) {
   const title = getRouteTitle(location.pathname);
 
   const [notifOpen, setNotifOpen] = useState(false);
+  const [selectedNotif, setSelectedNotif] = useState<UserNotification | null>(null);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const notifRef = useRef<HTMLDivElement>(null);
   const userMenuRef = useRef<HTMLDivElement>(null);
@@ -66,11 +74,43 @@ export function Header({ onMenuClick }: HeaderProps) {
   const markAllMutation = useMutation({
     mutationFn: () => notificationsApi.markAllAsRead(),
     onSuccess: () => {
+      queryClient.setQueryData(['notifications', 'unread-count'], 0);
+      queryClient.setQueryData(['notifications', 'my-recent'], (old: any) => {
+        if (!old?.items) return old;
+        return {
+          ...old,
+          items: old.items.map((it: UserNotification) => ({
+            ...it,
+            readAt: it.readAt || new Date().toISOString(),
+          })),
+        };
+      });
       queryClient.invalidateQueries({ queryKey: ['notifications'] });
     },
   });
 
-  const notifications = notifsData?.items ?? [];
+  const handleItemClick = (item: UserNotification) => {
+    setSelectedNotif(item);
+    setNotifOpen(false);
+    if (!item.readAt) {
+      queryClient.setQueryData(['notifications', 'unread-count'], (prev: number = 1) => Math.max(0, prev - 1));
+      queryClient.setQueryData(['notifications', 'my-recent'], (old: any) => {
+        if (!old?.items) return old;
+        return {
+          ...old,
+          items: old.items.map((it: UserNotification) =>
+            it.id === item.id ? { ...it, readAt: new Date().toISOString() } : it
+          ),
+        };
+      });
+      markReadMutation.mutate(item.id);
+    }
+  };
+
+  const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+  const notifications = (notifsData?.items ?? []).filter(
+    (item: UserNotification) => new Date(item.createdAt).getTime() >= sevenDaysAgo
+  );
 
   return (
     <header className="sticky top-0 z-40 border-b bg-background px-4 sm:px-6 py-3">
@@ -132,25 +172,36 @@ export function Header({ onMenuClick }: HeaderProps) {
                   {!notifsLoading && notifications.length === 0 && (
                     <div className="py-8 text-center text-xs text-muted-foreground">
                       <Bell className="h-6 w-6 mx-auto mb-2 opacity-40" />
-                      No notifications yet
+                      No notifications in the last 7 days
                     </div>
                   )}
                   {notifications.map((item) => (
                     <div
                       key={item.id}
-                      onClick={() => !item.readAt && markReadMutation.mutate(item.id)}
+                      onClick={() => handleItemClick(item)}
                       className={`p-3 text-left transition-colors cursor-pointer hover:bg-muted/50 flex flex-col gap-1 ${
-                        !item.readAt ? 'bg-primary/5' : ''
+                        !item.readAt ? 'bg-primary/5 font-medium' : 'opacity-80'
                       }`}
                     >
                       <div className="flex items-center justify-between gap-2">
-                        <span className="font-medium text-xs truncate">{item.title}</span>
+                        <span className="font-medium text-xs truncate flex items-center gap-1.5">
+                          {!item.readAt && (
+                            <span className="h-2 w-2 rounded-full bg-primary shrink-0" />
+                          )}
+                          {item.title}
+                        </span>
                         <span className="text-[10px] text-muted-foreground flex items-center gap-1 shrink-0">
                           <Clock className="h-3 w-3" />
-                          {new Date(item.createdAt).toLocaleDateString()}
+                          {new Date(item.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
                         </span>
                       </div>
                       <p className="text-xs text-muted-foreground line-clamp-2">{item.content}</p>
+                      <div className="flex items-center justify-between text-[10px] text-muted-foreground mt-0.5">
+                        <span className="truncate">
+                          From: <strong className="font-semibold text-foreground">{item.gym?.name || 'MuscleOS'}</strong>
+                        </span>
+                        <span>{item.channel}</span>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -216,6 +267,54 @@ export function Header({ onMenuClick }: HeaderProps) {
           </div>
         </div>
       </div>
+
+      {/* Notification Details Dialog Modal */}
+      <Dialog open={!!selectedNotif} onOpenChange={(open) => !open && setSelectedNotif(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <div className="flex items-center justify-between gap-2 mr-6">
+              <Badge variant="outline" className="text-[11px] font-mono">
+                {selectedNotif?.channel || 'IN_APP'}
+              </Badge>
+              <span className="text-[11px] text-muted-foreground flex items-center gap-1">
+                <Clock className="h-3.5 w-3.5" />
+                {selectedNotif &&
+                  new Date(selectedNotif.createdAt).toLocaleString('en-IN', {
+                    day: 'numeric',
+                    month: 'short',
+                    year: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  })}
+              </span>
+            </div>
+            <DialogTitle className="text-base font-bold mt-2 leading-snug">
+              {selectedNotif?.title}
+            </DialogTitle>
+            <div className="flex items-center gap-1.5 text-xs text-primary font-medium mt-1">
+              <Building2 className="h-3.5 w-3.5" />
+              <span>
+                Sent by:{' '}
+                <strong className="font-semibold">
+                  {selectedNotif?.gym?.name
+                    ? `${selectedNotif.gym.name} (Gym Management)`
+                    : 'MuscleOS System'}
+                </strong>
+              </span>
+            </div>
+          </DialogHeader>
+
+          <div className="rounded-md border bg-muted/30 p-4 my-2 text-sm leading-relaxed whitespace-pre-wrap">
+            {selectedNotif?.content}
+          </div>
+
+          <DialogFooter className="sm:justify-end">
+            <Button variant="secondary" size="sm" onClick={() => setSelectedNotif(null)}>
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </header>
   );
 }

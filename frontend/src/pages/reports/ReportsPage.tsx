@@ -52,8 +52,7 @@ export function ReportsPage() {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h2 className="text-2xl sm:text-3xl font-bold tracking-tight">Reports</h2>
-          <p className="text-muted-foreground">Generate and download reports</p>
+          <p className="text-sm text-muted-foreground">Generate and download reports</p>
         </div>
         <div className="flex gap-2">
           <select

@@ -113,11 +113,8 @@ export function MembershipsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-3xl font-bold tracking-tight">Memberships</h2>
-          <p className="text-muted-foreground">Renewals, freezes, transfers &amp; plan changes</p>
-        </div>
+      <div>
+        <p className="text-sm text-muted-foreground">Renewals, freezes, transfers &amp; plan changes</p>
       </div>
 
       {transferTarget && (

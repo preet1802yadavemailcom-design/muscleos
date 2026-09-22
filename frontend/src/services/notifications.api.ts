@@ -10,6 +10,11 @@ export interface UserNotification {
   createdAt: string;
   readAt?: string | null;
   status: string;
+  gym?: {
+    id: string;
+    name: string;
+    slug?: string;
+  } | null;
 }
 
 export interface NotificationTemplate {

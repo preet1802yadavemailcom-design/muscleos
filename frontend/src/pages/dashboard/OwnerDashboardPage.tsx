@@ -135,10 +135,9 @@ export function OwnerDashboardPage() {
           </Button>
         </div>
       )}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h2 className="text-3xl font-bold tracking-tight">Gym Overview</h2>
-          <p className="text-muted-foreground">Owner dashboard — your gym at a glance (click any metric to drill down)</p>
+          <p className="text-sm text-muted-foreground">Owner dashboard — your gym at a glance (click any metric to drill down)</p>
         </div>
         <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={() => setQrOpen(true)}>

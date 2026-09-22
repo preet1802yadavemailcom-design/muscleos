@@ -211,10 +211,9 @@ export function MembersPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h2 className="text-3xl font-bold tracking-tight">Members</h2>
-          <p className="text-muted-foreground">Manage your gym members, approvals, and batches</p>
+          <p className="text-sm text-muted-foreground">Manage your gym members, approvals, and batches</p>
         </div>
         <div className="flex gap-2">
           <Button variant="outline" onClick={handleExport} disabled={exporting}>

@@ -82,7 +82,6 @@ export function MyAttendancePage() {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-xl sm:text-2xl font-bold tracking-tight">My Attendance</h1>
           <p className="text-sm text-muted-foreground">Your verified check-in, check-out, and visit history.</p>
         </div>
 

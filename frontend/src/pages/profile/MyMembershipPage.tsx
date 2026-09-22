@@ -1,4 +1,4 @@
-﻿import { useQuery } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { RefreshCcw, CreditCard, Calendar, AlertTriangle } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -52,7 +52,6 @@ export function MyMembershipPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-xl sm:text-2xl font-bold tracking-tight">My Membership</h1>
         <p className="text-sm text-muted-foreground">Your current plan and renewal history.</p>
       </div>
 
