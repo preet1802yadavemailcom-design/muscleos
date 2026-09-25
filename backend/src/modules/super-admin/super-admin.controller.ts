@@ -9,7 +9,7 @@ import { UserRole } from '@prisma/client';
 
 import {
   QueryGymsDto, AnalyticsQueryDto, RejectGymDto, SuspendGymDto, CreateGymPlanDto, UpdateGymPlanDto,
-  CreateAnnouncementDto, UpdateTicketDto, QueryAuditLogsDto,
+  CreateAnnouncementDto, UpdateTicketDto, QueryAuditLogsDto, SuperAdminDrillDownDto,
 } from './dto';
 import { SuperAdminService } from './super-admin.service';
 
@@ -34,6 +34,12 @@ export class SuperAdminController {
   @ApiQuery({ name: 'days', required: false, type: Number, description: 'Lookback window in days (1–365, default 30)' })
   async analytics(@Query() query: AnalyticsQueryDto) {
     return this.service.analytics(query.days ?? 30);
+  }
+
+  @Get('dashboard/drill-down')
+  @ApiOperation({ summary: 'Drill-down details for KPI cards (gyms, members, revenue, trainers, tickets)' })
+  async drillDown(@Query() query: SuperAdminDrillDownDto) {
+    return this.service.dashboardDrillDown(query);
   }
 
   // ---- Gym management ----

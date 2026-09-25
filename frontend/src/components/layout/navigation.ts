@@ -14,7 +14,6 @@ export interface NavItem {
 export const navigation: NavItem[] = [
   { name: 'Dashboard', href: '/', icon: LayoutDashboard },
   { name: 'Reception', href: '/reception', icon: UserCog, roles: ['GYM_OWNER', 'RECEPTIONIST'] },
-  { name: 'Platform', href: '/super-admin', icon: Building2, roles: ['SUPER_ADMIN'] },
   { name: 'Organizations', href: '/super-admin/organizations', icon: Building2, roles: ['SUPER_ADMIN'] },
   { name: 'Platform Plans', href: '/super-admin/plans', icon: CreditCard, roles: ['SUPER_ADMIN'] },
   { name: 'Audit Logs', href: '/super-admin/audit-logs', icon: Bell, roles: ['SUPER_ADMIN'] },

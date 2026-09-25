@@ -117,3 +117,44 @@ export class QueryAuditLogsDto {
   @ApiPropertyOptional() @IsOptional() @IsString() action?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() entity?: string;
 }
+
+export enum SuperAdminDrillMetric {
+  TOTAL_GYMS = 'TOTAL_GYMS',
+  TOTAL_MEMBERS = 'TOTAL_MEMBERS',
+  PLATFORM_REVENUE = 'PLATFORM_REVENUE',
+  TOTAL_TRAINERS = 'TOTAL_TRAINERS',
+  PENDING_APPROVALS = 'PENDING_APPROVALS',
+  OPEN_TICKETS = 'OPEN_TICKETS',
+}
+
+export class SuperAdminDrillDownDto {
+  @ApiProperty({ enum: SuperAdminDrillMetric })
+  @IsEnum(SuperAdminDrillMetric)
+  metric: SuperAdminDrillMetric;
+
+  @ApiPropertyOptional({ default: 1 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  page?: number = 1;
+
+  @ApiPropertyOptional({ default: 20 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  limit?: number = 20;
+
+  @ApiPropertyOptional({ description: 'Search query' })
+  @IsOptional()
+  @IsString()
+  search?: string;
+
+  @ApiPropertyOptional({ description: 'Filter by status' })
+  @IsOptional()
+  @IsString()
+  status?: string;
+}
+

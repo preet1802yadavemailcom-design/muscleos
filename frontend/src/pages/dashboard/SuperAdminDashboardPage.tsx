@@ -15,6 +15,10 @@ import {
   Line,
 } from 'recharts';
 import api from '@services/api';
+import {
+  SuperAdminDrillDownDialog,
+  SuperAdminDrillMetric,
+} from '@/components/dashboard/SuperAdminDrillDownDialog';
 
 interface PlatformStats {
   gyms: { total: number; active: number; pending: number; suspended: number; newLast30Days: number };
@@ -34,6 +38,8 @@ export function SuperAdminDashboardPage() {
   const [attendanceTrend, setAttendanceTrend] = useState<TrendPoint[]>([]);
   const [openTickets, setOpenTickets] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
+  const [drillDownOpen, setDrillDownOpen] = useState(false);
+  const [selectedMetric, setSelectedMetric] = useState<SuperAdminDrillMetric | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -82,17 +88,48 @@ export function SuperAdminDashboardPage() {
     document.body.removeChild(link);
   };
 
+  const handleCardClick = (metric: SuperAdminDrillMetric) => {
+    setSelectedMetric(metric);
+    setDrillDownOpen(true);
+  };
+
   const cards = [
-    { name: 'Total Gyms', value: stats?.gyms.total ?? '—', icon: Building2 },
-    { name: 'Total Members', value: stats?.members.total ?? '—', icon: Users },
+    {
+      name: 'Total Gyms',
+      value: stats?.gyms.total ?? '—',
+      icon: Building2,
+      metric: 'TOTAL_GYMS' as SuperAdminDrillMetric,
+    },
+    {
+      name: 'Total Members',
+      value: stats?.members.total ?? '—',
+      icon: Users,
+      metric: 'TOTAL_MEMBERS' as SuperAdminDrillMetric,
+    },
     {
       name: 'Platform Revenue',
       value: stats ? `₹${stats.revenue.total.toLocaleString('en-IN')}` : '—',
       icon: DollarSign,
+      metric: 'PLATFORM_REVENUE' as SuperAdminDrillMetric,
     },
-    { name: 'Total Trainers', value: stats?.trainers.total ?? '—', icon: UserCog },
-    { name: 'Pending Approvals', value: stats?.gyms.pending ?? '—', icon: Bell },
-    { name: 'Open Tickets', value: openTickets ?? '—', icon: LifeBuoy },
+    {
+      name: 'Total Trainers',
+      value: stats?.trainers.total ?? '—',
+      icon: UserCog,
+      metric: 'TOTAL_TRAINERS' as SuperAdminDrillMetric,
+    },
+    {
+      name: 'Pending Approvals',
+      value: stats?.gyms.pending ?? '—',
+      icon: Bell,
+      metric: 'PENDING_APPROVALS' as SuperAdminDrillMetric,
+    },
+    {
+      name: 'Open Tickets',
+      value: openTickets ?? '—',
+      icon: LifeBuoy,
+      metric: 'OPEN_TICKETS' as SuperAdminDrillMetric,
+    },
   ];
 
   return (
@@ -118,16 +155,30 @@ export function SuperAdminDashboardPage() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: index * 0.08 }}
           >
-            <Card>
+            <Card
+              className="cursor-pointer transition-all duration-200 hover:border-primary/60 hover:shadow-md active:scale-[0.99] group select-none"
+              onClick={() => handleCardClick(card.metric)}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  handleCardClick(card.metric);
+                }
+              }}
+            >
               <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">
+                <CardTitle className="text-sm font-medium text-muted-foreground group-hover:text-foreground transition-colors">
                   {card.name}
                 </CardTitle>
-                <card.icon className="h-4 w-4 text-muted-foreground" />
+                <card.icon className="h-4 w-4 text-muted-foreground group-hover:text-primary transition-colors" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">
-                  {loading ? '...' : card.value}
+                <div className="text-2xl font-bold flex items-center justify-between">
+                  <span>{loading ? '...' : card.value}</span>
+                  <span className="text-xs font-normal text-primary opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
+                    Details &rarr;
+                  </span>
                 </div>
               </CardContent>
             </Card>
@@ -170,6 +221,12 @@ export function SuperAdminDashboardPage() {
           </CardContent>
         </Card>
       </div>
+
+      <SuperAdminDrillDownDialog
+        open={drillDownOpen}
+        onOpenChange={setDrillDownOpen}
+        metric={selectedMetric}
+      />
     </div>
   );
 }

@@ -139,14 +139,7 @@ function App() {
       >
         <Route index element={<RoleAwareDashboard />} />
 
-        <Route
-          path="super-admin"
-          element={
-            <RoleRoute allowedRoles={[ROLES.SUPER_ADMIN]}>
-              <SuperAdminDashboardPage />
-            </RoleRoute>
-          }
-        />
+        <Route path="super-admin" element={<Navigate to="/" replace />} />
         <Route
           path="super-admin/organizations"
           element={

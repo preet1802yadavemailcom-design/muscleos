@@ -1,12 +1,12 @@
 import { PrismaService } from '@database/prisma.service';
 import { RedisService } from '@database/redis.service';
 import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
-import { GymStatus, NotificationChannel, NotificationType, NotificationStatus, PaymentStatus, UserRole, Prisma } from '@prisma/client';
+import { GymStatus, NotificationChannel, NotificationType, NotificationStatus, PaymentStatus, UserRole, Prisma, SupportTicketStatus } from '@prisma/client';
 import { AuditService } from '@shared/services/audit.service';
 
 import {
   QueryGymsDto, RejectGymDto, SuspendGymDto, CreateGymPlanDto, UpdateGymPlanDto,
-  CreateAnnouncementDto, UpdateTicketDto, QueryAuditLogsDto,
+  CreateAnnouncementDto, UpdateTicketDto, QueryAuditLogsDto, SuperAdminDrillDownDto, SuperAdminDrillMetric,
 } from './dto';
 
 
@@ -106,6 +106,211 @@ export class SuperAdminService {
     return Array.from(map.entries())
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([date, value]) => ({ date, value }));
+  }
+
+  /**
+   * Drill-down endpoint for Super Admin KPI cards.
+   * Returns paginated details for: Total Gyms, Pending Approvals, Total Members,
+   * Total Trainers, Platform Revenue, and Open Tickets.
+   */
+  async dashboardDrillDown(query: SuperAdminDrillDownDto) {
+    const page = Math.max(1, query.page ?? 1);
+    const limit = Math.min(100, Math.max(1, query.limit ?? 20));
+    const skip = (page - 1) * limit;
+    const search = query.search?.trim();
+
+    let data: any[] = [];
+    let total = 0;
+    let title = 'Platform Details';
+
+    switch (query.metric) {
+      case SuperAdminDrillMetric.TOTAL_GYMS: {
+        title = 'Registered Gyms';
+        const where: Prisma.GymWhereInput = { deletedAt: null };
+        if (query.status) where.status = query.status as GymStatus;
+        if (search) {
+          where.OR = [
+            { name: { contains: search, mode: 'insensitive' } },
+            { email: { contains: search, mode: 'insensitive' } },
+            { city: { contains: search, mode: 'insensitive' } },
+            { phone: { contains: search } },
+          ];
+        }
+        [data, total] = await Promise.all([
+          this.prisma.gym.findMany({
+            where,
+            skip,
+            take: limit,
+            orderBy: { createdAt: 'desc' },
+            include: {
+              _count: { select: { members: true, users: true, batches: true } },
+              users: {
+                where: { role: UserRole.GYM_OWNER },
+                select: { id: true, firstName: true, lastName: true, email: true, phone: true },
+                take: 1,
+              },
+            },
+          }),
+          this.prisma.gym.count({ where }),
+        ]);
+        break;
+      }
+
+      case SuperAdminDrillMetric.PENDING_APPROVALS: {
+        title = 'Pending Gym Approvals';
+        const where: Prisma.GymWhereInput = { deletedAt: null, status: GymStatus.PENDING };
+        if (search) {
+          where.OR = [
+            { name: { contains: search, mode: 'insensitive' } },
+            { email: { contains: search, mode: 'insensitive' } },
+            { city: { contains: search, mode: 'insensitive' } },
+            { phone: { contains: search } },
+          ];
+        }
+        [data, total] = await Promise.all([
+          this.prisma.gym.findMany({
+            where,
+            skip,
+            take: limit,
+            orderBy: { createdAt: 'desc' },
+            include: {
+              _count: { select: { members: true, users: true, batches: true } },
+              users: {
+                where: { role: UserRole.GYM_OWNER },
+                select: { id: true, firstName: true, lastName: true, email: true, phone: true },
+                take: 1,
+              },
+            },
+          }),
+          this.prisma.gym.count({ where }),
+        ]);
+        break;
+      }
+
+      case SuperAdminDrillMetric.TOTAL_MEMBERS: {
+        title = 'Platform Members';
+        const where: Prisma.MemberWhereInput = { deletedAt: null };
+        if (search) {
+          where.OR = [
+            { firstName: { contains: search, mode: 'insensitive' } },
+            { lastName: { contains: search, mode: 'insensitive' } },
+            { email: { contains: search, mode: 'insensitive' } },
+            { mobile: { contains: search } },
+            { memberCode: { contains: search, mode: 'insensitive' } },
+          ];
+        }
+        [data, total] = await Promise.all([
+          this.prisma.member.findMany({
+            where,
+            skip,
+            take: limit,
+            orderBy: { createdAt: 'desc' },
+            include: {
+              gym: { select: { id: true, name: true, city: true } },
+            },
+          }),
+          this.prisma.member.count({ where }),
+        ]);
+        break;
+      }
+
+      case SuperAdminDrillMetric.TOTAL_TRAINERS: {
+        title = 'Platform Trainers';
+        const where: Prisma.UserWhereInput = { role: UserRole.TRAINER };
+        if (search) {
+          where.OR = [
+            { firstName: { contains: search, mode: 'insensitive' } },
+            { lastName: { contains: search, mode: 'insensitive' } },
+            { email: { contains: search, mode: 'insensitive' } },
+            { phone: { contains: search } },
+          ];
+        }
+        [data, total] = await Promise.all([
+          this.prisma.user.findMany({
+            where,
+            skip,
+            take: limit,
+            orderBy: { createdAt: 'desc' },
+            include: {
+              gym: { select: { id: true, name: true, city: true } },
+            },
+          }),
+          this.prisma.user.count({ where }),
+        ]);
+        break;
+      }
+
+      case SuperAdminDrillMetric.PLATFORM_REVENUE: {
+        title = 'Platform Payments & Revenue';
+        const where: Prisma.PaymentWhereInput = { deletedAt: null };
+        if (query.status) {
+          where.status = query.status as PaymentStatus;
+        } else {
+          where.status = PaymentStatus.COMPLETED;
+        }
+        if (search) {
+          where.OR = [
+            { invoiceNumber: { contains: search, mode: 'insensitive' } },
+            { receiptNumber: { contains: search, mode: 'insensitive' } },
+            { gym: { name: { contains: search, mode: 'insensitive' } } },
+            { member: { firstName: { contains: search, mode: 'insensitive' } } },
+            { member: { lastName: { contains: search, mode: 'insensitive' } } },
+          ];
+        }
+        [data, total] = await Promise.all([
+          this.prisma.payment.findMany({
+            where,
+            skip,
+            take: limit,
+            orderBy: { createdAt: 'desc' },
+            include: {
+              gym: { select: { id: true, name: true } },
+              member: { select: { id: true, firstName: true, lastName: true, mobile: true } },
+            },
+          }),
+          this.prisma.payment.count({ where }),
+        ]);
+        break;
+      }
+
+      case SuperAdminDrillMetric.OPEN_TICKETS: {
+        title = 'Open Support Tickets';
+        const where: Prisma.SupportTicketWhereInput = { status: SupportTicketStatus.OPEN };
+        if (search) {
+          where.OR = [
+            { ticketNumber: { contains: search, mode: 'insensitive' } },
+            { subject: { contains: search, mode: 'insensitive' } },
+            { gym: { name: { contains: search, mode: 'insensitive' } } },
+          ];
+        }
+        [data, total] = await Promise.all([
+          this.prisma.supportTicket.findMany({
+            where,
+            skip,
+            take: limit,
+            orderBy: [{ priority: 'desc' }, { createdAt: 'desc' }],
+            include: {
+              gym: { select: { id: true, name: true } },
+              user: { select: { id: true, firstName: true, lastName: true, email: true } },
+            },
+          }),
+          this.prisma.supportTicket.count({ where }),
+        ]);
+        break;
+      }
+    }
+
+    return {
+      metric: query.metric,
+      title,
+      data,
+      meta: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
   }
 
   // ---------- Gym Owner / Gym lifecycle management ----------
