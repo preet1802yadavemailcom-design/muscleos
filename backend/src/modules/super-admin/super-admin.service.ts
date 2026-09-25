@@ -403,7 +403,7 @@ export class SuperAdminService {
   }
 
   async getGym(id: string) {
-    const gym = await this.prisma.gym.findFirst({
+    const gym: any = await this.prisma.gym.findFirst({
       where: { id, deletedAt: null },
       include: {
         users: {
@@ -434,7 +434,7 @@ export class SuperAdminService {
           orderBy: { name: 'asc' },
         },
         branches: {
-          select: { id: true, name: true, address: true, city: true, state: true, phone: true, isDefault: true },
+          select: { id: true, name: true, address: true, city: true, state: true, pincode: true, isActive: true },
         },
         _count: { select: { members: true, users: true, batches: true, payments: true, memberships: true } },
       },
@@ -455,9 +455,12 @@ export class SuperAdminService {
       }),
     ]);
 
-    const owner = gym.users.find((u: any) => u.role === UserRole.GYM_OWNER) || null;
-    const trainers = gym.users.filter((u: any) => u.role === UserRole.TRAINER);
-    const receptionists = gym.users.filter((u: any) => u.role === UserRole.RECEPTIONIST);
+    const users = Array.isArray(gym.users) ? gym.users : [];
+    const count = gym._count || { members: 0, batches: 0, users: 0 };
+
+    const owner = users.find((u: any) => u.role === UserRole.GYM_OWNER) || null;
+    const trainers = users.filter((u: any) => u.role === UserRole.TRAINER);
+    const receptionists = users.filter((u: any) => u.role === UserRole.RECEPTIONIST);
 
     return {
       ...gym,
@@ -465,11 +468,11 @@ export class SuperAdminService {
       trainers,
       receptionists,
       stats: {
-        totalMembers: gym._count.members,
+        totalMembers: count.members ?? 0,
         activeMembers,
-        inactiveMembers: Math.max(0, gym._count.members - activeMembers),
-        totalBatches: gym._count.batches,
-        totalStaff: gym._count.users,
+        inactiveMembers: Math.max(0, (count.members ?? 0) - activeMembers),
+        totalBatches: count.batches ?? 0,
+        totalStaff: count.users ?? 0,
         totalRevenue: Number(revenueAgg._sum.total ?? 0),
         checkInsToday,
       },
