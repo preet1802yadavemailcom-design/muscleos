@@ -487,13 +487,14 @@ export function SuperAdminDrillDownDialog({
                               {row.ticketNumber || row.id.slice(0, 8)}
                             </td>
                             <td className="py-3 px-4 font-medium text-foreground">
-                              {row.subject}
+                              {row.title || row.subject || 'Support Ticket'}
                             </td>
                             <td className="py-3 px-4 text-muted-foreground text-xs">
                               {row.gym?.name || 'Platform'}
                             </td>
                             <td className="py-3 px-4 text-xs text-muted-foreground">
-                              {row.user ? `${row.user.firstName} ${row.user.lastName}` : '—'}
+                              {row.requesterName || (row.user ? `${row.user.firstName} ${row.user.lastName}` : '—')}
+                              {row.requesterEmail && <div className="text-[11px] text-muted-foreground/80">{row.requesterEmail}</div>}
                             </td>
                             <td className="py-3 px-4">
                               <Badge

@@ -279,7 +279,9 @@ export class SuperAdminService {
         if (search) {
           where.OR = [
             { ticketNumber: { contains: search, mode: 'insensitive' } },
-            { subject: { contains: search, mode: 'insensitive' } },
+            { title: { contains: search, mode: 'insensitive' } },
+            { requesterName: { contains: search, mode: 'insensitive' } },
+            { requesterEmail: { contains: search, mode: 'insensitive' } },
             { gym: { name: { contains: search, mode: 'insensitive' } } },
           ];
         }
@@ -291,7 +293,6 @@ export class SuperAdminService {
             orderBy: [{ priority: 'desc' }, { createdAt: 'desc' }],
             include: {
               gym: { select: { id: true, name: true } },
-              user: { select: { id: true, firstName: true, lastName: true, email: true } },
             },
           }),
           this.prisma.supportTicket.count({ where }),
