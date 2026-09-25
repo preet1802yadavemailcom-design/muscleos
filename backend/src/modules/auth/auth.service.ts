@@ -50,12 +50,19 @@ export class AuthService {
   ) {}
 
   async validateUser(identifier: string, password: string, gymId?: string) {
+    const whereClause: any = {
+      OR: [{ email: identifier }, { phone: identifier }],
+      status: UserStatus.ACTIVE,
+    };
+    if (gymId === 'SUPER_ADMIN') {
+      whereClause.role = UserRole.SUPER_ADMIN;
+      whereClause.gymId = null;
+    } else if (gymId) {
+      whereClause.gymId = gymId;
+    }
+
     const user = await this.prisma.user.findFirst({
-      where: {
-        OR: [{ email: identifier }, { phone: identifier }],
-        status: UserStatus.ACTIVE,
-        ...(gymId ? { gymId } : {}),
-      },
+      where: whereClause,
       include: { gym: true },
     });
     if (!user) return null;
@@ -120,20 +127,38 @@ export class AuthService {
       if (matchingUsers.length > 1) {
         return {
           requiresGymSelection: true,
-          gyms: matchingUsers
-            .filter((u: any) => u.gym)
-            .map((u: any) => ({
+          gyms: matchingUsers.map((u: any) => {
+            if (u.role === UserRole.SUPER_ADMIN || !u.gym) {
+              return {
+                id: 'SUPER_ADMIN',
+                name: 'MuscleOS Platform (Super Admin)',
+                logo: null,
+                role: u.role,
+              };
+            }
+            return {
               id: u.gym.id,
               name: u.gym.name,
               logo: u.gym.logo,
               role: u.role,
-            })),
+            };
+          }),
         };
       }
     }
 
+    const userWhere: any = {
+      OR: [{ email: identifier }, { phone: identifier }],
+    };
+    if (dto.gymId === 'SUPER_ADMIN') {
+      userWhere.role = UserRole.SUPER_ADMIN;
+      userWhere.gymId = null;
+    } else if (dto.gymId) {
+      userWhere.gymId = dto.gymId;
+    }
+
     const user = await this.prisma.user.findFirst({
-      where: { OR: [{ email: identifier }, { phone: identifier }], ...(dto.gymId ? { gymId: dto.gymId } : {}) },
+      where: userWhere,
       include: { gym: true },
     });
 

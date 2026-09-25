@@ -19,7 +19,7 @@ export class LoginDto {
 
   @ApiPropertyOptional()
   @IsOptional()
-  @IsUUID()
+  @IsString()
   gymId?: string;
 
   @ApiPropertyOptional({ description: 'Extends refresh token lifetime to 30 days when true' })
