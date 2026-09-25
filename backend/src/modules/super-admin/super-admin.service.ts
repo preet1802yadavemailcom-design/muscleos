@@ -338,6 +338,11 @@ export class SuperAdminService {
         orderBy: { createdAt: 'desc' },
         include: {
           _count: { select: { members: true, users: true, batches: true } },
+          users: {
+            where: { role: UserRole.GYM_OWNER },
+            select: { id: true, firstName: true, lastName: true, email: true, phone: true },
+            take: 1,
+          },
         },
       }),
       this.prisma.gym.count({ where }),
@@ -366,13 +371,28 @@ export class SuperAdminService {
     const gyms = await this.prisma.gym.findMany({
       where,
       orderBy: { createdAt: 'desc' },
-      include: { _count: { select: { members: true, users: true, batches: true } } },
+      include: {
+        _count: { select: { members: true, users: true, batches: true } },
+        users: {
+          where: { role: UserRole.GYM_OWNER },
+          select: { firstName: true, lastName: true, email: true, phone: true },
+          take: 1,
+        },
+      },
     });
 
     return gyms.map((g) => ({
       id: g.id,
       name: g.name,
       email: g.email,
+      phone: g.phone,
+      city: g.city,
+      state: g.state,
+      address: g.address,
+      pincode: g.pincode,
+      ownerName: g.users?.[0] ? `${g.users[0].firstName} ${g.users[0].lastName}` : '—',
+      ownerPhone: g.users?.[0]?.phone || '—',
+      ownerEmail: g.users?.[0]?.email || '—',
       status: g.status,
       planType: g.planType,
       members: g._count.members,
@@ -386,11 +406,74 @@ export class SuperAdminService {
     const gym = await this.prisma.gym.findFirst({
       where: { id, deletedAt: null },
       include: {
-        _count: { select: { members: true, users: true, batches: true, payments: true } },
+        users: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true,
+            phone: true,
+            role: true,
+            status: true,
+            createdAt: true,
+          },
+          orderBy: { createdAt: 'asc' },
+        },
+        batches: {
+          where: { deletedAt: null },
+          select: {
+            id: true,
+            name: true,
+            capacity: true,
+            startTime: true,
+            endTime: true,
+            days: true,
+            status: true,
+            _count: { select: { members: true } },
+          },
+          orderBy: { name: 'asc' },
+        },
+        branches: {
+          select: { id: true, name: true, address: true, city: true, state: true, phone: true, isDefault: true },
+        },
+        _count: { select: { members: true, users: true, batches: true, payments: true, memberships: true } },
       },
     });
     if (!gym) throw new NotFoundException('Gym not found');
-    return gym;
+
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+
+    const [activeMembers, revenueAgg, checkInsToday] = await Promise.all([
+      this.prisma.member.count({ where: { gymId: id, status: 'ACTIVE' as any, deletedAt: null } }),
+      this.prisma.payment.aggregate({
+        where: { gymId: id, status: PaymentStatus.COMPLETED, deletedAt: null },
+        _sum: { total: true },
+      }),
+      this.prisma.attendance.count({
+        where: { gymId: id, checkInAt: { gte: startOfToday } },
+      }),
+    ]);
+
+    const owner = gym.users.find((u: any) => u.role === UserRole.GYM_OWNER) || null;
+    const trainers = gym.users.filter((u: any) => u.role === UserRole.TRAINER);
+    const receptionists = gym.users.filter((u: any) => u.role === UserRole.RECEPTIONIST);
+
+    return {
+      ...gym,
+      owner,
+      trainers,
+      receptionists,
+      stats: {
+        totalMembers: gym._count.members,
+        activeMembers,
+        inactiveMembers: Math.max(0, gym._count.members - activeMembers),
+        totalBatches: gym._count.batches,
+        totalStaff: gym._count.users,
+        totalRevenue: Number(revenueAgg._sum.total ?? 0),
+        checkInsToday,
+      },
+    };
   }
 
   async approveGym(id: string, adminId: string) {

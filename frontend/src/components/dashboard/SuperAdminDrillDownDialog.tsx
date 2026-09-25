@@ -16,6 +16,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import api from '@services/api';
+import { GymDetailsDialog } from '@/components/super-admin/GymDetailsDialog';
 
 export type SuperAdminDrillMetric =
   | 'TOTAL_GYMS'
@@ -89,6 +90,7 @@ export function SuperAdminDrillDownDialog({
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [page, setPage] = useState(1);
+  const [detailedGymId, setDetailedGymId] = useState<string | null>(null);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -135,7 +137,8 @@ export function SuperAdminDrillDownDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <>
+      <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-4xl max-h-[85vh] flex flex-col p-0 gap-0 overflow-hidden">
         {/* Header */}
         <DialogHeader className="p-6 pb-4 border-b bg-card">
@@ -221,6 +224,7 @@ export function SuperAdminDrillDownDialog({
                           <th className="py-3 px-4">Members</th>
                           <th className="py-3 px-4">Status</th>
                           <th className="py-3 px-4">Registered</th>
+                          <th className="py-3 px-4 text-right">Actions</th>
                         </>
                       )}
                       {metric === 'PENDING_APPROVALS' && (
@@ -231,6 +235,7 @@ export function SuperAdminDrillDownDialog({
                           <th className="py-3 px-4">Phone</th>
                           <th className="py-3 px-4">City</th>
                           <th className="py-3 px-4">Requested On</th>
+                          <th className="py-3 px-4 text-right">Actions</th>
                         </>
                       )}
                       {metric === 'TOTAL_MEMBERS' && (
@@ -319,6 +324,16 @@ export function SuperAdminDrillDownDialog({
                             <td className="py-3 px-4 text-xs text-muted-foreground">
                               {new Date(row.createdAt).toLocaleDateString()}
                             </td>
+                            <td className="py-3 px-4 text-right">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-7 text-xs font-medium"
+                                onClick={() => setDetailedGymId(row.id)}
+                              >
+                                View Details
+                              </Button>
+                            </td>
                           </tr>
                         );
                       }
@@ -344,6 +359,16 @@ export function SuperAdminDrillDownDialog({
                             </td>
                             <td className="py-3 px-4 text-xs text-muted-foreground">
                               {new Date(row.createdAt).toLocaleDateString()}
+                            </td>
+                            <td className="py-3 px-4 text-right">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-7 text-xs font-medium"
+                                onClick={() => setDetailedGymId(row.id)}
+                              >
+                                View Details
+                              </Button>
                             </td>
                           </tr>
                         );
@@ -539,5 +564,12 @@ export function SuperAdminDrillDownDialog({
         </div>
       </DialogContent>
     </Dialog>
-  );
+
+    <GymDetailsDialog
+      gymId={detailedGymId}
+      open={!!detailedGymId}
+      onOpenChange={(isOpen) => !isOpen && setDetailedGymId(null)}
+    />
+  </>
+);
 }

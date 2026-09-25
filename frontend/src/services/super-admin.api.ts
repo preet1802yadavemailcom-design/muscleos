@@ -7,17 +7,75 @@ export interface Gym {
   email: string;
   slug: string;
   phone?: string | null;
+  address?: string | null;
+  city?: string | null;
+  state?: string | null;
+  country?: string | null;
+  pincode?: string | null;
+  businessName?: string | null;
+  gstNumber?: string | null;
+  panNumber?: string | null;
+  registrationNumber?: string | null;
   status: 'PENDING' | 'ACTIVE' | 'SUSPENDED' | 'REJECTED';
   planType: string;
+  planExpiry?: string | null;
   createdAt: string;
+  updatedAt?: string;
   rejectionReason?: string | null;
   suspensionReason?: string | null;
+  users?: Array<{
+    id: string;
+    firstName: string;
+    lastName: string;
+    email: string;
+    phone?: string | null;
+    role: string;
+    status: string;
+    createdAt?: string;
+  }>;
+  batches?: Array<{
+    id: string;
+    name: string;
+    capacity: number;
+    startTime?: string | null;
+    endTime?: string | null;
+    days?: string[];
+    status?: string;
+    _count?: { members: number };
+  }>;
   _count?: {
     members: number;
     users: number;
     branches?: number;
     batches?: number;
+    payments?: number;
   };
+  stats?: {
+    totalMembers: number;
+    activeMembers: number;
+    inactiveMembers: number;
+    totalBatches: number;
+    totalStaff: number;
+    totalRevenue: number;
+    checkInsToday: number;
+  };
+  owner?: {
+    id: string;
+    firstName: string;
+    lastName: string;
+    email: string;
+    phone?: string | null;
+    status?: string;
+    createdAt?: string;
+  } | null;
+  trainers?: Array<{
+    id: string;
+    firstName: string;
+    lastName: string;
+    email: string;
+    phone?: string | null;
+    status?: string;
+  }>;
 }
 
 export interface GymPlan {
@@ -85,6 +143,11 @@ export const superAdminApi = {
   async getGyms(params?: { page?: number; limit?: number; search?: string; status?: string; planType?: string }): Promise<PaginatedResult<Gym>> {
     const res = await api.get('/super-admin/gyms', { params });
     return unwrapPaginated<Gym>(res);
+  },
+
+  async getGym(id: string): Promise<Gym> {
+    const res = await api.get(`/super-admin/gyms/${id}`);
+    return unwrapData<Gym>(res);
   },
 
   async approveGym(id: string): Promise<Gym> {
