@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
 import {
-  QrCode, Camera, CameraOff, AlertTriangle, LogIn, LogOut, CheckCircle2,
+  QrCode, AlertTriangle, LogIn, LogOut, CheckCircle2,
   ArrowLeft, ArrowRight, User, RefreshCw, X, Upload, Clock,
 } from 'lucide-react';
+import { CameraQrScanner } from '@/components/common/CameraQrScanner';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -91,85 +92,7 @@ function sessionStorageKey(gymId: string, mobile: string) {
   return `checkin_session_${gymId}_${mobile}`;
 }
 
-/** Reads the QR via camera (BarcodeDetector) when available. */
-function useQrScanner(onDetect: (value: string) => void) {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  const [cameraOn, setCameraOn] = useState(false);
-  const [cameraError, setCameraError] = useState('');
-  const cooldownRef = useRef(false);
 
-  const stopCamera = useCallback(() => {
-    streamRef.current?.getTracks().forEach((t) => t.stop());
-    streamRef.current = null;
-    setCameraOn(false);
-  }, []);
-
-  useEffect(() => stopCamera, [stopCamera]);
-
-  const startCamera = async () => {
-    setCameraError('');
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-      streamRef.current = stream;
-      // Turn the camera "on" first so the <video> element actually mounts in
-      // the DOM (it's conditionally rendered on cameraOn) — only THEN attach
-      // the stream in the effect below. Attaching before the element exists
-      // silently did nothing, which is what caused the black screen even
-      // though QR detection (run against the raw stream track) kept working.
-      setCameraOn(true);
-    } catch {
-      setCameraError('Camera unavailable — paste the QR data below instead.');
-    }
-  };
-
-  // Attach the live stream once the <video> element is actually in the DOM.
-  useEffect(() => {
-    if (!cameraOn || !videoRef.current || !streamRef.current) return;
-    const video = videoRef.current;
-    video.srcObject = streamRef.current;
-    video.play().catch(() => {
-      // Autoplay can be blocked until a user gesture on some mobile browsers;
-      // the "Scan with camera" tap that got us here already counts as one,
-      // but if it still fails, at least don't crash — the loop below will
-      // simply have no frames to read yet.
-    });
-  }, [cameraOn]);
-
-  // Detection loop while the camera is live.
-  useEffect(() => {
-    if (!cameraOn) return;
-    let cancelled = false;
-    let raf = 0;
-    const Ctor: any = (window as any).BarcodeDetector;
-    if (!Ctor) {
-      setCameraError('QR detection is not supported in this browser — paste the QR data below.');
-      stopCamera();
-      return;
-    }
-    const detector = new Ctor({ formats: ['qr_code'] });
-    const tick = async () => {
-      if (cancelled) return;
-      if (videoRef.current && videoRef.current.readyState >= 2) {
-        try {
-          const codes = await detector.detect(videoRef.current);
-          if (codes.length > 0 && !cooldownRef.current) {
-            cooldownRef.current = true;
-            onDetect(codes[0].rawValue);
-            setTimeout(() => { cooldownRef.current = false; }, 2500);
-          }
-        } catch {
-          // transient — keep scanning
-        }
-      }
-      if (!cancelled) raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    return () => { cancelled = true; cancelAnimationFrame(raf); };
-  }, [cameraOn, onDetect, stopCamera]);
-
-  return { videoRef, cameraOn, cameraError, startCamera, stopCamera };
-}
 
 export function CheckInPage() {
   const [searchParams] = useSearchParams();
@@ -214,7 +137,6 @@ export function CheckInPage() {
     handleScanRef.current?.(value);
   }, []);
 
-  const { videoRef, cameraOn, cameraError, startCamera, stopCamera } = useQrScanner(onDetect);
 
   useEffect(() => {
     const urlToken = searchParams.get('token');
@@ -398,7 +320,6 @@ export function CheckInPage() {
       photo: '',
       batchId: '',
     });
-    stopCamera();
   };
 
   // Auto-reset countdown when reaching success step
@@ -488,35 +409,12 @@ export function CheckInPage() {
             {/* ---------- STEP: scan ---------- */}
             {step === 'scan' && (
               <div className="space-y-4">
-                {cameraOn ? (
-                  <video
-                    ref={videoRef}
-                    className="aspect-square w-full rounded-lg border bg-black object-cover"
-                    autoPlay
-                    playsInline
-                    muted
-                  />
-                ) : (
-                  <div className="flex aspect-square flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-muted bg-muted/50 text-muted-foreground">
-                    <QrCode className="h-16 w-16" />
-                    <p className="text-sm">Point your camera at the gym QR</p>
-                  </div>
-                )}
-                {cameraError && (
-                  <div className="flex items-center gap-2 rounded-lg bg-amber-50 p-3 text-sm text-amber-800">
-                    <AlertTriangle className="h-4 w-4 shrink-0" />
-                    {cameraError}
-                  </div>
-                )}
-                <Button
-                  className="w-full"
-                  variant={cameraOn ? 'secondary' : 'default'}
-                  onClick={cameraOn ? stopCamera : startCamera}
-                >
-                  {cameraOn ? <CameraOff className="h-4 w-4 mr-2" /> : <Camera className="h-4 w-4 mr-2" />}
-                  {cameraOn ? 'Stop camera' : 'Scan with camera'}
-                </Button>
-                <div className="flex gap-2">
+                <CameraQrScanner
+                  onScan={onDetect}
+                  className="aspect-square w-full"
+                />
+
+                <div className="flex gap-2 pt-1">
                   <Input
                     placeholder="Or paste QR data…"
                     value={qrInput}

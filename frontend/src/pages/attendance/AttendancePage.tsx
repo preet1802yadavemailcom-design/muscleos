@@ -2,10 +2,11 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  QrCode, XCircle, Camera, CameraOff, LogIn, LogOut,
+  QrCode, XCircle, LogIn, LogOut,
   AlertTriangle, ChevronLeft, ChevronRight, Users,
   UserCheck, Search, Calendar, RotateCcw,
 } from 'lucide-react';
+import { CameraQrScanner } from '@/components/common/CameraQrScanner';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -61,8 +62,6 @@ export function AttendancePage() {
     qrCodeData: string;
     member: { id: string; name: string; memberCode?: string; photo?: string | null };
   } | null>(null);
-  const [cameraOn, setCameraOn] = useState(false);
-  const [cameraError, setCameraError] = useState('');
   const [historyPage, setHistoryPage] = useState(1);
   const [now, setNow] = useState(() => new Date());
 
@@ -116,8 +115,6 @@ export function AttendancePage() {
     return () => clearTimeout(t);
   }, [filterSearch]);
 
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const streamRef = useRef<MediaStream | null>(null);
   const scanCooldownRef = useRef(false);
   // Guards against re-scanning the same QR while the backend's 30s duplicate
   // window is still active — otherwise a kiosk camera would re-read the just-
@@ -127,15 +124,6 @@ export function AttendancePage() {
 
   const queryClient = useQueryClient();
   const { toast } = useToast();
-
-  const stopCamera = useCallback(() => {
-    streamRef.current?.getTracks().forEach((track) => track.stop());
-    streamRef.current = null;
-    setCameraOn(false);
-  }, []);
-
-  // Clean up the camera stream on unmount.
-  useEffect(() => stopCamera, [stopCamera]);
 
 
 
@@ -311,23 +299,6 @@ export function AttendancePage() {
     [scanMutation],
   );
 
-  const startCamera = async () => {
-    setCameraError('');
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment' },
-      });
-      streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        await videoRef.current.play();
-      }
-      setCameraOn(true);
-    } catch {
-      setCameraError('Camera unavailable — paste the QR data below instead.');
-    }
-  };
-
   // Live "elapsed" timer — ticks every second while a check-in result is on screen,
   // and auto-dismisses the result after 15s so the kiosk is ready for the next member.
   useEffect(() => {
@@ -342,38 +313,6 @@ export function AttendancePage() {
       clearTimeout(dismiss);
     };
   }, [scanResult]);
-
-  // Continuous QR detection loop while the camera is live.
-  useEffect(() => {
-    if (!cameraOn) return;
-    let cancelled = false;
-    let raf = 0;
-    const BarcodeDetectorCtor: any = (window as any).BarcodeDetector;
-
-    if (!BarcodeDetectorCtor) {
-      setCameraError('QR detection is not supported in this browser — use manual entry.');
-      stopCamera();
-      return;
-    }
-
-    const detector = new BarcodeDetectorCtor({ formats: ['qr_code'] });
-    const tick = async () => {
-      if (cancelled) return;
-      if (videoRef.current && videoRef.current.readyState >= 2) {
-        try {
-          const codes = await detector.detect(videoRef.current);
-          if (codes.length > 0 && !scanCooldownRef.current) {
-            await handleScan(codes[0].rawValue);
-          }
-        } catch {
-          // Transient detection error — keep scanning.
-        }
-      }
-      if (!cancelled) raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    return () => { cancelled = true; cancelAnimationFrame(raf); };
-  }, [cameraOn, handleScan, stopCamera]);
 
 
 
@@ -771,38 +710,12 @@ export function AttendancePage() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                {cameraOn ? (
-                  <video
-                    ref={videoRef}
-                    className="aspect-square w-full rounded-lg border bg-black object-cover"
-                    playsInline
-                    muted
-                  />
-                ) : (
-                  <div className="aspect-square rounded-lg border-2 border-dashed border-muted flex items-center justify-center bg-muted/50">
-                    <QrCode className="h-16 w-16 text-muted-foreground" />
-                  </div>
-                )}
+                <CameraQrScanner
+                  onScan={(val) => handleScan(val)}
+                  className="aspect-square w-full"
+                />
 
-                <div className="flex gap-2">
-                  <Button
-                    className="flex-1"
-                    variant={cameraOn ? 'secondary' : 'default'}
-                    onClick={cameraOn ? stopCamera : startCamera}
-                  >
-                    {cameraOn ? <CameraOff className="h-4 w-4 mr-2" /> : <Camera className="h-4 w-4 mr-2" />}
-                    {cameraOn ? 'Stop camera' : 'Scan with camera'}
-                  </Button>
-                </div>
-
-                {cameraError && (
-                  <div className="flex items-center gap-2 rounded-lg bg-amber-50 p-3 text-sm text-amber-800">
-                    <AlertTriangle className="h-4 w-4 shrink-0" />
-                    {cameraError}
-                  </div>
-                )}
-
-                <div className="flex gap-2">
+                <div className="flex gap-2 pt-1">
                   <Input
                     placeholder="Or paste QR data..."
                     value={qrData}
